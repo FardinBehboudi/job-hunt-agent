@@ -1,6 +1,6 @@
 # Job Hunt Agent
 
-Automated job hunting pipeline: scrapes LinkedIn + Stepstone → AI scoring → tailored CV/cover letter → auto-applies → reads confirmation emails → handles interview scheduling.
+Automated job hunting pipeline: scrapes LinkedIn → AI scoring → tailored CV/cover letter → auto-applies → reads confirmation emails → handles interview scheduling.
 
 ---
 
@@ -9,7 +9,7 @@ Automated job hunting pipeline: scrapes LinkedIn + Stepstone → AI scoring → 
 ```
 job-hunt-agent/          ← this repo (code only, no personal data)
 ├── main.py              ← daily pipeline orchestrator
-├── scraper.py           ← Apify LinkedIn + Stepstone
+├── scraper.py           ← Apify LinkedIn scraper
 ├── matcher.py           ← Claude AI scoring
 ├── dedup.py             ← applied_jobs_log.json read/write
 ├── tailor.py            ← tailored resume + cover letter
@@ -57,6 +57,9 @@ HOTMAIL_PASSWORD=...
 **Anthropic API key** — console.anthropic.com
 
 **Apify API token** — apify.com → Settings → Integrations
+
+The LinkedIn actor ID is pre-filled in `.env.example`: `harvestapi/linkedin-job-search`.
+Override `APIFY_LINKEDIN_ACTOR` in `.env` if you want to use a different actor.
 
 **Hotmail password** — your normal account password.
 If two-factor authentication is enabled, generate an App Password instead:

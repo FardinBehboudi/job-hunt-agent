@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir \"C:\\\\\\\\Users\\\\\\\\f_beh\\\\\\\\Projects\\\\\\\\claude\\\\\\\\job-hunt-agent\" /A)"
+      "Bash(dir \"C:\\\\\\\\Users\\\\\\\\f_beh\\\\\\\\Projects\\\\\\\\claude\\\\\\\\job-hunt-agent\" /A)",
+      "WebFetch(domain:apify.com)"
     ]
   }
 }

@@ -1,15 +1,15 @@
 """
-scraper.py — fetch jobs from LinkedIn and Stepstone via Apify actors.
+scraper.py — fetch jobs from LinkedIn via the harvestapi/linkedin-job-search Apify actor.
 
 At startup, extract_roles_from_resume() reads the candidate's PDF resume and
 asks Claude to derive up to 6 job-search terms. Those terms drive every Apify
 call, replacing the manual roles list in config.yaml.
 
-Each actor call is filtered to jobs posted in the last 24 hours and capped so
-the total never exceeds _MAX_TOTAL_JOBS across all role/location combinations.
+Each call is filtered to jobs posted in the last 24 hours and the total is
+capped at _MAX_TOTAL_JOBS across all role/location combinations.
 
-Actor IDs are read from env vars APIFY_LINKEDIN_ACTOR / APIFY_STEPSTONE_ACTOR
-so they can be swapped without touching code.
+Actor ID is read from env var APIFY_LINKEDIN_ACTOR so it can be swapped
+without touching code.
 """
 
 import json
@@ -27,8 +27,7 @@ from config import load_config
 load_dotenv()
 log = logging.getLogger(__name__)
 
-_LINKEDIN_ACTOR  = os.getenv("APIFY_LINKEDIN_ACTOR",  "hiormar/linkedin-jobs-scraper")
-_STEPSTONE_ACTOR = os.getenv("APIFY_STEPSTONE_ACTOR", "petrpatek/stepstone-scraper")
+_LINKEDIN_ACTOR  = os.getenv("APIFY_LINKEDIN_ACTOR", "harvestapi/linkedin-job-search")
 _MODEL           = "claude-sonnet-4-6"
 
 _RESULTS_PER_RUN = 25   # per actor call
@@ -110,10 +109,9 @@ def _client() -> ApifyClient:
 def _scrape_linkedin(client: ApifyClient, role: str, location: str) -> list[dict]:
     log.info("LinkedIn scrape: %s @ %s", role, location)
     run = client.actor(_LINKEDIN_ACTOR).call(run_input={
-        "searchQueries": [f"{role} {location}"],
-        "location":      location,
-        "country":       "DE",
-        "publishedAt":   "r86400",   # last 24 hours
+        "searchQueries": [role],
+        "locations":     [location],
+        "postedLimit":   "24h",
         "maxItems":      _RESULTS_PER_RUN,
     })
     items: list[dict] = []
@@ -127,28 +125,6 @@ def _scrape_linkedin(client: ApifyClient, role: str, location: str) -> list[dict
             "source":      "LinkedIn",
         })
     log.info("  → %d LinkedIn results", len(items))
-    return items
-
-
-def _scrape_stepstone(client: ApifyClient, role: str, location: str) -> list[dict]:
-    log.info("Stepstone scrape: %s @ %s", role, location)
-    run = client.actor(_STEPSTONE_ACTOR).call(run_input={
-        "searchQuery":  role,
-        "location":     location,
-        "numberOfDays": 1,           # last 24 hours
-        "maxItems":     _RESULTS_PER_RUN,
-    })
-    items: list[dict] = []
-    for item in client.dataset(run["defaultDatasetId"]).iterate_items():
-        items.append({
-            "title":       item.get("title")       or item.get("jobTitle", ""),
-            "company":     item.get("company")     or item.get("companyName", ""),
-            "location":    item.get("location",    location),
-            "url":         item.get("url")         or item.get("jobUrl", ""),
-            "description": item.get("description") or item.get("jobDescription", ""),
-            "source":      "Stepstone",
-        })
-    log.info("  → %d Stepstone results", len(items))
     return items
 
 
@@ -178,11 +154,6 @@ def run(cfg: dict | None = None) -> list[dict]:
             all_jobs.extend(_scrape_linkedin(client, role, location))
         except Exception as exc:
             log.warning("LinkedIn failed for %s @ %s: %s", role, location, exc)
-
-        try:
-            all_jobs.extend(_scrape_stepstone(client, role, location))
-        except Exception as exc:
-            log.warning("Stepstone failed for %s @ %s: %s", role, location, exc)
 
     jobs = _deduplicate(all_jobs)
     jobs = [j for j in jobs if j.get("url") and j.get("description")]
