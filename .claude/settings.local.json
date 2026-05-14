@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\\\\\\\Users\\\\\\\\f_beh\\\\\\\\Projects\\\\\\\\claude\\\\\\\\job-hunt-agent\" /A)"
+    ]
+  }
+}
