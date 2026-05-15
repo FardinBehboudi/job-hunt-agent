@@ -27,8 +27,8 @@ The web dashboard exposes all of these steps as a wizard UI so you can review an
 | File | Description |
 |------|-------------|
 | `main.py` | Pipeline orchestrator — calls scraper → matcher → dedup → tailor → applier → email_watcher in sequence. Also exposes `run_scrape_only()`, `run_match_only()`, `run_apply_only()` for the dashboard wizard. |
-| `scraper.py` | Fetches jobs from LinkedIn via the Apify actor. Deduplicates within a run, upserts into `seen_jobs`, loads cached jobs within the `posted_limit` window, applies title-relevance pre-filter to save Claude API calls. |
-| `matcher.py` | Reads the uploaded resume PDF, sends each job + resume to Claude for scoring. Caches scores by resume MD5 hash. Filters by German level using substring matching against `skip_german_levels`. |
+| `scraper.py` | Fetches jobs from LinkedIn via the Apify actor. Deduplicates within a run, upserts into `seen_jobs`, loads cached jobs within the `posted_limit` window. Applies a three-tier title pre-filter (safe compounds → skip list → tech keywords) to drop clearly irrelevant titles before Claude is called. |
+| `matcher.py` | Reads the uploaded resume PDF, sends each job + resume to Claude for scoring. Enforces stack-mismatch score caps (Python-primary ≤40, Go/Rust/Ruby/PHP ≤35, frontend ≤30). Caches scores by resume MD5 hash. Filters by German level using substring matching against `skip_german_levels`. |
 | `dedup.py` | Filters matched jobs against the `applications` table to skip already-applied positions. |
 | `tailor.py` | Generates a tailored resume and cover letter per job (currently skipped in the wizard flow — uploaded documents are used directly). |
 | `applier.py` | Playwright automation for LinkedIn Easy Apply. Handles multi-step forms, file uploads, and confirmation. |
@@ -136,15 +136,15 @@ Fetches jobs from LinkedIn for every role × location combination in config. Sho
 
 **Step 2 — Match**
 
-Sends each job to Claude AI for scoring. Shows a live progress counter. When done, shows the matched jobs table with match score, interview chance, and German level badges. Jobs requiring German levels in your `skip_german_levels` list are excluded automatically even if the score filter is set to 0.
+Sends each job to Claude AI for scoring. Shows a live progress counter. When done, shows the matched jobs table (Title | Company | Location | Match % | Interview Chance | German Level | Actions).
 
-Scoring stats appear below the progress bar: *X scored fresh · Y from score cache*.
+Each row has three action buttons directly in the table: **View Job** (opens LinkedIn in a new tab), **Apply**, and **Dismiss**. Click anywhere else on the row to open the detail panel — full description, match summary, and skip reason.
 
-Click any row to open the detail panel — full description, match summary, skip reason, and View/Apply buttons.
+Jobs requiring German levels in your `skip_german_levels` list are excluded automatically regardless of the score slider. Scoring stats appear below the progress bar: *X scored fresh · Y from score cache*.
 
 **Step 3 → Step 4 — Apply**
 
-Select jobs individually or click *Apply All*. Playwright submits LinkedIn Easy Apply. Results are logged to the DB and the Excel tracker is updated.
+Select jobs individually or click *Apply All*. The Step 4 view shows a table (Title | Company | Match % | Actions) with **View Job** and **Apply** visible on every row. Playwright submits LinkedIn Easy Apply. Results are logged to the DB and the Excel tracker is updated.
 
 ---
 
@@ -183,6 +183,43 @@ Match scores in `seen_jobs` are tagged with the MD5 hash of your uploaded resume
 - **Resume changed** → all active jobs (within the time window) are re-scored automatically. Old scores outside the window are left untouched.
 
 The match stats bar shows how many jobs were scored fresh vs. loaded from cache each run.
+
+---
+
+## Filtering Logic
+
+Jobs pass through three independent filter layers before appearing in the matched table.
+
+### 1. Title pre-filter (scraper, free — no API calls)
+
+`is_title_relevant()` in `scraper.py` uses a three-tier check:
+
+1. **Safe compound bypass** — titles containing `backend engineer`, `backend developer`, `software engineer`, `software developer`, `full stack`, or `platform engineer` pass immediately, regardless of any other keywords. This keeps "Java/Python Backend Engineer" while still blocking "Python Developer".
+2. **Skip list** — titles matching any of the following are dropped:
+   - Wrong primary-stack roles: `python developer/engineer`, `golang`, `go developer`, `ruby developer`, `ruby on rails`, `php developer/engineer`, `frontend developer/engineer`, `react/angular/vue developer`, `ios/android/mobile developer/engineer`
+   - Non-tech roles: `marketing`, `sales`, `accountant`, `designer`, `recruiter`, `manager`, `director`, and similar
+3. **Tech keyword pass-through** — any remaining title containing `engineer`, `developer`, `architect`, `java`, `devops`, `cloud`, `data`, `kotlin`, `scala`, etc. passes to Claude.
+
+### 2. Claude AI scoring (matcher)
+
+Claude scores each job 0–100 with stack-mismatch caps enforced by the prompt:
+
+| Primary required stack | Max score |
+|------------------------|-----------|
+| Java / Spring Boot / Microservices / Backend | 100 (no cap) |
+| Python as primary language | 40 |
+| Go, Rust, Ruby, PHP as primary | 35 |
+| React / Angular / Vue (frontend role) | 30 |
+
+Claude also sets `skip_reason` on any score below 50 caused by a stack mismatch.
+
+### 3. Post-scoring filters
+
+Applied after every job is scored (both fresh and cached):
+
+- **German level** — substring match against `skip_german_levels` (e.g. "C1", "fließend", "verhandlungssicher"). Matched jobs get `skip_reason` set and `match_score` forced to 0.
+- **min_match_score** — jobs below the configured threshold are hidden in the UI (adjustable per-run via the slider).
+- **German level hard exclusion** — the UI filter always hides jobs whose `skip_reason` contains "German level", even if the score slider is set to 0.
 
 ---
 

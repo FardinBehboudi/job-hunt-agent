@@ -63,23 +63,46 @@ _scrape_progress: dict = {
 def get_scrape_progress() -> dict:
     return dict(_scrape_progress)
 
+# Titles containing these compounds are kept regardless of other keywords.
+# Rationale: "Java/Python Backend Engineer" lists Python as secondary — still relevant.
+_SAFE_TITLE_COMPOUNDS = [
+    "backend engineer", "backend developer",
+    "software engineer", "software developer",
+    "full stack", "fullstack", "full-stack",
+    "platform engineer",
+]
+
 _SKIP_TITLE_KEYWORDS = [
+    # Wrong primary-stack roles (Java candidate is unlikely to match these)
+    "python developer", "python engineer",
+    "go developer", "golang",
+    "ruby developer", "ruby on rails",
+    "php developer", "php engineer",
+    "frontend developer", "frontend engineer",
+    "react developer", "angular developer", "vue developer",
+    "ios developer", "android developer",
+    "mobile developer", "mobile engineer",
+    # Non-tech roles
     "marketing", "sales", "accountant", "mechanic", "nurse", "driver",
     "designer", "hr ", " hr", "recruiter", "lawyer", "finance", "intern",
     "co-founder", "assistant", "coordinator", "consultant", "analyst",
     "manager", "director", "product owner", "scrum master",
 ]
+
 _TECH_TITLE_KEYWORDS = [
     "engineer", "developer", "architect", "backend", "software", "java",
     "python", "devops", "cloud", "data", "fullstack", "full-stack", "api",
     "platform", "infrastructure", "site reliability", "sre", "ml ",
-    "machine learning", "golang", "kotlin", "scala", "typescript",
+    "machine learning", "kotlin", "scala", "typescript",
 ]
 
 
 def is_title_relevant(job_title: str, search_role: str) -> bool:
     """Fast keyword check — no API calls. Returns False for clearly off-topic titles."""
     title = job_title.lower()
+    # Safe compounds bypass the skip list (e.g. "Python Backend Engineer" → keep)
+    if any(kw in title for kw in _SAFE_TITLE_COMPOUNDS):
+        return True
     if any(kw in title for kw in _SKIP_TITLE_KEYWORDS):
         return False
     if any(kw in title for kw in _TECH_TITLE_KEYWORDS):

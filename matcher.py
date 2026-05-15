@@ -48,6 +48,24 @@ Rules:
 - match_score: how well the candidate's skills/experience match the role requirements
 - german_level_required: the minimum German level stated or implied in the JD; use "none" if not mentioned
 - skip_reason: non-null only if there is a clear hard blocker (e.g. requires citizenship, 10+ years mandatory)
+
+IMPORTANT — technology stack mismatch scoring:
+The candidate's primary stack is Java / Spring Boot / Microservices / Backend.
+Apply these score caps when the job's PRIMARY required language or framework diverges:
+
+- Job requires Python as the PRIMARY language (not just scripting or tooling): score 40 or below.
+- Job requires Go, Rust, Ruby, or PHP as primary language: score 35 or below.
+- Job requires React, Angular, or Vue as the primary skill (frontend role): score 30 or below.
+- Job title contains "Python Developer / Engineer", "Go Developer / Engineer",
+  "Ruby Developer", "PHP Developer", or similar AND the description confirms
+  that language as the core stack: score 40 or below.
+
+Only award 70+ when the primary required stack matches Java / Spring Boot /
+Microservices / Backend / JVM. If the stack is mixed (e.g. Java primary with
+Python scripts), score normally.
+
+Set skip_reason to a short explanation whenever the score is below 50 due to
+a stack mismatch (e.g. "Primary stack is Python; candidate is Java/Spring Boot").
 """
 
 

@@ -1862,6 +1862,7 @@ function renderMatchedTable() {
       <td><span class="badge-de">${esc(j.german_level_required||j.german_level||'—')}</span></td>
       <td class="td-actions" onclick="event.stopPropagation()">
         <div class="man-row-btns">
+          ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="btn-sm" style="text-decoration:none;">View Job</a>` : ''}
           <button class="btn-sm btn-primary" data-url="${esc(j.url||'')}" onclick="applySingle(this.dataset.url)">Apply</button>
           <button class="btn-icon del" title="Dismiss forever" data-url="${esc(j.url||'')}" onclick="dismissJob(this.dataset.url,this.closest('tr'))">&#215;</button>
         </div>
@@ -2012,14 +2013,29 @@ async function renderMatchedJobs() {
 
 function goToApply() {
   setWizardStep(4);
-  document.getElementById('apply-jobs-list').innerHTML = _matchedJobs.map(j => `
-    <div class="job-card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-      <div>
-        <div class="jc-title">${esc(j.title||'?')}</div>
-        <div class="jc-meta">${esc(j.company||'?')} &bull; ${esc(j.location||'?')}</div>
-      </div>
-      <button class="btn-sm btn-primary" data-url="${esc(j.url||'')}" onclick="applySingle(this.dataset.url)">Apply</button>
-    </div>`).join('');
+  const jobs = _matchedFiltered.length ? _matchedFiltered : _matchedJobs;
+  document.getElementById('apply-jobs-list').innerHTML = `
+    <div class="pip-table-wrap" style="max-height:420px;">
+      <table class="pip-table">
+        <thead><tr>
+          <th>Title</th><th>Company</th><th>Match %</th><th>Actions</th>
+        </tr></thead>
+        <tbody>${jobs.map(j => {
+          const sc = parseInt(j.match_score) || 0;
+          return `<tr>
+            <td class="td-title">${esc(j.title||'?')}</td>
+            <td>${esc(j.company||'')}</td>
+            <td>${_scoreBadge(sc)}</td>
+            <td class="td-actions">
+              <div class="man-row-btns">
+                ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="btn-sm" style="text-decoration:none;">View Job</a>` : ''}
+                <button class="btn-sm btn-primary" data-url="${esc(j.url||'')}" onclick="applySingle(this.dataset.url)">Apply</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`;
 }
 
 async function _doApply(body) {
