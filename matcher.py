@@ -9,6 +9,7 @@ the min_match_score threshold (default 70) and the German-level filter.
 import json
 import logging
 import os
+import re
 
 import anthropic
 import pdfplumber
@@ -72,9 +73,22 @@ def _score_job(client: anthropic.Anthropic, job: dict, resume_text: str) -> dict
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = response.content[0].text.strip()
-        return json.loads(raw)
-    except (json.JSONDecodeError, IndexError, anthropic.APIError) as exc:
+        raw = response.content[0].text
+        log.info("Raw Claude response for %s: %s", job.get("title"), raw[:200])
+
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+            raw = raw.strip()
+
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            log.warning("JSON parse failed for %s @ %s — full response: %s",
+                        job.get("title"), job.get("company"), raw)
+            return None
+    except (IndexError, anthropic.APIError) as exc:
         log.warning("Scoring failed for %s @ %s: %s", job.get("title"), job.get("company"), exc)
         return None
 

@@ -8,6 +8,7 @@ Email inbox is polled separately every 2 hours:
     python email_watcher.py   (separate Task Scheduler entry)
 """
 
+import json
 import logging
 import sys
 from pathlib import Path
@@ -134,6 +135,147 @@ def main() -> None:
     except Exception as exc:
         log.exception("Unhandled error: %s", exc)
         sys.exit(1)
+
+
+_UPLOADS_DIR = Path(__file__).parent / "uploads"
+
+
+def _uploads_resume_path() -> "Path | None":
+    for ext in (".pdf", ".docx"):
+        p = _UPLOADS_DIR / f"resume_en{ext}"
+        if p.exists():
+            return p
+    return None
+
+
+def _override_resume(cfg: dict) -> dict:
+    p = _uploads_resume_path()
+    if p:
+        cfg = dict(cfg)
+        cfg["paths"] = dict(cfg["paths"])
+        cfg["paths"]["resume_en"] = p
+    return cfg
+
+
+def run_scrape_only(cfg: dict | None = None) -> list[dict]:
+    """Scrape jobs, insert into DB and save JSON snapshot. Returns job list."""
+    if cfg is None:
+        cfg = load_config()
+    setup_logging(cfg)
+    cfg = _override_resume(cfg)
+
+    import db as _db
+    _db.init_db()
+
+    log.info("=== Scrape-only stage starting ===")
+    jobs = scraper.run(cfg)
+    _UPLOADS_DIR.mkdir(exist_ok=True)
+
+    inserted = _db.insert_scraped_jobs(jobs)
+    log.info("Inserted %d new scraped jobs into DB", inserted)
+
+    out = _UPLOADS_DIR / "scraped_jobs.json"
+    out.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("Scrape-only complete: %d jobs", len(jobs))
+    return jobs
+
+
+def run_match_only(cfg: dict | None = None) -> list[dict]:
+    """Score unmatched scraped jobs, store results in DB, return matched list."""
+    if cfg is None:
+        cfg = load_config()
+    setup_logging(cfg)
+
+    import db as _db
+    _db.init_db()
+
+    db_jobs = _db.get_unmatched_scraped_jobs()
+    if db_jobs:
+        jobs = [
+            {
+                "title":       j["title"],
+                "company":     j["company"],
+                "location":    j["location"],
+                "url":         j["url"],
+                "description": j["description"],
+                "source":      j["source"],
+                "_db_id":      j["id"],
+            }
+            for j in db_jobs
+        ]
+    else:
+        src = _UPLOADS_DIR / "scraped_jobs.json"
+        if not src.exists():
+            raise FileNotFoundError("No scraped jobs found — run scrape first")
+        jobs = json.loads(src.read_text(encoding="utf-8"))
+
+    cfg = _override_resume(cfg)
+    log.info("=== Match-only stage starting: %d jobs ===", len(jobs))
+    matched = matcher.run(jobs, cfg)
+
+    # Persist matched scores to DB
+    db_id_map = {j["url"]: j["_db_id"] for j in jobs if "_db_id" in j}
+    for job in matched:
+        db_id = db_id_map.get(job.get("url", ""))
+        if db_id:
+            _db.insert_matched_job(db_id, {
+                "match_score":           job.get("match_score", 0),
+                "interview_chance":      job.get("interview_chance", "low"),
+                "german_level_required": job.get("german_level_required", "none"),
+                "skip_reason":           job.get("skip_reason"),
+                "match_summary":         job.get("match_summary", ""),
+            })
+
+    out = _UPLOADS_DIR / "matched_jobs.json"
+    out.write_text(json.dumps(matched, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("Match-only complete: %d jobs matched", len(matched))
+    return matched
+
+
+def run_apply_only(cfg: dict | None = None,
+                   job_urls: "list[str] | None" = None) -> list[dict]:
+    """Apply using uploaded resume/cover letter; skip tailoring. Logs to DB."""
+    if cfg is None:
+        cfg = load_config()
+    setup_logging(cfg)
+
+    import db as _db
+    _db.init_db()
+
+    try:
+        jobs = _db.get_matched_jobs_for_apply(cfg)
+    except Exception:
+        src = _UPLOADS_DIR / "matched_jobs.json"
+        if not src.exists():
+            raise FileNotFoundError("No matched jobs — run match first")
+        jobs = json.loads(src.read_text(encoding="utf-8"))
+
+    if job_urls is not None:
+        url_set = set(job_urls)
+        jobs = [j for j in jobs if j.get("url") in url_set]
+
+    archive = _UPLOADS_DIR   # applier looks for resume_en.pdf/docx here
+
+    log.info("=== Apply-only stage starting: %d jobs ===", len(jobs))
+    results: list[dict] = []
+    for job in jobs:
+        log.info("Applying: %s @ %s", job.get("title"), job.get("company"))
+        try:
+            success = applier.apply(job, archive, cfg)
+        except Exception as exc:
+            log.error("Apply error %s @ %s: %s", job.get("title"), job.get("company"), exc)
+            success = False
+        if success:
+            _db.log_application(job, str(archive), "Applied")
+        results.append({
+            "url":     job.get("url", ""),
+            "title":   job.get("title", ""),
+            "company": job.get("company", ""),
+            "success": success,
+        })
+    log.info("Apply-only complete: %d/%d succeeded",
+             sum(r["success"] for r in results), len(results))
+    return results
 
 
 if __name__ == "__main__":
