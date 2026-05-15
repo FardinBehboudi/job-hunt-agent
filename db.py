@@ -609,6 +609,16 @@ def dismiss_job(url: str) -> None:
         db.execute("UPDATE seen_jobs SET dismissed=1 WHERE url=?", (url,))
 
 
+def dismiss_job_by_id(job_id: int) -> None:
+    with _conn() as db:
+        db.execute("UPDATE seen_jobs SET dismissed=1 WHERE id=?", (job_id,))
+
+
+def undismiss_job_by_id(job_id: int) -> None:
+    with _conn() as db:
+        db.execute("UPDATE seen_jobs SET dismissed=0 WHERE id=?", (job_id,))
+
+
 def get_cache_stats() -> dict:
     """Return aggregate counts for the seen_jobs table."""
     with _conn() as db:

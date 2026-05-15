@@ -464,6 +464,8 @@ td { padding: 10px 14px; vertical-align: middle; }
   background:#0d2e1e; color:#34d399; border:1px solid #2d6a4f; white-space:nowrap; }
 .badge-cached { display:inline-block; padding:2px 7px; border-radius:99px; font-size:0.72rem;
   background:#0c2a4a; color:#58a6ff; border:1px solid #1e3a5f; white-space:nowrap; }
+.badge-source { display:inline-block; padding:2px 7px; border-radius:99px; font-size:0.72rem;
+  background:#161b22; color:#8b949e; border:1px solid #30363d; white-space:nowrap; }
 /* Cache stats bar */
 .cache-stats-bar { display:flex; gap:18px; padding:8px 18px; background:#0d1117;
   border-bottom:1px solid #21262d; font-size:0.78rem; color:#64748b; align-items:center; }
@@ -492,7 +494,8 @@ td { padding: 10px 14px; vertical-align: middle; }
 .job-detail-skip { font-size:0.8rem; color:#f87171; background:#450a0a;
   border:1px solid #7f1d1d; border-radius:6px; padding:6px 10px; }
 .job-detail-desc { font-size:0.8rem; color:#8b949e; line-height:1.55;
-  white-space:pre-wrap; word-break:break-word; }
+  white-space:pre-wrap; word-break:break-word;
+  max-height:400px; overflow-y:auto; }
 .job-detail-actions { display:flex; gap:8px; flex-shrink:0; padding:14px 18px;
   border-top:1px solid #21262d; }
 .pip-table tbody tr.clickable { cursor:pointer; }
@@ -828,10 +831,55 @@ td { padding: 10px 14px; vertical-align: middle; }
           <div id="match-msg"     style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
           <div id="match-current" style="margin-top:3px;font-size:0.76rem;color:#94a3b8;"></div>
         </div>
+        <!-- results panel — shown after scoring completes -->
+        <div id="match-results-panel" class="hidden">
+          <!-- completion banner -->
+          <div style="padding:9px 18px;background:#0d1f14;border-bottom:1px solid #21262d;font-size:0.82rem;color:#22c55e;font-weight:600;">
+            &#10003; Matching complete &mdash;
+            <span id="match-above-cnt">0</span> above threshold &middot;
+            <span id="match-below-cnt">0</span> below
+          </div>
+          <!-- threshold editor row -->
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #21262d;background:#161b22;">
+            <label style="font-size:0.82rem;font-weight:600;color:#8b949e;white-space:nowrap;">Min Score Threshold:</label>
+            <input type="range" id="match-threshold-slider" min="0" max="100" value="70"
+                   style="width:120px;accent-color:#3b82f6;cursor:pointer;" oninput="onThresholdSlider()">
+            <input type="number" id="match-threshold-num" min="0" max="100" value="70"
+                   style="width:58px;padding:4px 6px;border:1px solid #30363d;border-radius:6px;font-size:0.84rem;background:#0d1117;color:#e2e8f0;"
+                   oninput="onThresholdNum()">
+            <button class="btn-sm btn-primary" onclick="saveThreshold()">Apply</button>
+            <span id="match-threshold-saved" style="font-size:0.78rem;color:#22c55e;opacity:0;transition:opacity 0.4s;">&#10003; Saved</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:6px 18px 8px;">
+            <span id="match-threshold-hint" style="font-size:0.77rem;color:#64748b;">
+              Showing jobs scored &ge; <span id="match-threshold-hint-val">70</span>
+              &nbsp;(drag to adjust, then Apply)
+            </span>
+            <button class="btn-sm" onclick="openAuditModal()" style="margin-left:4px;">&#128202; Audit</button>
+          </div>
+          <!-- inline results table -->
+          <div style="overflow-x:auto;max-height:420px;overflow-y:auto;">
+            <table class="pip-table" id="match-results-table" style="width:100%;table-layout:fixed;">
+              <thead>
+                <tr>
+                  <th style="width:32%;">Title</th>
+                  <th style="width:18%;">Company</th>
+                  <th style="width:13%;">Location</th>
+                  <th style="width:68px;">Score</th>
+                  <th style="width:78px;">Chance</th>
+                  <th style="width:100px;">Type</th>
+                  <th style="width:90px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="match-results-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- legacy stats bar kept so nothing else breaks -->
         <div id="match-score-stats" class="hidden"
              style="padding:5px 18px;font-size:0.77rem;color:#64748b;border-bottom:1px solid #21262d;background:#161b22;"></div>
         <div class="pip-footer">
-          <button class="btn-primary" id="btn-goto-select" onclick="goToSelect()">Next: Select Jobs &#8594;</button>
+          <button class="btn-primary" id="btn-goto-select" onclick="goToSelect()" disabled>Next: Select Jobs &#8594;</button>
         </div>
       </div>
 
@@ -853,6 +901,7 @@ td { padding: 10px 14px; vertical-align: middle; }
           </select>
           <button class="btn-sm btn-primary" onclick="refilterMatchedJobs()">Re-filter</button>
           <button class="btn-sm" onclick="openAuditModal()" style="margin-left:4px;">&#128202; Audit</button>
+          <button id="btn-show-dismissed" class="btn-sm" onclick="toggleShowDismissed()" style="margin-left:8px;">&#128065; Show dismissed (0)</button>
           <span id="match-filter-count" style="font-size:0.8rem;color:#64748b;margin-left:6px;"></span>
         </div>
         <div id="match-empty" style="padding:18px;color:#64748b;font-size:0.84rem;">
@@ -870,7 +919,7 @@ td { padding: 10px 14px; vertical-align: middle; }
                 <tr>
                   <th class="cb-col"><input type="checkbox" id="matched-select-all" onchange="toggleSelectAll(this)"></th>
                   <th>Title</th><th>Company</th><th>Location</th>
-                  <th>Match %</th><th>Chance</th><th>German</th><th>Actions</th>
+                  <th>Match %</th><th>Chance</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody id="matched-tbody"></tbody>
@@ -1344,8 +1393,20 @@ window.addEventListener('hashchange', () => {
   const key = 'step' + n;
   if (n === 1 || _stepAvail[key]) {
     if (n === 2) { setWizardStep(2); loadScrapedJobs(); }
-    else if (n === 3) { setWizardStep(3); document.getElementById('match-progress').classList.add('hidden'); }
-    else if (n === 4) { setWizardStep(4); renderMatchedJobs(); }
+    else if (n === 3) {
+      setWizardStep(3);
+      document.getElementById('match-progress').classList.add('hidden');
+      renderStep3Results();  // always check DB — works after page refresh too
+    }
+    else if (n === 4) {
+      setWizardStep(4);
+      if (_matchedJobs.length) {
+        document.getElementById('match-filter-bar').classList.remove('hidden');
+        document.getElementById('matched-table-wrap').classList.remove('hidden');
+        document.getElementById('match-empty').classList.add('hidden');
+        _applyMatchFilters(); renderMatchedTable();
+      } else { renderMatchedJobs(); }
+    }
     else setWizardStep(n);
   }
 });
@@ -1665,22 +1726,30 @@ async function checkUploadedFiles() {
 }
 
 // ── Wizard ───────────────────────────────────────────────────────────────────
-let _wizStep         = 1;
-let _stepAvail       = {step1:true, step2:false, step3:false, step4:false, step5:false};
+let _wizStep            = 1;
+let _highestStepReached = 1;
+let _stepAvail          = {step1:true, step2:false, step3:false, step4:false, step5:false};
 let _applySessionStarted = false;
 let _pollTimer            = null;
 let _scrapeProgressTimer  = null;
 let _matchProgressTimer   = null;
 let _scrapedJobs     = [];
 let _scrapedFiltered = [];
-let _matchedJobs     = [];
-let _matchedFiltered = [];
+let _matchedJobs      = [];
+let _matchedFiltered  = [];
+let _step3Jobs        = [];
+let _step3Threshold   = 70;
+let aboveThresholdIds = [];
+let _dismissedJobIds  = new Set();
+let _showDismissed    = false;
+let _dismissTimers    = {};
 
 function setWizardStep(n) {
   _wizStep = n;
+  if (n > _highestStepReached) _highestStepReached = n;
   [1,2,3,4,5].forEach(i => {
     document.getElementById('wz-' + i).classList.toggle('hidden', i !== n);
-    const ind  = document.getElementById('step-ind-' + i);
+    const ind   = document.getElementById('step-ind-' + i);
     const avail = _stepAvail['step' + i];
     ind.classList.remove('active', 'done');
     ind.querySelector('.wz-num').textContent = i;
@@ -1688,11 +1757,12 @@ function setWizardStep(n) {
     if (i === n) {
       ind.classList.add('active');
       ind.disabled = false;
-    } else if (i < n && avail) {
+    } else if (i < n) {
+      // All past steps are always clickable, regardless of _stepAvail
       ind.classList.add('done');
       ind.querySelector('.wz-num').textContent = '✓';
       ind.disabled = false;
-    } else if (i > n && avail) {
+    } else if (i <= _highestStepReached || avail) {
       ind.disabled = false;
     } else {
       ind.disabled = true;
@@ -1712,7 +1782,9 @@ async function _refreshStepAvail() {
 async function navigateToStep(n) {
   await _refreshStepAvail();
   const key = 'step' + n;
-  if (n !== 1 && !_stepAvail[key]) return;
+  // Allow going back to any step that has been reached in this session,
+  // or forward if the backend says the step is available.
+  if (n !== 1 && n > _highestStepReached && !_stepAvail[key]) return;
 
   // Guard: leaving step 5 while applying
   if (_wizStep === 5 && n !== 5 && _applyRunning) {
@@ -1855,8 +1927,7 @@ async function pollPipeline() {
     } else if (d.step === 4) {
       _stopPoll(); _stopMatchProgress();
       showToast('✓ Matching complete — ' + d.matched_count + ' jobs matched');
-      await _refreshStepAvail();
-      await renderMatchedJobs();
+      await renderStep3Results();
     } else if (d.step === 5) {
       // legacy pipeline apply step — no-op in new flow
     } else if (d.step === 6) {
@@ -2030,7 +2101,7 @@ async function dismissJob(url, row) {
   } catch (err) { showToast('Dismiss failed: ' + err.message, 'error'); }
 }
 
-function goToMatch() { setWizardStep(3); }
+function goToMatch() { _stepAvail.step2 = true; setWizardStep(3); }
 
 // ── Step 3: Matched Jobs table ────────────────────────────────────────────────
 
@@ -2050,6 +2121,7 @@ async function startMatch() {
   document.getElementById('match-empty').classList.add('hidden');
   document.getElementById('match-filter-bar').classList.add('hidden');
   document.getElementById('match-score-stats').classList.add('hidden');
+  document.getElementById('match-results-panel').classList.add('hidden');
   document.getElementById('matched-table-wrap').classList.add('hidden');
   const fill = document.getElementById('match-progress-fill');
   if (fill) { fill.style.width = '0%'; fill.style.background = ''; }
@@ -2122,35 +2194,58 @@ function _updateApplySelectedCount() {
 function renderMatchedTable() {
   const minSc    = parseInt(document.getElementById('match-min-score').value) || 0;
   const total    = _matchedFiltered.length;
-  const aboveCnt = _matchedFiltered.filter(j => (parseInt(j.match_score)||0) >= minSc).length;
+  const aboveCnt = _matchedFiltered.filter(j => {
+    const id = j.scraped_id || j.id || 0;
+    return !_dismissedJobIds.has(id) && (parseInt(j.match_score)||0) >= minSc;
+  }).length;
 
   document.getElementById('matched-count').textContent =
     total + ' matched by Claude · ' + aboveCnt + ' above your ' + minSc + '% threshold';
   document.getElementById('match-filter-count').textContent =
     aboveCnt + ' above threshold · ' + (total - aboveCnt) + ' below';
 
+  const dismissedBtn = document.getElementById('btn-show-dismissed');
+  if (dismissedBtn) dismissedBtn.textContent = '👁 Show dismissed (' + _dismissedJobIds.size + ')';
+
   const tbody = document.getElementById('matched-tbody');
   if (!total) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:20px;">No jobs match the filter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:20px;">No jobs match the filter.</td></tr>';
     return;
   }
-  tbody.innerHTML = _matchedFiltered.map((j) => {
-    const sc     = parseInt(j.match_score) || 0;
-    const dimmed = sc < minSc;
-    const jobId  = j.scraped_id || 0;
-    return `<tr class="clickable${dimmed ? ' row-dimmed' : ''}" data-url="${esc(j.url||'')}" onclick="rowClick(event,this)">
-      <td onclick="event.stopPropagation()"><input type="checkbox" class="job-select-checkbox row-cb" data-job-id="${jobId}" value="${esc(j.url||'')}" onchange="_updateApplySelectedCount()"></td>
-      <td class="td-title">${esc(j.title||'?')}</td>
+  tbody.innerHTML = _matchedFiltered.map(j => {
+    const sc          = parseInt(j.match_score) || 0;
+    const jobId       = j.scraped_id || j.id || 0;
+    const isDismissed = _dismissedJobIds.has(jobId);
+    if (isDismissed && !_showDismissed) return '';
+    const dimmed  = sc < minSc;
+    const rowCls  = 'clickable' + (dimmed || isDismissed ? ' row-dimmed' : '');
+    const titleEl = isDismissed
+      ? `<s style="color:#64748b;">${esc(j.title||'?')}</s>`
+      : esc(j.title||'?');
+    const scoreBadgeEl = isDismissed
+      ? `<span class="badge-de">Dismissed</span>`
+      : _scoreBadge(sc);
+    const chanceEl = isDismissed ? '' : _chanceBadge(j.interview_chance);
+    const notIntBtn = isDismissed
+      ? `<button class="btn-sm" onclick="event.stopPropagation();undismissJobById(${jobId})">&#8617; Restore</button>`
+      : `<button class="btn-sm" style="color:#f87171;" onclick="event.stopPropagation();dismissJobById(${jobId},this.closest('tr'))">&#128078; Not Interested</button>`;
+    const viewBtn = j.url
+      ? `<a href="${esc(j.url)}" target="_blank" rel="noopener" class="btn-sm" style="text-decoration:none;">&#128279; View</a>`
+      : `<button class="btn-sm" disabled title="No URL available" style="opacity:0.4;cursor:not-allowed;">&#128279; View</button>`;
+    return `<tr class="${rowCls}" data-url="${esc(j.url||'')}" onclick="rowClick(event,this)">
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="job-select-checkbox row-cb"
+        data-job-id="${jobId}" data-dismissed="${isDismissed?'1':'0'}" value="${esc(j.url||'')}"
+        ${isDismissed?'disabled':''} onchange="_updateApplySelectedCount()"></td>
+      <td class="td-title">${titleEl}</td>
       <td>${esc(j.company||'')}</td>
-      <td>${esc(j.location||'')}</td>
-      <td>${_scoreBadge(sc)}</td>
-      <td>${_chanceBadge(j.interview_chance)}</td>
-      <td><span class="badge-de">${esc(j.german_level_required||j.german_level||'—')}</span></td>
+      <td style="color:#8b949e;">${esc(j.location||'—')}</td>
+      <td>${scoreBadgeEl}</td>
+      <td>${chanceEl}</td>
       <td class="td-actions" onclick="event.stopPropagation()">
         <div class="man-row-btns">
-          ${dimmed ? `<span class="badge-below">Below ${minSc}%</span>` : ''}
-          ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="btn-sm" style="text-decoration:none;">View Job</a>` : ''}
-          <button class="btn-icon del" title="Dismiss forever" data-url="${esc(j.url||'')}" onclick="dismissJob(this.dataset.url,this.closest('tr'))">&#215;</button>
+          ${dimmed && !isDismissed ? `<span class="badge-below">Below ${minSc}%</span>` : ''}
+          ${viewBtn}
+          ${notIntBtn}
         </div>
       </td>
     </tr>`;
@@ -2176,8 +2271,7 @@ function openJobDetail(url) {
 
   const sc = parseInt(j.match_score) || 0;
   document.getElementById('jd-badges').innerHTML =
-    _scoreBadge(sc) + ' ' + _chanceBadge(j.interview_chance) +
-    ' <span class="badge-de">' + esc(j.german_level_required || j.german_level || '—') + '</span>';
+    _scoreBadge(sc) + ' ' + _chanceBadge(j.interview_chance);
 
   const sumWrap = document.getElementById('jd-summary-wrap');
   if (j.match_summary) {
@@ -2198,17 +2292,8 @@ function openJobDetail(url) {
   const desc       = (j.description || '').trim();
   const descEl     = document.getElementById('jd-desc');
   const descToggle = document.getElementById('jd-desc-toggle');
-  const SHORT      = 400;
-  descEl.dataset.full     = desc;
-  descEl.dataset.expanded = '0';
-  if (desc.length > SHORT) {
-    descEl.textContent     = desc.slice(0, SHORT) + '…';
-    descToggle.textContent = 'Show more';
-    descToggle.classList.remove('hidden');
-  } else {
-    descEl.textContent = desc || '—';
-    descToggle.classList.add('hidden');
-  }
+  descEl.textContent = desc || '—';
+  if (descToggle) descToggle.classList.add('hidden');
 
   const viewLink = document.getElementById('jd-view-link');
   if (j.url) { viewLink.href = j.url; viewLink.style.display = ''; }
@@ -2223,6 +2308,64 @@ function closeJobDetail() {
   document.getElementById('job-detail-overlay').classList.add('hidden');
   document.getElementById('job-detail-panel').classList.remove('open');
   _jdCurrentUrl = '';
+}
+
+async function dismissJobById(jobId, row) {
+  if (!jobId) return;
+  try {
+    await fetch(`/api/jobs/${jobId}/dismiss`, {method:'POST'});
+    _dismissedJobIds.add(jobId);
+    // Immediate DOM feedback: dim + strikethrough
+    if (row) {
+      row.style.opacity    = '0.3';
+      row.style.fontStyle  = 'italic';
+      row.style.transition = 'opacity 0.2s';
+      const titleTd = row.querySelector('.td-title');
+      if (titleTd) titleTd.innerHTML = '<s style="color:#64748b;">' + (titleTd.textContent||'') + '</s>';
+      const cb = row.querySelector('.job-select-checkbox');
+      if (cb) { cb.disabled = true; cb.dataset.dismissed = '1'; }
+      // Swap button to Undo
+      const niBtn = row.querySelector('button[onclick*="dismissJobById"]');
+      if (niBtn) {
+        niBtn.textContent = '↩ Undo';
+        niBtn.style.color = '#58a6ff';
+        niBtn.setAttribute('onclick', `event.stopPropagation();_undoTimer(${jobId},this.closest('tr'))`);
+      }
+    }
+    const dismissedBtn = document.getElementById('btn-show-dismissed');
+    if (dismissedBtn) dismissedBtn.textContent = '👁 Show dismissed (' + _dismissedJobIds.size + ')';
+    _updateApplySelectedCount();
+    // Hide row after 5 s unless Undo clicked
+    if (_dismissTimers[jobId]) clearTimeout(_dismissTimers[jobId]);
+    _dismissTimers[jobId] = setTimeout(() => {
+      delete _dismissTimers[jobId];
+      if (!_showDismissed) { _applyMatchFilters(); renderMatchedTable(); }
+    }, 5000);
+  } catch (err) { showToast('Could not dismiss: ' + err.message, 'error'); }
+}
+
+async function _undoTimer(jobId, row) {
+  if (_dismissTimers[jobId]) { clearTimeout(_dismissTimers[jobId]); delete _dismissTimers[jobId]; }
+  try {
+    await fetch(`/api/jobs/${jobId}/undismiss`, {method:'POST'});
+    _dismissedJobIds.delete(jobId);
+    _applyMatchFilters(); renderMatchedTable();
+  } catch (err) { showToast('Could not undo: ' + err.message, 'error'); }
+}
+
+async function undismissJobById(jobId) {
+  try {
+    await fetch(`/api/jobs/${jobId}/undismiss`, {method:'POST'});
+    _dismissedJobIds.delete(jobId);
+    _applyMatchFilters(); renderMatchedTable();
+  } catch (err) { showToast('Could not restore: ' + err.message, 'error'); }
+}
+
+function toggleShowDismissed() {
+  _showDismissed = !_showDismissed;
+  const btn = document.getElementById('btn-show-dismissed');
+  if (btn) btn.style.background = _showDismissed ? '#1e3a5f' : '';
+  _applyMatchFilters(); renderMatchedTable();
 }
 
 function _auditSection(label, jobs, totalScored) {
@@ -2376,22 +2519,187 @@ async function renderMatchedJobs() {
 }
 
 async function goToSelect() {
-  await _refreshStepAvail();
-  if (!_stepAvail.step4) {
+  // If step3 data not yet loaded (e.g. user navigated here cold), fetch it first
+  if (!_step3Jobs.length) await renderStep3Results();
+  if (!_step3Jobs.length) {
     showToast('Run matching first to score jobs before selecting.', 'error');
     return;
   }
+  _stepAvail.step3 = true;
   setWizardStep(4);
-  await renderMatchedJobs();
+  if (_step3Jobs.length && aboveThresholdIds.length) {
+    // Seed Step 4 with only the jobs that passed the threshold in Step 3
+    _matchedJobs = _step3Jobs.filter(j => {
+      const id = j.scraped_id || j.id;
+      return id && aboveThresholdIds.includes(id);
+    });
+    const minEl = document.getElementById('match-min-score');
+    if (minEl) minEl.value = _step3Threshold;
+    document.getElementById('match-filter-bar').classList.remove('hidden');
+    document.getElementById('matched-table-wrap').classList.remove('hidden');
+    document.getElementById('match-empty').classList.add('hidden');
+    _applyMatchFilters();
+    renderMatchedTable();
+  } else {
+    await renderMatchedJobs();
+  }
+}
+
+// ── Step 3: threshold controls + results render ───────────────────────────────
+
+function _updateStep3Threshold(val) {
+  _step3Threshold = Math.min(100, Math.max(0, parseInt(val) || 0));
+  const sliderEl = document.getElementById('match-threshold-slider');
+  const numEl    = document.getElementById('match-threshold-num');
+  const hintVal  = document.getElementById('match-threshold-hint-val');
+  if (sliderEl) sliderEl.value = _step3Threshold;
+  if (numEl)    numEl.value    = _step3Threshold;
+  if (hintVal)  hintVal.textContent = _step3Threshold;
+
+  const visible = _step3Jobs.filter(j => !(j.skip_reason||'').toLowerCase().includes('german level'));
+  const above   = visible.filter(j => (parseInt(j.match_score)||0) >= _step3Threshold);
+  const below   = visible.filter(j => (parseInt(j.match_score)||0) <  _step3Threshold);
+  aboveThresholdIds = above.map(j => j.scraped_id || j.id).filter(Boolean);
+
+  const aboveEl = document.getElementById('match-above-cnt');
+  const belowEl = document.getElementById('match-below-cnt');
+  if (aboveEl) aboveEl.textContent = above.length;
+  if (belowEl) belowEl.textContent = below.length;
+
+  renderStep3Table();
+}
+
+function onThresholdSlider() {
+  _updateStep3Threshold(document.getElementById('match-threshold-slider').value);
+}
+
+function onThresholdNum() {
+  _updateStep3Threshold(document.getElementById('match-threshold-num').value);
+}
+
+async function saveThreshold() {
+  try {
+    const cfgR = await fetch('/api/config');
+    const cfg  = await cfgR.json();
+    cfg.min_match_score = _step3Threshold;
+    await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg)});
+    const savedEl = document.getElementById('match-threshold-saved');
+    if (savedEl) {
+      savedEl.style.opacity = '1';
+      setTimeout(() => { savedEl.style.opacity = '0'; }, 2000);
+    }
+  } catch (err) { showToast('Could not save threshold: ' + err.message, 'error'); }
+}
+
+function _detectPlatform(job) {
+  const url = (job.url || job.job_url || '').toLowerCase();
+  if (url.includes('linkedin.com'))      return 'LinkedIn';
+  if (url.includes('greenhouse.io'))     return 'Greenhouse';
+  if (url.includes('lever.co'))          return 'Lever';
+  if (url.includes('smartrecruiters'))   return 'SmartRecruiters';
+  if (url.includes('ashbyhq'))           return 'Ashby';
+  if (url.includes('workable'))          return 'Workable';
+  if (url.includes('personio'))          return 'Personio';
+  if (url.includes('recruitee'))         return 'Recruitee';
+  if (url.includes('bamboohr'))          return 'BambooHR';
+  if (url.includes('teamtailor'))        return 'TeamTailor';
+  if (url.includes('workday'))           return 'Workday';
+  if (url.includes('stepstone'))         return 'StepStone';
+  if (url.includes('xing.com'))          return 'Xing';
+  if (url.includes('indeed.com'))        return 'Indeed';
+  if (url.includes('jobvite'))           return 'Jobvite';
+  if (url.includes('icims'))             return 'iCIMS';
+  if (url.includes('taleo'))             return 'Taleo';
+  if (url.includes('successfactors'))    return 'SAP SF';
+  return job.source || 'External';
+}
+
+function renderStep3Table() {
+  const tbody = document.getElementById('match-results-tbody');
+  if (!tbody) return;
+  const visible = _step3Jobs.filter(j => !(j.skip_reason||'').toLowerCase().includes('german level'));
+  const sorted  = [...visible].sort((a, b) => {
+    const aA = (parseInt(a.match_score)||0) >= _step3Threshold;
+    const bA = (parseInt(b.match_score)||0) >= _step3Threshold;
+    if (aA !== bA) return bA ? 1 : -1;
+    return (parseInt(b.match_score)||0) - (parseInt(a.match_score)||0);
+  });
+  if (!sorted.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:20px;">No scored jobs found.</td></tr>';
+    return;
+  }
+  let passedThreshold = true;
+  tbody.innerHTML = sorted.map(j => {
+    const sc      = parseInt(j.match_score) || 0;
+    const isAbove = sc >= _step3Threshold;
+    let sep = '';
+    if (passedThreshold && !isAbove) {
+      sep = `<tr><td colspan="7" style="text-align:center;font-size:0.74rem;color:#475569;padding:4px 8px;`
+          + `background:#0d1117;font-style:italic;border-top:1px dashed #21262d;">`
+          + `&#8212; below threshold (${_step3Threshold}%) &#8212;</td></tr>`;
+      passedThreshold = false;
+    }
+    const skipHtml  = (!isAbove && j.skip_reason)
+      ? `<div style="font-size:0.72rem;color:#94a3b8;font-style:italic;margin-top:2px;">${esc(j.skip_reason)}</div>` : '';
+    const rowStyle  = isAbove ? '' : 'opacity:0.35;background:#0b0f14;';
+    const scStyle   = isAbove ? '' : 'font-style:italic;';
+    const scCls     = sc >= 75 ? 'badge-score-hi' : sc >= 60 ? 'badge-score-mid' : 'badge-score-lo';
+    const platform  = _detectPlatform(j);
+    const jobUrl    = j.url || j.job_url || '';
+    const locText   = esc(j.location || '—');
+    const viewBtn   = jobUrl
+      ? `<a href="${esc(jobUrl)}" target="_blank" rel="noopener" class="btn-sm" style="text-decoration:none;">&#128279; View</a>`
+      : `<button class="btn-sm" disabled title="No URL available" style="opacity:0.4;cursor:not-allowed;">&#128279; View</button>`;
+    return sep + `<tr style="${rowStyle}" title="${isAbove ? '' : 'Below ' + _step3Threshold + '% threshold'}">
+      <td class="td-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(j.title||'?')}${skipHtml}</td>
+      <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(j.company||'')}</td>
+      <td style="color:#8b949e;">${locText}</td>
+      <td><span class="badge-score ${scCls}" style="${scStyle}">${sc}%</span></td>
+      <td>${_chanceBadge(j.interview_chance)}</td>
+      <td>${platform ? `<span class="badge-source">${esc(platform)}</span>` : ''}</td>
+      <td>${viewBtn}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function renderStep3Results() {
+  try {
+    const [resR, cfgR] = await Promise.all([
+      fetch('/api/matcher/results'),
+      fetch('/api/config'),
+    ]);
+    const d   = await resR.json();
+    const cfg = await cfgR.json();
+    if (d.error) throw new Error(d.error);
+    _step3Jobs = d.jobs || [];
+
+    const savedMin = cfg.min_match_score ?? 70;
+    const nextBtn  = document.getElementById('btn-goto-select');
+
+    document.getElementById('match-progress').classList.add('hidden');
+    document.getElementById('btn-match').disabled = false;
+
+    if (!d.has_results) {
+      // No DB data — leave panel hidden, keep Next button disabled
+      if (nextBtn) nextBtn.disabled = true;
+      return;
+    }
+
+    document.getElementById('match-results-panel').classList.remove('hidden');
+    if (nextBtn) nextBtn.disabled = false;
+    _stepAvail.step3 = true;
+    _stepAvail.step4 = true;
+    _updateStep3Threshold(savedMin);
+  } catch (err) { showToast('Results load error: ' + err.message, 'error'); }
 }
 
 // ── Step 4 → 5: collect jobs and start apply session ──────────────────────────
 
 async function applySelectedJobs() {
-  console.log('applySelectedJobs called');
   const checked = document.querySelectorAll('.job-select-checkbox:checked');
-  const ids = Array.from(checked).map(cb => parseInt(cb.dataset.jobId)).filter(Boolean);
-  console.log('applySelectedJobs called', ids);
+  const ids = Array.from(checked)
+    .filter(cb => cb.dataset.dismissed !== '1')
+    .map(cb => parseInt(cb.dataset.jobId)).filter(Boolean);
   if (!ids.length) {
     showToast('No jobs selected. Please check at least one job.', 'error');
     return;
@@ -2400,9 +2708,10 @@ async function applySelectedJobs() {
 }
 
 async function applyAllJobs() {
-  console.log('applyAllJobs called');
   const all = document.querySelectorAll('.job-select-checkbox');
-  const ids = Array.from(all).map(cb => parseInt(cb.dataset.jobId)).filter(Boolean);
+  const ids = Array.from(all)
+    .filter(cb => cb.dataset.dismissed !== '1')
+    .map(cb => parseInt(cb.dataset.jobId)).filter(Boolean);
   if (!ids.length) {
     showToast('No jobs to apply to. Run matching first.', 'error');
     return;
@@ -3961,6 +4270,28 @@ def api_jobs_dismiss():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/jobs/<int:job_id>/dismiss", methods=["POST"])
+def api_jobs_dismiss_by_id(job_id):
+    try:
+        import db as _db
+        _db.init_db()
+        _db.dismiss_job_by_id(job_id)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/jobs/<int:job_id>/undismiss", methods=["POST"])
+def api_jobs_undismiss_by_id(job_id):
+    try:
+        import db as _db
+        _db.init_db()
+        _db.undismiss_job_by_id(job_id)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/cache/stats")
 def api_cache_stats():
     try:
@@ -3972,6 +4303,39 @@ def api_cache_stats():
         return jsonify({**stats, **wstats})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/matcher/results")
+def api_matcher_results():
+    """Return ALL scored jobs from the current run (above AND below threshold)."""
+    try:
+        import db as _db
+        _db.init_db()
+        with _db._conn() as db:
+            rows = db.execute("""
+                SELECT s.id AS scraped_id, s.title, s.company, s.location,
+                       s.url, s.source, s.description,
+                       m.match_score, m.interview_chance, m.skip_reason,
+                       m.german_level AS german_level_required, m.match_summary
+                FROM matched_jobs m
+                JOIN scraped_jobs s ON s.id = m.scraped_job_id
+                ORDER BY m.match_score DESC
+            """).fetchall()
+            # Fallback: if scraped_jobs was cleared, look in seen_jobs for recent scores
+            if not rows:
+                rows = db.execute("""
+                    SELECT url, title, company, location, source, description,
+                           match_score, interview_chance, skip_reason,
+                           german_level_required, match_summary
+                    FROM seen_jobs
+                    WHERE match_score IS NOT NULL AND match_score > 0
+                    ORDER BY match_score DESC
+                    LIMIT 200
+                """).fetchall()
+        jobs = [dict(r) for r in rows]
+        return jsonify({"has_results": len(jobs) > 0, "jobs": jobs})
+    except Exception as exc:
+        return jsonify({"has_results": False, "jobs": [], "error": str(exc)})
 
 
 @app.route("/api/pipeline/matched_jobs")

@@ -342,6 +342,38 @@ def run(cfg: dict | None = None) -> list[dict]:
         log.info("Skipped %d jobs already in applications table", skipped)
     jobs = filtered
 
+    # ── Dismissed dedup (URL + company+title) ───────────────────────────────────
+    try:
+        with _db_cache._conn() as _dc:
+            _drows = _dc.execute(
+                "SELECT url, company, title FROM seen_jobs WHERE dismissed=1"
+            ).fetchall()
+        _dismissed_urls   = {r[0].strip() for r in _drows if r[0] and r[0].strip()}
+        _dismissed_combos = {
+            (r[1].lower().strip(), r[2].lower().strip())
+            for r in _drows if r[1] and r[2]
+        }
+    except Exception:
+        _dismissed_urls, _dismissed_combos = set(), set()
+    if _dismissed_urls or _dismissed_combos:
+        _before_d = len(jobs)
+        _filtered_d = []
+        for j in jobs:
+            _url = j.get("url") or ""
+            _co  = (j.get("company") or "").lower().strip()
+            _ti  = (j.get("title")   or "").lower().strip()
+            if _url and _url in _dismissed_urls:
+                log.info("Skip (dismissed): %s @ %s", j.get("title"), j.get("company"))
+                continue
+            if _co and _ti and (_co, _ti) in _dismissed_combos:
+                log.info("Skip (dismissed): %s @ %s", j.get("title"), j.get("company"))
+                continue
+            _filtered_d.append(j)
+        _skipped_d = _before_d - len(_filtered_d)
+        if _skipped_d:
+            log.info("Skipped %d dismissed jobs", _skipped_d)
+        jobs = _filtered_d
+
     # Tag fresh jobs: "new" if not seen before, "cached" if already in the cache
     for j in jobs:
         j["cache_status"] = "cached" if j.get("url") in cached_urls else "new"

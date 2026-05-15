@@ -10,6 +10,8 @@ import json
 import logging
 import os
 import re
+import time
+import traceback
 
 import anthropic
 import pdfplumber
@@ -136,36 +138,53 @@ def _extract_resume_text(resume_path) -> str:
     return "\n".join(text_parts)
 
 
+_MAX_RETRIES = 3
+_RETRY_ERRORS = (anthropic.RateLimitError, anthropic.APITimeoutError, anthropic.APIConnectionError)
+
+
 def _score_job(client: anthropic.Anthropic, job: dict, resume_text: str) -> dict | None:
     prompt = _USER_TEMPLATE.format(
-        description=job["description"][:6000],  # cap to stay inside context
+        description=job["description"][:6000],
         resume=resume_text[:4000],
     )
-    try:
-        response = client.messages.create(
-            model=_MODEL,
-            max_tokens=1024,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.content[0].text
-        log.info("Raw Claude response for %s: %s", job.get("title"), raw)
-
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```[a-z]*\n?", "", raw)
-            raw = re.sub(r"\n?```$", "", raw)
-            raw = raw.strip()
-
+    for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            log.warning("JSON parse failed for %s @ %s — full response: %s",
-                        job.get("title"), job.get("company"), raw)
+            response = client.messages.create(
+                model=_MODEL,
+                max_tokens=1024,
+                system=_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = response.content[0].text
+            log.info("Raw Claude response for %s: %s", job.get("title"), raw)
+
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = re.sub(r"^```[a-z]*\n?", "", raw)
+                raw = re.sub(r"\n?```$", "", raw)
+                raw = raw.strip()
+
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                log.warning("JSON parse failed for %s @ %s — full response: %s",
+                            job.get("title"), job.get("company"), raw)
+                return None
+        except _RETRY_ERRORS as exc:
+            wait = 2 ** attempt
+            log.warning("Transient API error for %s @ %s (attempt %d/%d): %s — retrying in %ds",
+                        job.get("title"), job.get("company"), attempt, _MAX_RETRIES, exc, wait)
+            time.sleep(wait)
+        except Exception as e:
+            log.error(
+                "ERROR scoring '%s' @ '%s': %s: %s\n%s",
+                job.get("title", "?"), job.get("company", "?"),
+                type(e).__name__, e, traceback.format_exc(),
+            )
             return None
-    except (IndexError, anthropic.APIError) as exc:
-        log.warning("Scoring failed for %s @ %s: %s", job.get("title"), job.get("company"), exc)
-        return None
+    log.warning("Scoring gave up after %d retries for %s @ %s",
+                _MAX_RETRIES, job.get("title"), job.get("company"))
+    return None
 
 
 _match_stats: dict = {"fresh": 0, "cache_hits": 0, "resume_changed": False, "invalidated": 0}
@@ -199,6 +218,24 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
     current_hash = _db.get_resume_hash(cfg)
     _match_stats = {"fresh": 0, "cache_hits": 0, "resume_changed": False, "invalidated": 0}
 
+    if current_hash:
+        log.info("Resume hash: %s — cache will skip jobs already scored with this hash", current_hash)
+        try:
+            with _db._conn() as _hc:
+                _prev = _hc.execute(
+                    "SELECT resume_hash FROM seen_jobs WHERE resume_hash IS NOT NULL LIMIT 1"
+                ).fetchone()
+            if _prev and _prev[0] != current_hash:
+                log.warning(
+                    "WARNING: Resume hash changed! Previous=%s... Current=%s... "
+                    "— all jobs will be re-scored this run",
+                    _prev[0][:8], current_hash[:8],
+                )
+        except Exception as _he:
+            log.warning("Could not check previous resume hash: %s", _he)
+    else:
+        log.warning("Could not compute resume hash — cache disabled for this run")
+
     if current_hash and _db.has_scores_with_different_hash(current_hash, cfg):
         invalidated = _db.invalidate_scores_for_changed_resume(cfg)
         log.info("Resume changed — invalidated %d cached scores within window; re-scoring", invalidated)
@@ -229,7 +266,12 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
         log.warning("Could not load applied combos for dedup: %s", exc)
 
     matched: list[dict] = []
-    for job in jobs:
+    skipped_count = 0
+    total = len(jobs)
+    for i, job in enumerate(jobs, 1):
+        log.info("Processing %d/%d: '%s' @ '%s'",
+                 i, total, job.get("title"), job.get("company"))
+
         # ── Skip if already applied (company+title match) ────────────────────
         job_combo = (
             (job.get("company") or "").lower().strip(),
@@ -238,15 +280,46 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
         if job_combo[0] and job_combo[1] and job_combo in applied_combos:
             log.info("Skip (already applied): %s @ %s",
                      job.get("title"), job.get("company"))
+            skipped_count += 1
             continue
 
         url       = job.get("url", "")
         db_id     = job.get("_db_id")
         from_cache = False
 
-        if url and url in cached_scores:
+        # ── Short-description guard ──────────────────────────────────────────
+        desc = job.get("description") or ""
+        if len(desc.strip()) < 50:
+            log.warning("Skip (description too short, %d chars): %s @ %s",
+                        len(desc.strip()), job.get("title"), job.get("company"))
+            skipped_count += 1
+            continue
+
+        # ── Cache lookup: URL first, then company+title fallback ────────────
+        c = cached_scores.get(url) if url else None
+        if not c and current_hash:
+            try:
+                with _db._conn() as _fc:
+                    _frow = _fc.execute("""
+                        SELECT match_score, interview_chance, skip_reason, german_level_required
+                        FROM seen_jobs
+                        WHERE resume_hash = ?
+                          AND (
+                            (url IS NOT NULL AND url = ?)
+                            OR (company = ? AND title = ?)
+                          )
+                          AND match_score IS NOT NULL
+                        LIMIT 1
+                    """, (current_hash, url or "", job.get("company", ""), job.get("title", ""))
+                    ).fetchone()
+                if _frow:
+                    c = dict(_frow)
+            except Exception as _fe:
+                log.warning("Cache fallback lookup failed for %s @ %s: %s",
+                            job.get("title"), job.get("company"), _fe)
+
+        if c:
             # ── Cache hit ──────────────────────────────────────────────────
-            c = cached_scores[url]
             job["match_score"]           = c.get("match_score") or 0
             job["interview_chance"]      = c.get("interview_chance") or "low"
             job["german_level_required"] = c.get("german_level_required") or "none"
@@ -254,13 +327,27 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
             job["match_summary"]         = job.get("match_summary") or ""
             _match_stats["cache_hits"] += 1
             from_cache = True
-            log.info("Cache hit %d%% (%s) — %s @ %s",
-                     job["match_score"], job["interview_chance"],
-                     job.get("title"), job.get("company"))
+            log.info("Cache HIT:  '%s' @ '%s' (score=%d, hash=%s...)",
+                     job.get("title"), job.get("company"),
+                     job["match_score"], (current_hash or "")[:8])
         else:
+            log.info("Cache MISS: '%s' @ '%s' (hash=%s...) — will score fresh",
+                     job.get("title"), job.get("company"), (current_hash or "")[:8])
             # ── Fresh Claude scoring ───────────────────────────────────────
-            scores = _score_job(client, job, resume_text)
+            try:
+                scores = _score_job(client, job, resume_text)
+            except Exception as e:
+                log.error(
+                    "ERROR scoring '%s' @ '%s': %s: %s\n%s",
+                    job.get("title", "?"), job.get("company", "?"),
+                    type(e).__name__, e, traceback.format_exc(),
+                )
+                skipped_count += 1
+                continue
             if scores is None:
+                log.warning("Skip (scoring returned None): %s @ %s",
+                            job.get("title"), job.get("company"))
+                skipped_count += 1
                 continue
 
             job["match_score"]           = scores.get("match_score", 0)
@@ -269,6 +356,7 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
             job["skip_reason"]           = scores.get("skip_reason")
             job["match_summary"]         = scores.get("match_summary", "")
             _match_stats["fresh"] += 1
+            time.sleep(0.5)
 
         # ── German level check (applied to both fresh and cached scores) ───
         german = job["german_level_required"].lower()
@@ -313,10 +401,16 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
                  job["match_score"], job["interview_chance"], job.get("title"), job.get("company"))
         matched.append(job)
 
+    cache_count = _match_stats["cache_hits"]
+    fresh_count = _match_stats["fresh"]
     log.info(
-        "Matcher done: %d matched / %d jobs (%d fresh, %d from cache)",
-        len(matched), len(jobs), _match_stats["fresh"], _match_stats["cache_hits"],
+        "Matcher done: %d matched / %d jobs (%d fresh, %d from cache, %d skipped)",
+        len(matched), total, fresh_count, cache_count, skipped_count,
     )
+    log.info("Cache stats — %d hits / %d fresh scored / %d skipped / %d total",
+             cache_count, fresh_count, skipped_count, total)
+    log.info("Estimated cost this run: ~$%.4f (saved ~$%.4f from cache)",
+             fresh_count * 0.0004, cache_count * 0.0004)
     return matched
 
 
