@@ -654,7 +654,6 @@ td { padding: 10px 14px; vertical-align: middle; }
     <nav class="tab-nav">
       <button class="tab-btn active" data-tab="dashboard" onclick="showTab('dashboard')">&#128202; Dashboard</button>
       <button class="tab-btn"        data-tab="agent"     onclick="showTab('agent')">&#129302; Job Hunt Agent</button>
-      <button class="tab-btn"        data-tab="apply"     onclick="showTab('apply')">&#9654; Apply</button>
     </nav>
   </header>
 
@@ -768,7 +767,9 @@ td { padding: 10px 14px; vertical-align: middle; }
         <div class="wz-sep"></div>
         <button class="wz-ind-step" id="step-ind-3" onclick="navigateToStep(3)" disabled><div class="wz-num">3</div><span>Match</span></button>
         <div class="wz-sep"></div>
-        <button class="wz-ind-step" id="step-ind-4" onclick="navigateToStep(4)" disabled><div class="wz-num">4</div><span>Apply</span></button>
+        <button class="wz-ind-step" id="step-ind-4" onclick="navigateToStep(4)" disabled><div class="wz-num">4</div><span>Select</span></button>
+        <div class="wz-sep"></div>
+        <button class="wz-ind-step" id="step-ind-5" onclick="navigateToStep(5)" disabled><div class="wz-num">5</div><span>Apply</span></button>
       </div>
 
       <!-- Step 1: Scrape -->
@@ -819,7 +820,7 @@ td { padding: 10px 14px; vertical-align: middle; }
       <!-- Step 3: Match -->
       <div id="wz-3" class="wz-step hidden">
         <div class="panel-hd" style="border-top:none;">
-          <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 3 — Match &amp; Filter</span>
+          <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 3 — Match &amp; Score</span>
           <button id="btn-match" class="btn-primary btn-sm" onclick="startMatch()">&#129302; Run Matching</button>
         </div>
         <div id="match-progress" class="hidden" style="padding:14px 18px 8px;">
@@ -829,12 +830,22 @@ td { padding: 10px 14px; vertical-align: middle; }
         </div>
         <div id="match-score-stats" class="hidden"
              style="padding:5px 18px;font-size:0.77rem;color:#64748b;border-bottom:1px solid #21262d;background:#161b22;"></div>
-        <div id="match-filter-bar" class="hidden" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
-          <label style="font-size:0.82rem;font-weight:600;color:#475569;">Min Score</label>
+        <div class="pip-footer">
+          <button class="btn-primary" id="btn-goto-select" onclick="goToSelect()">Next: Select Jobs &#8594;</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Select -->
+      <div id="wz-4" class="wz-step hidden">
+        <div class="panel-hd" style="border-top:none;">
+          <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 4 — Select Jobs</span>
+        </div>
+        <div id="match-filter-bar" class="hidden" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #21262d;background:#161b22;">
+          <label style="font-size:0.82rem;font-weight:600;color:#8b949e;">Min Score</label>
           <input id="match-min-score" type="number" min="0" max="100" value="70"
-                 style="width:60px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.84rem;">
-          <label style="font-size:0.82rem;font-weight:600;color:#475569;">Interview Chance</label>
-          <select id="match-chance-filter" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.84rem;">
+                 style="width:60px;padding:4px 6px;border:1px solid #30363d;border-radius:6px;font-size:0.84rem;background:#0d1117;color:#e2e8f0;">
+          <label style="font-size:0.82rem;font-weight:600;color:#8b949e;">Interview Chance</label>
+          <select id="match-chance-filter" style="padding:4px 8px;border:1px solid #30363d;border-radius:6px;font-size:0.84rem;background:#0d1117;color:#e2e8f0;">
             <option value="">Any</option>
             <option value="high">High</option>
             <option value="medium">Medium</option>
@@ -845,15 +856,13 @@ td { padding: 10px 14px; vertical-align: middle; }
           <span id="match-filter-count" style="font-size:0.8rem;color:#64748b;margin-left:6px;"></span>
         </div>
         <div id="match-empty" style="padding:18px;color:#64748b;font-size:0.84rem;">
-          Click <strong>Run Matching</strong> to score scraped jobs with Claude AI.
+          Complete Step 3 — Match first to see jobs here.
         </div>
         <div id="matched-table-wrap" class="hidden">
           <div class="pip-toolbar">
             <span id="matched-count" class="pip-count"></span>
             <input id="matched-search" class="pip-search" type="text" placeholder="Filter by title, company, location…"
                    oninput="filterMatchedJobs()">
-            <button class="btn-sm btn-primary" onclick="applySelected()">&#9654; Apply Selected</button>
-            <button class="btn-sm btn-primary" onclick="applyAll()">&#9654; Apply All</button>
           </div>
           <div class="pip-table-wrap">
             <table class="pip-table" id="matched-table">
@@ -868,27 +877,57 @@ td { padding: 10px 14px; vertical-align: middle; }
             </table>
           </div>
           <div class="pip-footer">
-            <button class="btn-sm btn-primary" onclick="applySelected()">&#9654; Apply Selected</button>
-            <button class="btn-sm btn-primary" onclick="applyAll()">&#9654; Apply All</button>
-            <button class="btn-sm" onclick="goToApply()">Continue to Apply &#8594;</button>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.83rem;color:#8b949e;">
+              <input type="checkbox" id="select-all-footer" onchange="toggleSelectAll(this)"> Select All
+            </label>
+            <button id="btn-apply-selected" class="btn-sm btn-primary" onclick="applySelectedJobs()">&#9654; Apply Selected <span id="apply-selected-count">(0)</span></button>
+            <button id="btn-apply-all-jobs" class="btn-sm btn-primary" onclick="applyAllJobs()">&#9654; Apply All</button>
           </div>
         </div>
       </div>
 
-      <!-- Step 4: Apply -->
-      <div id="wz-4" class="wz-step hidden">
+      <!-- Step 5: Apply -->
+      <div id="wz-5" class="wz-step hidden">
         <div class="panel-hd" style="border-top:none;">
-          <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 4 — Apply</span>
-          <button id="btn-apply-all" class="btn-primary" onclick="applyAll()">&#9654; Apply All</button>
+          <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 5 — Apply</span>
+          <button id="btn-apply-start" class="btn-primary btn-sm" onclick="startApplySession()" style="display:none;">&#9654; Start Applying</button>
+          <button id="btn-apply-stop"  class="btn-sm"             onclick="stopApplySession()"  style="display:none;">&#9632; Stop</button>
         </div>
-        <div style="padding:14px 18px;">
-          <div id="apply-jobs-list" class="job-cards"></div>
-          <div id="apply-progress" class="hidden" style="margin-top:14px;">
-            <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
-            <div id="apply-msg" style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
+        <div id="apply-session-bar" class="apply-session-bar" style="margin:12px 18px 0;">
+          <div class="asb-stat"><span class="asb-label">Total</span><span id="asb-total" class="asb-value">0</span></div>
+          <div class="asb-stat"><span class="asb-label">Applied</span><span id="asb-success" class="asb-value success">0</span></div>
+          <div class="asb-stat"><span class="asb-label">Manual</span><span id="asb-manual" class="asb-value manual">0</span></div>
+          <div class="asb-stat"><span class="asb-label">Failed</span><span id="asb-failed" class="asb-value failed">0</span></div>
+        </div>
+        <div class="apply-2col" style="padding:14px 18px;">
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:0.83rem;font-weight:600;color:#8b949e;">Jobs to Apply</span>
+              <span id="apply-cards-count" style="font-size:0.78rem;color:#64748b;"></span>
+            </div>
+            <div id="apply-cards-wrap" class="apply-cards-wrap">
+              <div class="apply-empty" id="apply-cards-empty">No jobs queued. Go to <strong>Step 4 — Select</strong> and click Apply / Apply All.</div>
+            </div>
+            <div style="margin-top:16px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-size:0.83rem;font-weight:600;color:#8b949e;">Manual Apply Queue</span>
+                <button class="btn-sm" onclick="loadManualQueue()">Refresh</button>
+              </div>
+              <div id="manual-queue-wrap">
+                <div class="apply-empty" id="manual-queue-empty">No items in the manual queue.</div>
+                <table class="data-table" id="manual-queue-table" style="display:none;">
+                  <thead><tr><th>Company</th><th>Role</th><th>Platform</th><th>Note</th><th>Link</th></tr></thead>
+                  <tbody id="manual-queue-tbody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
-          <div id="apply-results" class="hidden" style="margin-top:16px;">
-            <a href="/api/download/tracker" class="btn-link">&#11015; Download Updated Tracker</a>
+          <div class="apply-log" id="apply-log-panel">
+            <div class="apply-log-hd">
+              <span>&#128195; Apply Log</span>
+              <button class="btn-sm" onclick="document.getElementById('apply-log-body').innerHTML=''" style="margin-left:auto;">Clear</button>
+            </div>
+            <div class="apply-log-body" id="apply-log-body"></div>
           </div>
         </div>
       </div>
@@ -1177,57 +1216,6 @@ td { padding: 10px 14px; vertical-align: middle; }
 
   </div><!-- /tab-agent -->
 
-  <!-- ═══ APPLY TAB ═══ -->
-  <div id="tab-apply" class="tab-content hidden">
-
-    <!-- Session summary bar -->
-    <div id="apply-session-bar" class="apply-session-bar">
-      <div class="asb-stat"><span class="asb-label">Total</span><span id="asb-total" class="asb-value">0</span></div>
-      <div class="asb-stat"><span class="asb-label">Applied</span><span id="asb-success" class="asb-value success">0</span></div>
-      <div class="asb-stat"><span class="asb-label">Manual</span><span id="asb-manual" class="asb-value manual">0</span></div>
-      <div class="asb-stat"><span class="asb-label">Failed</span><span id="asb-failed" class="asb-value failed">0</span></div>
-      <div class="asb-spacer"></div>
-      <button id="btn-apply-start" class="btn-primary" onclick="startApplySession()">&#9654; Start Applying</button>
-      <button id="btn-apply-stop"  class="btn-sm"      onclick="stopApplySession()" style="display:none;">&#9632; Stop</button>
-    </div>
-
-    <div class="apply-2col">
-      <!-- Left: job cards -->
-      <div>
-        <div class="panel-hd" style="border:1px solid #21262d; border-radius:8px 8px 0 0; padding:10px 16px;">
-          <span class="panel-title">Jobs to Apply</span>
-          <span id="apply-cards-count" style="font-size:0.78rem; color:#64748b;"></span>
-        </div>
-        <div id="apply-cards-wrap" class="apply-cards-wrap" style="border:1px solid #21262d; border-top:none; border-radius:0 0 8px 8px; padding:10px;">
-          <div class="apply-empty" id="apply-cards-empty">No jobs queued. Go to <strong>Step 3 — Match</strong> and click Apply / Apply All.</div>
-        </div>
-        <!-- Manual queue -->
-        <div style="margin-top:16px;">
-          <div class="panel-hd" style="border:1px solid #21262d; border-radius:8px 8px 0 0; padding:10px 16px;">
-            <span class="panel-title">Manual Apply Queue</span>
-            <button class="btn-sm" onclick="loadManualQueue()" style="margin-left:auto;">Refresh</button>
-          </div>
-          <div id="manual-queue-wrap" style="border:1px solid #21262d; border-top:none; border-radius:0 0 8px 8px; padding:10px;">
-            <div class="apply-empty" id="manual-queue-empty" style="display:none;">No items in the manual queue.</div>
-            <table class="data-table" id="manual-queue-table" style="display:none;">
-              <thead><tr><th>Company</th><th>Role</th><th>Platform</th><th>Note</th><th>Link</th></tr></thead>
-              <tbody id="manual-queue-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right: live log -->
-      <div class="apply-log" id="apply-log-panel">
-        <div class="apply-log-hd">
-          <span>&#128195; Apply Log</span>
-          <button class="btn-sm" onclick="document.getElementById('apply-log-body').innerHTML=''" style="margin-left:auto;">Clear</button>
-        </div>
-        <div class="apply-log-body" id="apply-log-body"></div>
-      </div>
-    </div>
-
-  </div><!-- /tab-apply -->
 
 </div><!-- /container -->
 
@@ -1300,8 +1288,6 @@ td { padding: 10px 14px; vertical-align: middle; }
 // ── Tab switching ─────────────────────────────────────────────────────────────
 let _agentInited = false;
 
-let _applyInited = false;
-
 function showTab(name) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -1309,7 +1295,6 @@ function showTab(name) {
   document.querySelector('.tab-btn[data-tab="' + name + '"]').classList.add('active');
   document.getElementById('refresh-pill').classList.toggle('hidden', name !== 'dashboard');
   if (name === 'agent' && !_agentInited) { _agentInited = true; initAgentTab(); }
-  if (name === 'apply' && !_applyInited) { _applyInited = true; initApplyTab(); }
 }
 
 function initAgentTab() {
@@ -1334,28 +1319,33 @@ async function prefillLinkedInCredentials() {
 
 async function _initWizardFromHash() {
   await _refreshStepAvail();
-  // Restore step from URL hash (e.g. #step-3)
-  const m = location.hash.match(/^#step-([1-4])$/);
+  const m = location.hash.match(/^#step-([1-5])$/);
   const requested = m ? parseInt(m[1]) : 1;
   const key = 'step' + requested;
   const target = (requested === 1 || _stepAvail[key]) ? requested : 1;
-  // Update indicators to reflect availability without navigating
-  setWizardStep(1);  // reset first
+  setWizardStep(1);
   if (target > 1) await navigateToStep(target);
 }
 
 // Browser back/forward support
 window.addEventListener('hashchange', () => {
   if (!_agentInited) return;
-  const m = location.hash.match(/^#step-([1-4])$/);
+  const m = location.hash.match(/^#step-([1-5])$/);
   if (!m) return;
   const n = parseInt(m[1]);
+  if (n === _wizStep) return;
+  // Guard: back from step 5 while applying
+  if (_wizStep === 5 && _applyRunning) {
+    if (!confirm('Apply session is running. Go back anyway?')) {
+      history.pushState(null, '', '#step-5');
+      return;
+    }
+  }
   const key = 'step' + n;
-  if (n === _wizStep) return;  // already here
   if (n === 1 || _stepAvail[key]) {
-    // Navigate without pushing another history entry (we're already at this hash)
     if (n === 2) { setWizardStep(2); loadScrapedJobs(); }
-    else if (n === 3) { setWizardStep(3); renderMatchedJobs(); document.getElementById('match-progress').classList.add('hidden'); }
+    else if (n === 3) { setWizardStep(3); document.getElementById('match-progress').classList.add('hidden'); }
+    else if (n === 4) { setWizardStep(4); renderMatchedJobs(); }
     else setWizardStep(n);
   }
 });
@@ -1676,7 +1666,8 @@ async function checkUploadedFiles() {
 
 // ── Wizard ───────────────────────────────────────────────────────────────────
 let _wizStep         = 1;
-let _stepAvail       = {step1:true, step2:false, step3:false, step4:false};
+let _stepAvail       = {step1:true, step2:false, step3:false, step4:false, step5:false};
+let _applySessionStarted = false;
 let _pollTimer            = null;
 let _scrapeProgressTimer  = null;
 let _matchProgressTimer   = null;
@@ -1687,27 +1678,23 @@ let _matchedFiltered = [];
 
 function setWizardStep(n) {
   _wizStep = n;
-  [1,2,3,4].forEach(i => {
+  [1,2,3,4,5].forEach(i => {
     document.getElementById('wz-' + i).classList.toggle('hidden', i !== n);
     const ind  = document.getElementById('step-ind-' + i);
     const avail = _stepAvail['step' + i];
     ind.classList.remove('active', 'done');
-    ind.querySelector('.wz-num').textContent = i;  // reset to number first
+    ind.querySelector('.wz-num').textContent = i;
 
     if (i === n) {
-      // Current step: blue, always enabled
       ind.classList.add('active');
       ind.disabled = false;
     } else if (i < n && avail) {
-      // Completed past step: green ✓, clickable to go back
       ind.classList.add('done');
       ind.querySelector('.wz-num').textContent = '✓';
       ind.disabled = false;
     } else if (i > n && avail) {
-      // Future step with data: grey number, clickable to jump forward
       ind.disabled = false;
     } else {
-      // No data for this step yet: grey, disabled
       ind.disabled = true;
     }
   });
@@ -1725,16 +1712,28 @@ async function _refreshStepAvail() {
 async function navigateToStep(n) {
   await _refreshStepAvail();
   const key = 'step' + n;
-  if (n !== 1 && !_stepAvail[key]) return;  // not available yet
+  if (n !== 1 && !_stepAvail[key]) return;
+
+  // Guard: leaving step 5 while applying
+  if (_wizStep === 5 && n !== 5 && _applyRunning) {
+    if (!confirm('Apply session is running. Go back anyway?')) return;
+  }
 
   setWizardStep(n);
   if (n === 2) {
     await loadScrapedJobs();
   } else if (n === 3) {
-    await renderMatchedJobs();
     document.getElementById('match-progress').classList.add('hidden');
+  } else if (n === 4) {
+    await renderMatchedJobs();
+  } else if (n === 5) {
+    // Auto-start only if jobs are queued and session not yet started
+    if (_applyJobs.length > 0 && !_applySessionStarted && !_applyRunning) {
+      document.getElementById('btn-apply-start').style.display = '';
+    }
+    connectApplyStream();
+    loadManualQueue();
   }
-  // Step 1 and 4 don't need a fresh DB load — their state is already in the DOM
 }
 
 function _startPoll() { if (_pollTimer) clearInterval(_pollTimer); _pollTimer = setInterval(pollPipeline, 3000); }
@@ -1859,12 +1858,10 @@ async function pollPipeline() {
       await _refreshStepAvail();
       await renderMatchedJobs();
     } else if (d.step === 5) {
-      document.getElementById('apply-msg').textContent = 'Submitting applications…';
+      // legacy pipeline apply step — no-op in new flow
     } else if (d.step === 6) {
       _stopPoll();
-      document.getElementById('apply-progress').classList.add('hidden');
-      document.getElementById('apply-results').classList.remove('hidden');
-      showToast('✓ Done! Download the updated tracker below.');
+      showToast('✓ Apply session done.');
       fetchDashboard();
     } else if (d.step < 0) {
       _stopPoll(); _stopStatusPoll(); _stopScrapeProgress(); _stopMatchProgress(); _resetScrapeButton();
@@ -2106,7 +2103,20 @@ async function refilterMatchedJobs() {
 }
 
 function toggleSelectAll(cb) {
-  document.querySelectorAll('#matched-tbody .row-cb').forEach(c => c.checked = cb.checked);
+  document.querySelectorAll('.job-select-checkbox').forEach(c => c.checked = cb.checked);
+  // Sync both checkboxes
+  ['matched-select-all','select-all-footer'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.checked = cb.checked;
+  });
+  _updateApplySelectedCount();
+}
+
+function _updateApplySelectedCount() {
+  const n = document.querySelectorAll('.job-select-checkbox:checked').length;
+  const btn = document.getElementById('btn-apply-selected');
+  const cnt = document.getElementById('apply-selected-count');
+  if (cnt) cnt.textContent = '(' + n + ')';
 }
 
 function renderMatchedTable() {
@@ -2127,8 +2137,9 @@ function renderMatchedTable() {
   tbody.innerHTML = _matchedFiltered.map((j) => {
     const sc     = parseInt(j.match_score) || 0;
     const dimmed = sc < minSc;
+    const jobId  = j.scraped_id || 0;
     return `<tr class="clickable${dimmed ? ' row-dimmed' : ''}" data-url="${esc(j.url||'')}" onclick="rowClick(event,this)">
-      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-cb" value="${esc(j.url||'')}"></td>
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="job-select-checkbox row-cb" data-job-id="${jobId}" value="${esc(j.url||'')}" onchange="_updateApplySelectedCount()"></td>
       <td class="td-title">${esc(j.title||'?')}</td>
       <td>${esc(j.company||'')}</td>
       <td>${esc(j.location||'')}</td>
@@ -2139,12 +2150,12 @@ function renderMatchedTable() {
         <div class="man-row-btns">
           ${dimmed ? `<span class="badge-below">Below ${minSc}%</span>` : ''}
           ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="btn-sm" style="text-decoration:none;">View Job</a>` : ''}
-          <button class="btn-sm btn-primary" data-url="${esc(j.url||'')}" onclick="applySingle(this.dataset.url)">Apply</button>
           <button class="btn-icon del" title="Dismiss forever" data-url="${esc(j.url||'')}" onclick="dismissJob(this.dataset.url,this.closest('tr'))">&#215;</button>
         </div>
       </td>
     </tr>`;
   }).join('');
+  _updateApplySelectedCount();
 }
 
 let _jdCurrentUrl = '';
@@ -2364,74 +2375,84 @@ async function renderMatchedJobs() {
   } catch (err) { showToast(err.message, 'error'); }
 }
 
-function goToApply() {
-  setWizardStep(4);
-  const minSc = parseInt(document.getElementById('match-min-score').value) || 0;
-  const jobs  = _matchedFiltered.filter(j => (parseInt(j.match_score)||0) >= minSc);
-  document.getElementById('apply-jobs-list').innerHTML = `
-    <div class="pip-table-wrap" style="max-height:420px;">
-      <table class="pip-table">
-        <thead><tr>
-          <th>Title</th><th>Company</th><th>Match %</th><th>Actions</th>
-        </tr></thead>
-        <tbody>${jobs.length ? jobs.map(j => {
-          const sc = parseInt(j.match_score) || 0;
-          return `<tr>
-            <td class="td-title">${esc(j.title||'?')}</td>
-            <td>${esc(j.company||'')}</td>
-            <td>${_scoreBadge(sc)}</td>
-            <td class="td-actions">
-              <div class="man-row-btns">
-                ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="btn-sm" style="text-decoration:none;">View Job</a>` : ''}
-                <button class="btn-sm btn-primary" data-url="${esc(j.url||'')}" onclick="applySingle(this.dataset.url)">Apply</button>
-              </div>
-            </td>
-          </tr>`;
-        }).join('') : '<tr><td colspan="4" style="text-align:center;color:#64748b;padding:20px;">No jobs above the current threshold. Lower the Min Score in Step 3 to include more.</td></tr>'}</tbody>
-      </table>
-    </div>`;
-}
-
-async function _doApply(body) {
-  // Resolve jobs from body, switch to Apply tab
-  let jobs = [];
-  if (body.all) {
-    const minSc = parseInt(document.getElementById('match-min-score')?.value) || 0;
-    jobs = (_matchedFiltered || []).filter(j => (parseInt(j.match_score)||0) >= minSc && !j.skip_reason);
-  } else if (body.urls) {
-    jobs = (_matchedFiltered || []).filter(j => body.urls.includes(j.url));
+async function goToSelect() {
+  await _refreshStepAvail();
+  if (!_stepAvail.step4) {
+    showToast('Run matching first to score jobs before selecting.', 'error');
+    return;
   }
-  if (!jobs.length) { showToast('No jobs selected.', 'error'); return; }
-  setApplyJobs(jobs);
-  showTab('apply');
-  return;
+  setWizardStep(4);
+  await renderMatchedJobs();
 }
 
-async function _doApplyLegacy(body) {
-  document.getElementById('btn-apply-all').disabled = true;
-  document.getElementById('apply-progress').classList.remove('hidden');
-  document.getElementById('apply-msg').textContent = 'Submitting applications…';
+// ── Step 4 → 5: collect jobs and start apply session ──────────────────────────
+
+async function applySelectedJobs() {
+  console.log('applySelectedJobs called');
+  const checked = document.querySelectorAll('.job-select-checkbox:checked');
+  const ids = Array.from(checked).map(cb => parseInt(cb.dataset.jobId)).filter(Boolean);
+  console.log('applySelectedJobs called', ids);
+  if (!ids.length) {
+    showToast('No jobs selected. Please check at least one job.', 'error');
+    return;
+  }
+  await _startApplyWithIds(ids);
+}
+
+async function applyAllJobs() {
+  console.log('applyAllJobs called');
+  const all = document.querySelectorAll('.job-select-checkbox');
+  const ids = Array.from(all).map(cb => parseInt(cb.dataset.jobId)).filter(Boolean);
+  if (!ids.length) {
+    showToast('No jobs to apply to. Run matching first.', 'error');
+    return;
+  }
+  await _startApplyWithIds(ids);
+}
+
+async function _startApplyWithIds(jobIds) {
+  _applySessionStarted = false;
   try {
-    const r = await fetch('/api/pipeline/apply', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(body),
+    const r = await fetch('/api/apply/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({job_ids: jobIds}),
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    _startPoll();
-  } catch (err) {
+    _applySessionStarted = true;
+    _applyRunning = true;
+    _applyStats = {total: d.total || jobIds.length, success: 0, manual: 0, failed: 0};
+    _applyJobs  = d.jobs || [];
+    document.getElementById('asb-total').textContent   = _applyStats.total;
+    document.getElementById('asb-success').textContent = '0';
+    document.getElementById('asb-manual').textContent  = '0';
+    document.getElementById('asb-failed').textContent  = '0';
+    renderApplyCards();
+    connectApplyStream();
+    await _refreshStepAvail();
+    _stepAvail.step5 = true;
+    setWizardStep(5);
+    document.getElementById('btn-apply-start').style.display = 'none';
+    document.getElementById('btn-apply-stop').style.display  = '';
+  } catch(err) {
     showToast(err.message, 'error');
-    document.getElementById('btn-apply-all').disabled = false;
-    document.getElementById('apply-progress').classList.add('hidden');
+    _applyRunning = false;
   }
 }
-function applyAll() { _doApply({all: true}); }
-function applySingle(url) { _doApply({urls: [url]}); }
-function applySelected() {
-  const urls = [...document.querySelectorAll('#matched-tbody .row-cb:checked')].map(c => c.value).filter(Boolean);
-  if (!urls.length) { showToast('No jobs selected.', 'error'); return; }
-  _doApply({urls});
+
+// Legacy single-job helper (used from job detail panel)
+function applySingle(url) {
+  const j = _matchedJobs.find(x => x.url === url);
+  if (!j) { showToast('Job not found.', 'error'); return; }
+  const id = j.scraped_id || 0;
+  if (!id) { showToast('Job ID missing — cannot apply.', 'error'); return; }
+  _startApplyWithIds([id]);
 }
+
+// Keep applyAll/applySelected as aliases (called from job detail panel, etc.)
+function applyAll() { applyAllJobs(); }
+function applySelected() { applySelectedJobs(); }
 
 // ── Apply tab ─────────────────────────────────────────────────────────────────
 let _applyJobs     = [];   // jobs queued for this session
@@ -2439,18 +2460,21 @@ let _applyRunning  = false;
 let _applyEvtSrc   = null; // EventSource for SSE stream
 let _applyStats    = {total:0, success:0, manual:0, failed:0};
 
-function initApplyTab() {
+function initApplyStep() {
   loadManualQueue();
-  // restore any jobs already queued
   renderApplyCards();
 }
 
 function setApplyJobs(jobs) {
   _applyJobs = jobs || [];
-  document.getElementById('asb-total').textContent = _applyJobs.length;
-  document.getElementById('asb-success').textContent = '0';
-  document.getElementById('asb-manual').textContent  = '0';
-  document.getElementById('asb-failed').textContent  = '0';
+  const t = document.getElementById('asb-total');
+  const s = document.getElementById('asb-success');
+  const m = document.getElementById('asb-manual');
+  const f = document.getElementById('asb-failed');
+  if (t) t.textContent = _applyJobs.length;
+  if (s) s.textContent = '0';
+  if (m) m.textContent = '0';
+  if (f) f.textContent = '0';
   _applyStats = {total:_applyJobs.length, success:0, manual:0, failed:0};
   renderApplyCards();
 }
@@ -2569,8 +2593,11 @@ function handleApplyEvent(evt) {
       case 'session_done':
         applyLogLine('done', '■ Session done — ✓ ' + d.success + '  ⚠ ' + d.manual + '  ✗ ' + d.failed);
         _applyRunning = false;
-        document.getElementById('btn-apply-start').style.display = '';
-        document.getElementById('btn-apply-stop').style.display  = 'none';
+        _applySessionStarted = false;
+        const startBtn = document.getElementById('btn-apply-start');
+        const stopBtn  = document.getElementById('btn-apply-stop');
+        if (startBtn) startBtn.style.display = '';
+        if (stopBtn)  stopBtn.style.display  = 'none';
         if (_applyEvtSrc) { _applyEvtSrc.close(); _applyEvtSrc = null; }
         loadManualQueue();
         fetchDashboard();
@@ -2587,28 +2614,13 @@ function updateApplySessionBar() {
 
 async function startApplySession() {
   if (_applyRunning) { showToast('Already running.', 'error'); return; }
-  if (!_applyJobs.length) { showToast('No jobs queued. Go to Step 3 and click Apply.', 'error'); return; }
-  _applyRunning = true;
-  _applyStats   = {total:_applyJobs.length, success:0, manual:0, failed:0};
-  updateApplySessionBar();
-  document.getElementById('btn-apply-start').style.display = 'none';
-  document.getElementById('btn-apply-stop').style.display  = '';
-  // Open SSE stream before starting so we don't miss early events
-  connectApplyStream();
-  try {
-    const r = await fetch('/api/apply/start', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({jobs: _applyJobs}),
-    });
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-  } catch(err) {
-    showToast(err.message, 'error');
-    _applyRunning = false;
-    document.getElementById('btn-apply-start').style.display = '';
-    document.getElementById('btn-apply-stop').style.display  = 'none';
-    if (_applyEvtSrc) { _applyEvtSrc.close(); _applyEvtSrc = null; }
+  if (!_applyJobs.length) { showToast('No jobs queued. Go to Step 4 and select jobs.', 'error'); return; }
+  // Use scraped_id from _applyJobs to call start
+  const ids = _applyJobs.map(j => j.scraped_id || j._id).filter(Boolean);
+  if (ids.length) {
+    await _startApplyWithIds(ids);
+  } else {
+    showToast('Cannot determine job IDs. Please re-select from Step 4.', 'error');
   }
 }
 
@@ -3838,14 +3850,18 @@ def api_pipeline_step_availability():
             has_applied = db.execute(
                 "SELECT 1 FROM applications WHERE date_applied IS NOT NULL LIMIT 1"
             ).fetchone() is not None
+        has_apply_session = db.execute(
+            "SELECT 1 FROM apply_sessions LIMIT 1"
+        ).fetchone() is not None
         return jsonify({
             "step1": True,
             "step2": has_scraped,
             "step3": has_matched,
-            "step4": has_applied or has_matched,
+            "step4": has_matched,
+            "step5": has_apply_session,
         })
     except Exception:
-        return jsonify({"step1": True, "step2": False, "step3": False, "step4": False})
+        return jsonify({"step1": True, "step2": False, "step3": False, "step4": False, "step5": False})
 
 
 @app.route("/api/pipeline/scrape_progress")
@@ -4312,16 +4328,45 @@ def api_apply_start():
     with _apply_lock:
         if _apply_thread and _apply_thread.is_alive():
             return jsonify({"error": "Apply session already running"}), 409
-        body = request.get_json(force=True) or {}
-        jobs = body.get("jobs") or []
+        body     = request.get_json(force=True) or {}
+        job_ids  = body.get("job_ids")   # list of scraped_job.id ints
+        jobs_raw = body.get("jobs")      # legacy: full job dicts
+
+        if job_ids:
+            # Load full job dicts from matched_jobs JOIN scraped_jobs
+            try:
+                import db as _db
+                _db.init_db()
+                cfg = load_config()
+                placeholders = ",".join("?" * len(job_ids))
+                with _db._conn() as conn:
+                    rows = conn.execute(f"""
+                        SELECT s.id AS scraped_id, s.title, s.company, s.location,
+                               s.url, s.description, s.source,
+                               m.match_score, m.interview_chance,
+                               m.german_level AS german_level_required, m.match_summary
+                        FROM scraped_jobs s
+                        JOIN matched_jobs m ON m.scraped_job_id = s.id
+                        WHERE s.id IN ({placeholders})
+                        ORDER BY m.match_score DESC
+                    """, job_ids).fetchall()
+                jobs = [dict(r) for r in rows]
+            except Exception as exc:
+                return jsonify({"error": f"Failed to load jobs: {exc}"}), 500
+        elif jobs_raw:
+            jobs = jobs_raw
+        else:
+            return jsonify({"error": "No jobs provided (pass job_ids or jobs)"}), 400
+
         if not jobs:
-            return jsonify({"error": "No jobs provided"}), 400
+            return jsonify({"error": "No matching jobs found for the given IDs"}), 400
+
         _apply_stop_flag = threading.Event()
         _apply_thread = threading.Thread(
             target=_apply_tab_worker, args=(jobs,), daemon=True
         )
         _apply_thread.start()
-    return jsonify({"ok": True, "total": len(jobs)})
+    return jsonify({"ok": True, "total": len(jobs), "jobs": jobs})
 
 
 @app.route("/api/apply/stop", methods=["POST"])
