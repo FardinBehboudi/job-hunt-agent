@@ -22,20 +22,13 @@ The web dashboard exposes all of these steps as a wizard UI so you can review an
 
 ## Architecture
 
-Two locations on disk:
-
-```
-C:\Users\f_beh\Projects\claude\job-hunt-agent\   ← this repo (code only)
-C:\Users\f_beh\Dropbox\CV\                        ← personal documents (not in repo)
-```
-
 ### Code files
 
 | File | Description |
 |------|-------------|
 | `main.py` | Pipeline orchestrator — calls scraper → matcher → dedup → tailor → applier → email_watcher in sequence. Also exposes `run_scrape_only()`, `run_match_only()`, `run_apply_only()` for the dashboard wizard. |
 | `scraper.py` | Fetches jobs from LinkedIn via the Apify actor. Deduplicates within a run, upserts into `seen_jobs`, loads cached jobs within the `posted_limit` window, applies title-relevance pre-filter to save Claude API calls. |
-| `matcher.py` | Reads the resume PDF, sends each job + resume to Claude for scoring. Caches scores by resume MD5 hash. Filters by German level using substring matching against `skip_german_levels`. |
+| `matcher.py` | Reads the uploaded resume PDF, sends each job + resume to Claude for scoring. Caches scores by resume MD5 hash. Filters by German level using substring matching against `skip_german_levels`. |
 | `dedup.py` | Filters matched jobs against the `applications` table to skip already-applied positions. |
 | `tailor.py` | Generates a tailored resume and cover letter per job (currently skipped in the wizard flow — uploaded documents are used directly). |
 | `applier.py` | Playwright automation for LinkedIn Easy Apply. Handles multi-step forms, file uploads, and confirmation. |
@@ -50,19 +43,19 @@ C:\Users\f_beh\Dropbox\CV\                        ← personal documents (not in
 | `.env.example` | Template for `.env`. |
 | `requirements.txt` | Python dependencies. |
 
-### Dropbox CV folder
+### Uploads folder
+
+All runtime data lives under `uploads/` (gitignored, auto-created on first run):
 
 ```
-C:\Users\f_beh\Dropbox\CV\
-├── agent/
-│   ├── resume_en.pdf            ← English resume (required)
-│   ├── resume_de.pdf            ← German resume
-│   ├── cover_letter_template.docx
-│   └── applied_jobs_log.json    ← auto-created
-├── support/                     ← reference letters, certificates
-├── application_history/         ← one folder per application (auto-created)
-└── job_application_tracker_v34.xlsx
+uploads/
+├── resume_en.pdf          ← uploaded via web UI
+├── cover_letter.*         ← uploaded via web UI
+├── jobhunt.db             ← SQLite database (auto-created)
+└── linkedin_session.json  ← saved LinkedIn session (auto-created)
 ```
+
+No local file paths to configure. Everything is managed through the browser.
 
 ---
 
@@ -102,7 +95,6 @@ full_name: Your Name
 hotmail_address: you@hotmail.com
 notify_email: you@hotmail.com
 phone: '+49...'
-cv_root: C:/Users/yourname/Dropbox/CV
 locations:
   - Berlin
 roles:
@@ -128,7 +120,7 @@ Open **http://localhost:5000** and go to the **Job Hunt Agent** tab.
 
 The main tab. Everything runs as a wizard with four steps.
 
-**Before running the wizard:**
+**Before your first run**, upload your resume and cover letter using the Upload Files panel in the Job Hunt Agent tab. No local file paths needed — everything is managed through the web interface.
 
 - Upload your resume PDF under *Upload Resume*.
 - Upload your cover letter PDF/DOCX under *Upload Cover Letter* (optional).
@@ -185,7 +177,7 @@ This means Apify credits are only spent on genuinely new postings. Jobs with no 
 
 ### Scoring cache (resume hash)
 
-Match scores in `seen_jobs` are tagged with the MD5 hash of your resume PDF.
+Match scores in `seen_jobs` are tagged with the MD5 hash of your uploaded resume PDF.
 
 - **Same resume** → cached score reused, no Claude API call.
 - **Resume changed** → all active jobs (within the time window) are re-scored automatically. Old scores outside the window are left untouched.
@@ -230,11 +222,11 @@ File: `uploads/jobhunt.db` (SQLite, WAL mode)
 | `auto_confirm_technical` | bool | `false` | Automatically confirm technical interview scheduling emails. Set to `false` to review slot options manually. |
 | `headless` | bool | `true` | Run Playwright browser in headless mode. Set to `false` to watch the browser during debugging. |
 | `confirm_before_apply` | bool | `true` | Prompt for y/n confirmation in the terminal before each application (CLI pipeline only). |
-| `cv_root` | string | — | Absolute path to your Dropbox CV folder. |
-| `resume_en` | string | `agent/resume_en.pdf` | Path to English resume relative to `cv_root`. |
-| `resume_de` | string | `agent/resume_de.pdf` | Path to German resume relative to `cv_root`. |
-| `cover_letter_template` | string | `agent/cover_letter_template.docx` | Cover letter template path relative to `cv_root`. |
-| `tracker_file` | string | — | Filename of the Excel tracker inside `cv_root`. |
+| `cv_root` | string | — | **Legacy — not needed when using the web UI.** Only required if running `main.py` directly from the command line. Absolute path to a local CV folder. |
+| `resume_en` | string | `agent/resume_en.pdf` | **Legacy — not needed when using the web UI.** Path to English resume relative to `cv_root`, for CLI use only. |
+| `resume_de` | string | `agent/resume_de.pdf` | **Legacy — not needed when using the web UI.** Path to German resume relative to `cv_root`, for CLI use only. |
+| `cover_letter_template` | string | `agent/cover_letter_template.docx` | **Legacy — not needed when using the web UI.** Cover letter template path relative to `cv_root`, for CLI use only. |
+| `tracker_file` | string | — | Filename of the Excel tracker (used by `excel_updater.py`). |
 
 ---
 
@@ -256,4 +248,4 @@ File: `uploads/jobhunt.db` (SQLite, WAL mode)
 
 ## Logs
 
-All pipeline activity is written to `<cv_root>/agent/agent.log`.
+Activity is logged to the console and to the live log stream in the web UI. For persistent log files, configure a `log_file` path in `config.yaml`.
