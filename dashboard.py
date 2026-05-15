@@ -279,8 +279,7 @@ td { padding: 10px 14px; vertical-align: middle; }
 .error-text   { color: #f87171; font-size: 0.84rem; align-self: center; }
 
 /* ── Config form ── */
-.config-form { padding: 14px 18px; display: flex; flex-direction: column; gap: 9px;
-  max-height: 640px; overflow-y: auto; }
+.config-form { padding: 14px 18px; display: flex; flex-direction: column; gap: 9px; }
 .cfg-section { font-size: 0.67rem; text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563;
   border-bottom: 1px solid #21262d; padding-bottom: 3px; margin-top: 4px; }
 .cfg-row { display: flex; flex-direction: column; gap: 4px; }
@@ -315,6 +314,28 @@ td { padding: 10px 14px; vertical-align: middle; }
 .t-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
   background: #fff; border-radius: 50%; transition: left 0.2s; pointer-events: none; }
 .t-switch input:checked + .t-track .t-thumb { left: 18px; }
+.cfg-select { background:#0d1117; border:1px solid #30363d; color:#e2e8f0;
+  border-radius:6px; padding:6px 10px; font-size:0.83rem; outline:none;
+  transition:border-color 0.15s; width:100%; }
+.cfg-select:focus { border-color:#58a6ff; }
+.lang-list { display:flex; flex-direction:column; gap:5px; margin-bottom:4px; min-height:10px; }
+.lang-row { display:flex; align-items:center; gap:6px; }
+.lang-row input { flex:1; background:#0d1117; border:1px solid #30363d; color:#e2e8f0;
+  border-radius:6px; padding:5px 8px; font-size:0.82rem; outline:none; transition:border-color 0.15s; }
+.lang-row input:focus { border-color:#58a6ff; }
+.lang-rm { background:none; border:none; color:#64748b; cursor:pointer; font-size:1rem; padding:0 4px; flex-shrink:0; }
+.lang-rm:hover { color:#f87171; }
+.agent-2col { display:grid; grid-template-columns:2fr 3fr; gap:16px; align-items:start; margin-bottom:16px; }
+@media (max-width:1024px) { .agent-2col { grid-template-columns:1fr; } }
+.agent-col-left { display:flex; flex-direction:column; gap:16px; }
+.wz-step { border-top:1px solid #21262d; padding:0; }
+.wz-step > .panel-hd { cursor:default; }
+.sdoc-list { display:flex; flex-direction:column; gap:0; }
+.sdoc-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #21262d; }
+.sdoc-row:last-child { border-bottom:none; }
+.sdoc-label { flex:1; font-size:0.82rem; color:#8b949e; }
+.sdoc-status { font-size:0.76rem; color:#64748b; white-space:nowrap; }
+.sdoc-status.uploaded { color:#34d399; }
 
 /* ── Agent control ── */
 .agent-ctrl-row { padding: 14px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
@@ -418,6 +439,10 @@ td { padding: 10px 14px; vertical-align: middle; }
 .job-detail-actions { display:flex; gap:8px; flex-shrink:0; padding:14px 18px;
   border-top:1px solid #21262d; }
 .pip-table tbody tr.clickable { cursor:pointer; }
+.pip-table tbody tr.row-dimmed { opacity:0.42; }
+.pip-table tbody tr.row-dimmed:hover { opacity:0.72; background:#1c2128; }
+.badge-below { display:inline-block; padding:1px 6px; border-radius:99px; font-size:0.68rem;
+  background:#1c2128; color:#475569; border:1px solid #30363d; white-space:nowrap; }
 
 /* ── Manual interview / task tables ── */
 .man-section { background: #161b22; border: 1px solid #21262d; border-radius: 10px;
@@ -478,6 +503,39 @@ td { padding: 10px 14px; vertical-align: middle; }
 .mf input:focus, .mf select:focus, .mf textarea:focus { border-color: #58a6ff; }
 .mf textarea { resize: vertical; min-height: 64px; }
 .mf-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* ── Audit modal ── */
+.audit-summary { display:grid; grid-template-columns:1fr auto auto; gap:0;
+  border:1px solid #21262d; border-radius:8px; overflow:hidden; }
+.audit-row { display:contents; }
+.audit-row > * { padding:9px 14px; font-size:0.83rem; border-bottom:1px solid #21262d; }
+.audit-row:last-child > * { border-bottom:none; }
+.audit-label { color:#c9d1d9; }
+.audit-n { text-align:right; font-weight:700; color:#f0f6fc; white-space:nowrap; }
+.audit-pct { text-align:right; color:#64748b; white-space:nowrap; min-width:48px; }
+.audit-row.passed > * { background:#0d2e1e; }
+.audit-row.passed .audit-label { color:#34d399; }
+.audit-row.failed > * { background:#0d1117; }
+.audit-section { margin-top:14px; border:1px solid #21262d; border-radius:8px; overflow:hidden; }
+.audit-section summary { padding:9px 14px; font-size:0.8rem; font-weight:600;
+  color:#94a3b8; cursor:pointer; list-style:none; display:flex;
+  align-items:center; justify-content:space-between; background:#161b22;
+  user-select:none; }
+.audit-section summary::-webkit-details-marker { display:none; }
+.audit-section[open] summary { border-bottom:1px solid #21262d; color:#c9d1d9; }
+.audit-section summary::after { content:'▸'; font-size:0.75rem; }
+.audit-section[open] summary::after { content:'▾'; }
+.audit-jobs { max-height:260px; overflow-y:auto; }
+.audit-job-row { display:grid; grid-template-columns:1fr auto auto;
+  gap:8px; padding:7px 14px; border-bottom:1px solid #0d1117;
+  font-size:0.78rem; align-items:start; }
+.audit-job-row:last-child { border-bottom:none; }
+.audit-job-title { color:#e2e8f0; font-weight:600; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+.audit-job-co { color:#64748b; font-size:0.73rem; }
+.audit-job-score { white-space:nowrap; text-align:right; }
+.audit-job-reason { grid-column:1/-1; color:#94a3b8; font-size:0.73rem;
+  padding-top:2px; }
 
 /* ── Overview event / task columns ── */
 .ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
@@ -632,153 +690,153 @@ td { padding: 10px 14px; vertical-align: middle; }
   <!-- ═══ AGENT TAB ═══ -->
   <div id="tab-agent" class="tab-content hidden">
 
-    <!-- Upload Files (resume + cover letter only) -->
+    <!-- Agent Control (wizard) -->
     <div class="panel mb16">
-      <div class="panel-hd"><span class="panel-title">&#128194; Upload Files</span></div>
-      <div class="upload-row">
-        <div class="upload-slot" id="us-resume">
-          <div class="upload-icon">&#128196;</div>
-          <div class="upload-label">Resume</div>
-          <div class="upload-sub">PDF or DOCX</div>
-          <input type="file" accept=".pdf,.docx" onchange="uploadFile('resume', this)">
-          <div class="upload-status" id="ust-resume"></div>
-        </div>
-        <div class="upload-slot" id="us-cover_letter">
-          <div class="upload-icon">&#128221;</div>
-          <div class="upload-label">Cover Letter</div>
-          <div class="upload-sub">PDF or DOCX</div>
-          <input type="file" accept=".pdf,.docx" onchange="uploadFile('cover_letter', this)">
-          <div class="upload-status" id="ust-cover_letter"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Cache stats header -->
-    <div id="agent-cache-stats" class="hidden" style="display:flex;gap:20px;padding:8px 4px 12px;font-size:0.78rem;color:#64748b;flex-wrap:wrap;">
-      <span>&#128190; Cache: <strong id="acs-total">—</strong> jobs seen</span>
-      <span>&#128203; <strong id="acs-unseen">—</strong> unscored</span>
-      <span>&#9989; <strong id="acs-applied">—</strong> applied</span>
-      <span>&#128683; <strong id="acs-dismissed">—</strong> dismissed</span>
-    </div>
-
-    <!-- Wizard step indicator -->
-    <div class="wz-indicator mb16">
-      <button class="wz-ind-step active" id="step-ind-1" onclick="navigateToStep(1)"><div class="wz-num">1</div><span>Scrape</span></button>
-      <div class="wz-sep"></div>
-      <button class="wz-ind-step" id="step-ind-2" onclick="navigateToStep(2)" disabled><div class="wz-num">2</div><span>Review</span></button>
-      <div class="wz-sep"></div>
-      <button class="wz-ind-step" id="step-ind-3" onclick="navigateToStep(3)" disabled><div class="wz-num">3</div><span>Match</span></button>
-      <div class="wz-sep"></div>
-      <button class="wz-ind-step" id="step-ind-4" onclick="navigateToStep(4)" disabled><div class="wz-num">4</div><span>Apply</span></button>
-    </div>
-
-    <!-- Step 1: Scrape -->
-    <div id="wz-1" class="panel mb16">
-      <div class="panel-hd"><span class="panel-title">Step 1 — Scrape Jobs</span></div>
-      <div style="padding:20px 18px;">
-        <p style="color:#8b949e;font-size:0.84rem;margin-bottom:16px;">
-          Searches LinkedIn for jobs posted in the last 24 h matching your resume.
-        </p>
-        <button id="btn-scrape" class="btn-primary" onclick="startScrape()">&#128270; Start Scraping</button>
-        <div id="scrape-progress" class="hidden" style="margin-top:14px;">
-          <div class="progress-bar"><div id="scrape-progress-fill" class="progress-fill" style="width:0%;transition:width 0.4s ease;"></div></div>
-          <div id="scrape-msg"     style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
-          <div id="scrape-current" style="margin-top:3px;font-size:0.76rem;color:#94a3b8;"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Step 2: Review -->
-    <div id="wz-2" class="panel mb16 hidden">
       <div class="panel-hd">
-        <span class="panel-title">Step 2 — Review Scraped Jobs</span>
+        <span class="panel-title">&#129302; Agent Control</span>
+        <div id="agent-cache-stats" class="hidden" style="display:flex;gap:16px;font-size:0.78rem;color:#64748b;flex-wrap:wrap;align-items:center;">
+          <span>&#128190; <strong id="acs-total">—</strong> seen</span>
+          <span>&#128203; <strong id="acs-unseen">—</strong> unscored</span>
+          <span>&#9989; <strong id="acs-applied">—</strong> applied</span>
+          <span>&#128683; <strong id="acs-dismissed">—</strong> dismissed</span>
+        </div>
       </div>
-      <div id="scrape-cache-stats" class="cache-stats-bar hidden">
-        <span>&#128994; <strong id="cs-new">0</strong> new</span>
-        <span>&#128290; <strong id="cs-cached">0</strong> from cache</span>
-        <span id="cs-outside-wrap" class="hidden" style="color:#475569;">
-          &#128683; <strong id="cs-outside">0</strong> outside time window (hidden)
-        </span>
-      </div>
-      <div class="pip-toolbar">
-        <span id="scraped-count" class="pip-count"></span>
-        <input id="scraped-search" class="pip-search" type="text" placeholder="Filter by title, company, location…"
-               oninput="filterScrapedJobs()">
-      </div>
-      <div class="pip-table-wrap">
-        <table class="pip-table" id="scraped-table">
-          <thead>
-            <tr>
-              <th>Title</th><th>Company</th><th>Location</th><th>Posted</th><th>Source</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="scraped-tbody"></tbody>
-        </table>
-      </div>
-      <div class="pip-footer">
-        <button class="btn-primary" onclick="goToMatch()">Match &amp; Filter &#8594;</button>
-      </div>
-    </div>
 
-    <!-- Step 3: Match -->
-    <div id="wz-3" class="panel mb16 hidden">
-      <div class="panel-hd">
-        <span class="panel-title">Step 3 — Match &amp; Filter</span>
-        <button id="btn-match" class="btn-primary btn-sm" onclick="startMatch()">&#129302; Run Matching</button>
+      <!-- Wizard step indicator -->
+      <div class="wz-indicator" style="padding:12px 18px 0;">
+        <button class="wz-ind-step active" id="step-ind-1" onclick="navigateToStep(1)"><div class="wz-num">1</div><span>Scrape</span></button>
+        <div class="wz-sep"></div>
+        <button class="wz-ind-step" id="step-ind-2" onclick="navigateToStep(2)" disabled><div class="wz-num">2</div><span>Review</span></button>
+        <div class="wz-sep"></div>
+        <button class="wz-ind-step" id="step-ind-3" onclick="navigateToStep(3)" disabled><div class="wz-num">3</div><span>Match</span></button>
+        <div class="wz-sep"></div>
+        <button class="wz-ind-step" id="step-ind-4" onclick="navigateToStep(4)" disabled><div class="wz-num">4</div><span>Apply</span></button>
       </div>
-      <div id="match-progress" class="hidden" style="padding:14px 18px 8px;">
-        <div class="progress-bar"><div id="match-progress-fill" class="progress-fill" style="width:0%;transition:width 0.4s ease;"></div></div>
-        <div id="match-msg"     style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
-        <div id="match-current" style="margin-top:3px;font-size:0.76rem;color:#94a3b8;"></div>
+
+      <!-- Step 1: Scrape -->
+      <div id="wz-1" class="wz-step">
+        <div style="padding:20px 18px;">
+          <p style="color:#8b949e;font-size:0.84rem;margin-bottom:16px;">
+            Searches LinkedIn for jobs posted in the last 24 h matching your resume.
+          </p>
+          <button id="btn-scrape" class="btn-primary" onclick="startScrape()">&#128270; Start Scraping</button>
+          <div id="scrape-progress" class="hidden" style="margin-top:14px;">
+            <div class="progress-bar"><div id="scrape-progress-fill" class="progress-fill" style="width:0%;transition:width 0.4s ease;"></div></div>
+            <div id="scrape-msg"     style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
+            <div id="scrape-current" style="margin-top:3px;font-size:0.76rem;color:#94a3b8;"></div>
+          </div>
+        </div>
       </div>
-      <div id="match-score-stats" class="hidden"
-           style="padding:5px 18px;font-size:0.77rem;color:#64748b;border-bottom:1px solid #21262d;background:#161b22;"></div>
-      <div id="match-filter-bar" class="hidden" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
-        <label style="font-size:0.82rem;font-weight:600;color:#475569;">Min Score</label>
-        <input id="match-min-score" type="number" min="0" max="100" value="70"
-               style="width:60px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.84rem;">
-        <label style="font-size:0.82rem;font-weight:600;color:#475569;">Interview Chance</label>
-        <select id="match-chance-filter" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.84rem;">
-          <option value="">Any</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
-        <button class="btn-sm btn-primary" onclick="refilterMatchedJobs()">Re-filter</button>
-        <span id="match-filter-count" style="font-size:0.8rem;color:#64748b;margin-left:6px;"></span>
-      </div>
-      <div id="match-empty" style="padding:18px;color:#64748b;font-size:0.84rem;">
-        Click <strong>Run Matching</strong> to score scraped jobs with Claude AI.
-      </div>
-      <div id="matched-table-wrap" class="hidden">
+
+      <!-- Step 2: Review -->
+      <div id="wz-2" class="wz-step hidden">
+        <div class="panel-hd" style="border-top:none;"><span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 2 — Review Scraped Jobs</span></div>
+        <div id="scrape-cache-stats" class="cache-stats-bar hidden">
+          <span>&#128994; <strong id="cs-new">0</strong> new</span>
+          <span>&#128290; <strong id="cs-cached">0</strong> from cache</span>
+          <span id="cs-outside-wrap" class="hidden" style="color:#475569;">
+            &#128683; <strong id="cs-outside">0</strong> outside time window (hidden)
+          </span>
+        </div>
         <div class="pip-toolbar">
-          <span id="matched-count" class="pip-count"></span>
-          <input id="matched-search" class="pip-search" type="text" placeholder="Filter by title, company, location…"
-                 oninput="filterMatchedJobs()">
-          <button class="btn-sm btn-primary" onclick="applySelected()">&#9654; Apply Selected</button>
-          <button class="btn-sm btn-primary" onclick="applyAll()">&#9654; Apply All</button>
+          <span id="scraped-count" class="pip-count"></span>
+          <input id="scraped-search" class="pip-search" type="text" placeholder="Filter by title, company, location…"
+                 oninput="filterScrapedJobs()">
         </div>
         <div class="pip-table-wrap">
-          <table class="pip-table" id="matched-table">
+          <table class="pip-table" id="scraped-table">
             <thead>
               <tr>
-                <th class="cb-col"><input type="checkbox" id="matched-select-all" onchange="toggleSelectAll(this)"></th>
-                <th>Title</th><th>Company</th><th>Location</th>
-                <th>Match %</th><th>Chance</th><th>German</th><th>Actions</th>
+                <th>Title</th><th>Company</th><th>Location</th><th>Posted</th><th>Source</th><th>Actions</th>
               </tr>
             </thead>
-            <tbody id="matched-tbody"></tbody>
+            <tbody id="scraped-tbody"></tbody>
           </table>
         </div>
         <div class="pip-footer">
-          <button class="btn-sm btn-primary" onclick="applySelected()">&#9654; Apply Selected</button>
-          <button class="btn-sm btn-primary" onclick="applyAll()">&#9654; Apply All</button>
-          <button class="btn-sm" onclick="goToApply()">Continue to Apply &#8594;</button>
+          <button class="btn-primary" onclick="goToMatch()">Match &amp; Filter &#8594;</button>
         </div>
       </div>
-    </div>
 
-    <!-- Job detail side panel -->
+      <!-- Step 3: Match -->
+      <div id="wz-3" class="wz-step hidden">
+        <div class="panel-hd" style="border-top:none;">
+          <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 3 — Match &amp; Filter</span>
+          <button id="btn-match" class="btn-primary btn-sm" onclick="startMatch()">&#129302; Run Matching</button>
+        </div>
+        <div id="match-progress" class="hidden" style="padding:14px 18px 8px;">
+          <div class="progress-bar"><div id="match-progress-fill" class="progress-fill" style="width:0%;transition:width 0.4s ease;"></div></div>
+          <div id="match-msg"     style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
+          <div id="match-current" style="margin-top:3px;font-size:0.76rem;color:#94a3b8;"></div>
+        </div>
+        <div id="match-score-stats" class="hidden"
+             style="padding:5px 18px;font-size:0.77rem;color:#64748b;border-bottom:1px solid #21262d;background:#161b22;"></div>
+        <div id="match-filter-bar" class="hidden" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
+          <label style="font-size:0.82rem;font-weight:600;color:#475569;">Min Score</label>
+          <input id="match-min-score" type="number" min="0" max="100" value="70"
+                 style="width:60px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.84rem;">
+          <label style="font-size:0.82rem;font-weight:600;color:#475569;">Interview Chance</label>
+          <select id="match-chance-filter" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.84rem;">
+            <option value="">Any</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <button class="btn-sm btn-primary" onclick="refilterMatchedJobs()">Re-filter</button>
+          <button class="btn-sm" onclick="openAuditModal()" style="margin-left:4px;">&#128202; Audit</button>
+          <span id="match-filter-count" style="font-size:0.8rem;color:#64748b;margin-left:6px;"></span>
+        </div>
+        <div id="match-empty" style="padding:18px;color:#64748b;font-size:0.84rem;">
+          Click <strong>Run Matching</strong> to score scraped jobs with Claude AI.
+        </div>
+        <div id="matched-table-wrap" class="hidden">
+          <div class="pip-toolbar">
+            <span id="matched-count" class="pip-count"></span>
+            <input id="matched-search" class="pip-search" type="text" placeholder="Filter by title, company, location…"
+                   oninput="filterMatchedJobs()">
+            <button class="btn-sm btn-primary" onclick="applySelected()">&#9654; Apply Selected</button>
+            <button class="btn-sm btn-primary" onclick="applyAll()">&#9654; Apply All</button>
+          </div>
+          <div class="pip-table-wrap">
+            <table class="pip-table" id="matched-table">
+              <thead>
+                <tr>
+                  <th class="cb-col"><input type="checkbox" id="matched-select-all" onchange="toggleSelectAll(this)"></th>
+                  <th>Title</th><th>Company</th><th>Location</th>
+                  <th>Match %</th><th>Chance</th><th>German</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="matched-tbody"></tbody>
+            </table>
+          </div>
+          <div class="pip-footer">
+            <button class="btn-sm btn-primary" onclick="applySelected()">&#9654; Apply Selected</button>
+            <button class="btn-sm btn-primary" onclick="applyAll()">&#9654; Apply All</button>
+            <button class="btn-sm" onclick="goToApply()">Continue to Apply &#8594;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4: Apply -->
+      <div id="wz-4" class="wz-step hidden">
+        <div class="panel-hd" style="border-top:none;">
+          <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 4 — Apply</span>
+          <button id="btn-apply-all" class="btn-primary" onclick="applyAll()">&#9654; Apply All</button>
+        </div>
+        <div style="padding:14px 18px;">
+          <div id="apply-jobs-list" class="job-cards"></div>
+          <div id="apply-progress" class="hidden" style="margin-top:14px;">
+            <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
+            <div id="apply-msg" style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
+          </div>
+          <div id="apply-results" class="hidden" style="margin-top:16px;">
+            <a href="/api/download/tracker" class="btn-link">&#11015; Download Updated Tracker</a>
+          </div>
+        </div>
+      </div>
+    </div><!-- /Agent Control panel -->
+
+    <!-- Job detail side panel (position:fixed — outside columns) -->
     <div id="job-detail-overlay" class="job-detail-overlay hidden" onclick="closeJobDetail()"></div>
     <div id="job-detail-panel" class="job-detail-panel">
       <div class="job-detail-header">
@@ -808,44 +866,147 @@ td { padding: 10px 14px; vertical-align: middle; }
       </div>
     </div>
 
-    <!-- Step 4: Apply -->
-    <div id="wz-4" class="panel mb16 hidden">
-      <div class="panel-hd">
-        <span class="panel-title">Step 4 — Apply</span>
-        <button id="btn-apply-all" class="btn-primary" onclick="applyAll()">&#9654; Apply All</button>
-      </div>
-      <div style="padding:14px 18px;">
-        <div id="apply-jobs-list" class="job-cards"></div>
-        <div id="apply-progress" class="hidden" style="margin-top:14px;">
-          <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
-          <div id="apply-msg" style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
+    <!-- Scoring Audit Modal -->
+    <div id="audit-modal" class="modal-backdrop hidden" onclick="if(event.target===this)closeAuditModal()">
+      <div class="modal-box" style="width:660px;">
+        <div class="modal-hd">
+          <span class="modal-title">&#128202; Scoring Audit</span>
+          <button class="modal-close" onclick="closeAuditModal()">&#215;</button>
         </div>
-        <div id="apply-results" class="hidden" style="margin-top:16px;">
-          <a href="/api/download/tracker" class="btn-link">&#11015; Download Updated Tracker</a>
+        <div class="modal-body" id="audit-modal-body" style="gap:0;padding:16px 18px;">
+          <div style="color:#64748b;font-size:0.84rem;text-align:center;padding:20px;">Loading…</div>
         </div>
       </div>
     </div>
 
-    <!-- Roles + Config -->
-    <div class="agent-grid">
-      <div class="panel">
-        <div class="panel-hd">
-          <span class="panel-title">Job Titles</span>
-          <div class="panel-actions">
-            <button class="btn-sm" onclick="selectAllRoles()">Select All</button>
-            <button class="btn-sm" onclick="clearAllRoles()">Clear</button>
-            <button class="btn-sm btn-primary" onclick="saveRoles()">Save</button>
+    <!-- Two-column layout -->
+    <div class="agent-2col">
+
+      <!-- LEFT COLUMN -->
+      <div class="agent-col-left">
+
+        <!-- Upload Files (resume only) -->
+        <div class="panel">
+          <div class="panel-hd"><span class="panel-title">&#128194; Upload Files</span></div>
+          <div class="upload-row" style="justify-content:flex-start;">
+            <div class="upload-slot" id="us-resume">
+              <div class="upload-icon">&#128196;</div>
+              <div class="upload-label">Resume</div>
+              <div class="upload-sub">PDF or DOCX</div>
+              <input type="file" accept=".pdf,.docx" onchange="uploadFile('resume', this)">
+              <div class="upload-status" id="ust-resume"></div>
+            </div>
           </div>
         </div>
-        <div id="roles-container" class="roles-area">
-          <span class="loading-text">Click the Agent tab to load…</span>
+
+        <!-- Job Titles -->
+        <div class="panel">
+          <div class="panel-hd">
+            <span class="panel-title">Job Titles</span>
+            <div class="panel-actions">
+              <button class="btn-sm" onclick="selectAllRoles()">Select All</button>
+              <button class="btn-sm" onclick="clearAllRoles()">Clear</button>
+              <button class="btn-sm btn-primary" onclick="saveRoles()">Save</button>
+            </div>
+          </div>
+          <div id="roles-container" class="roles-area">
+            <span class="loading-text">Click the Agent tab to load…</span>
+          </div>
+          <div class="roles-add-row">
+            <input id="custom-role-input" type="text" placeholder="Add custom title…"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomRole();}">
+            <button class="btn-add-role" onclick="addCustomRole()">+ Add</button>
+          </div>
         </div>
-        <div class="roles-add-row">
-          <input id="custom-role-input" type="text" placeholder="Add custom title…"
-                 onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomRole();}">
-          <button class="btn-add-role" onclick="addCustomRole()">+ Add</button>
+
+        <!-- Application Profile -->
+        <div class="panel">
+          <div class="panel-hd">
+            <span class="panel-title">Application Profile</span>
+            <button class="btn-sm btn-primary" onclick="saveConfig()">Save</button>
+          </div>
+          <div class="config-form">
+            <div class="cfg-2col">
+              <div class="cfg-col">
+                <label>Notice Period</label>
+                <select id="cfg-notice_period" class="cfg-select">
+                  <option value="immediately">Immediately</option>
+                  <option value="2 weeks">2 weeks</option>
+                  <option value="1 month">1 month</option>
+                  <option value="2 months">2 months</option>
+                  <option value="3 months">3 months</option>
+                  <option value="6 months">6 months</option>
+                </select>
+              </div>
+              <div class="cfg-col">
+                <label>Earliest Start</label>
+                <select id="cfg-earliest_start" class="cfg-select">
+                  <option value="immediately">Immediately</option>
+                  <option value="2 weeks">2 weeks</option>
+                  <option value="1 month">1 month</option>
+                  <option value="2 months">2 months</option>
+                  <option value="3 months">3 months</option>
+                  <option value="6 months">6 months</option>
+                </select>
+              </div>
+            </div>
+            <div class="cfg-2col">
+              <div class="cfg-col">
+                <label>Salary Expectation (gross/year)</label>
+                <input id="cfg-salary_expectation" type="number" min="0" step="1000">
+              </div>
+              <div class="cfg-col">
+                <label>Currency</label>
+                <select id="cfg-salary_currency" class="cfg-select">
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="GBP">GBP</option>
+                  <option value="CHF">CHF</option>
+                </select>
+              </div>
+            </div>
+            <div class="cfg-2col">
+              <div class="cfg-col"><label>Years of Experience</label>
+                <input id="cfg-years_of_experience" type="number" min="0" max="50"></div>
+              <div class="cfg-col"><label>Work Permit / Visa</label>
+                <input id="cfg-work_permit" type="text" placeholder="e.g. EU citizen"></div>
+            </div>
+            <div class="cfg-row">
+              <label>Current Location</label>
+              <input id="cfg-current_location" type="text" placeholder="e.g. Berlin, Germany">
+            </div>
+            <div class="cfg-2col">
+              <div class="cfg-col">
+                <label>Willing to Travel</label>
+                <select id="cfg-willing_to_travel" class="cfg-select">
+                  <option value="no">No travel</option>
+                  <option value="occasionally">Occasionally</option>
+                  <option value="25%">Up to 25%</option>
+                  <option value="50%">Up to 50%</option>
+                  <option value="100%">Fully mobile</option>
+                </select>
+              </div>
+              <div class="cfg-col" style="display:flex;align-items:center;gap:8px;padding-top:18px;">
+                <label class="t-switch" style="margin:0;"><input id="cfg-willing_to_relocate" type="checkbox"><div class="t-track"><div class="t-thumb"></div></div></label>
+                <span style="font-size:0.82rem;color:#8b949e;">Willing to relocate</span>
+              </div>
+            </div>
+            <div class="cfg-row">
+              <label>Languages</label>
+              <div id="lang-list" class="lang-list"></div>
+              <button class="btn-sm" onclick="addLanguage()" style="margin-top:4px;align-self:flex-start;">+ Add Language</button>
+            </div>
+            <div class="cfg-section">Support Documents</div>
+            <div style="font-size:0.78rem;color:#64748b;margin-bottom:8px;line-height:1.4;">
+              Automatically attached to LinkedIn Easy Apply forms when matching upload fields appear.
+            </div>
+            <div id="sdoc-list" class="sdoc-list"></div>
+          </div>
         </div>
-      </div>
+
+      </div><!-- /agent-col-left -->
+
+      <!-- RIGHT COLUMN — Config Editor -->
       <div class="panel">
         <div class="panel-hd">
           <span class="panel-title">Config Editor</span>
@@ -884,11 +1045,6 @@ td { padding: 10px 14px; vertical-align: middle; }
           <div class="cfg-row"><label>Email Address</label><input id="cfg-hotmail_address" type="text"></div>
           <div class="cfg-row"><label>Notify Email</label><input id="cfg-notify_email" type="text"></div>
           <div class="cfg-row"><label>Phone</label><input id="cfg-phone" type="text"></div>
-          <div class="cfg-section">Paths</div>
-          <div class="cfg-row"><label>CV Root Path</label><input id="cfg-cv_root" type="text"></div>
-          <div class="cfg-row"><label>Resume EN (relative)</label><input id="cfg-resume_en" type="text"></div>
-          <div class="cfg-row"><label>Resume DE (relative)</label><input id="cfg-resume_de" type="text"></div>
-          <div class="cfg-row"><label>Tracker File</label><input id="cfg-tracker_file" type="text"></div>
           <div class="cfg-section">Scoring</div>
           <div class="cfg-2col">
             <div class="cfg-col"><label>Min Match Score</label><input id="cfg-min_match_score" type="number" min="0" max="100"></div>
@@ -948,11 +1104,12 @@ td { padding: 10px 14px; vertical-align: middle; }
               <label class="t-switch"><input id="cfg-retry_captcha_as_manual" type="checkbox"><div class="t-track"><div class="t-thumb"></div></div></label></div>
           </div>
         </div>
-      </div>
-    </div>
+      </div><!-- /Config Editor -->
+
+    </div><!-- /agent-2col -->
 
     <!-- Live Log -->
-    <div class="panel mt16">
+    <div class="panel">
       <div class="panel-hd">
         <span class="panel-title">Live Log</span>
         <button class="btn-sm" onclick="clearLog()">Clear</button>
@@ -1047,6 +1204,7 @@ function initAgentTab() {
   startLogStream();
   checkUploadedFiles();
   loadCacheStats();
+  loadSupportDocs();
   prefillLinkedInCredentials();
   _initWizardFromHash();
 }
@@ -1392,13 +1550,12 @@ async function checkUploadedFiles() {
   try {
     const r = await fetch('/api/upload/status');
     const d = await r.json();
-    for (const [type, info] of Object.entries(d)) {
-      if (info.exists) {
-        const statusEl = document.getElementById('ust-' + type);
-        const slotEl   = document.getElementById('us-' + type);
-        if (statusEl) { statusEl.textContent = '✓ ' + info.filename; statusEl.style.color = '#34d399'; }
-        if (slotEl)   slotEl.classList.add('uploaded');
-      }
+    const info = d['resume'];
+    if (info && info.exists) {
+      const statusEl = document.getElementById('ust-resume');
+      const slotEl   = document.getElementById('us-resume');
+      if (statusEl) { statusEl.textContent = '✓ ' + info.filename; statusEl.style.color = '#34d399'; }
+      if (slotEl)   slotEl.classList.add('uploaded');
     }
   } catch (_) {}
 }
@@ -1801,12 +1958,12 @@ async function startMatch() {
 }
 
 function _applyMatchFilters() {
-  const q       = (document.getElementById('matched-search').value || '').toLowerCase();
-  const minSc   = parseInt(document.getElementById('match-min-score').value) || 0;
-  const chance  = (document.getElementById('match-chance-filter').value || '').toLowerCase();
+  const q      = (document.getElementById('matched-search').value || '').toLowerCase();
+  const chance = (document.getElementById('match-chance-filter').value || '').toLowerCase();
+  // Score is NOT a hard filter — below-threshold rows are shown dimmed, not hidden.
+  // Only German-level and text/chance search are hard filters here.
   _matchedFiltered = _matchedJobs.filter(j => {
     if ((j.skip_reason||'').toLowerCase().includes('german level')) return false;
-    if ((parseInt(j.match_score) || 0) < minSc) return false;
     if (chance && (j.interview_chance||'').toLowerCase() !== chance) return false;
     if (q && !(
       (j.title||'').toLowerCase().includes(q) ||
@@ -1839,20 +1996,24 @@ function toggleSelectAll(cb) {
 }
 
 function renderMatchedTable() {
-  const scraped = _scrapedJobs.length || '?';
+  const minSc    = parseInt(document.getElementById('match-min-score').value) || 0;
+  const total    = _matchedFiltered.length;
+  const aboveCnt = _matchedFiltered.filter(j => (parseInt(j.match_score)||0) >= minSc).length;
+
   document.getElementById('matched-count').textContent =
-    _matchedFiltered.length + ' of ' + scraped + ' jobs matched';
+    total + ' matched by Claude · ' + aboveCnt + ' above your ' + minSc + '% threshold';
   document.getElementById('match-filter-count').textContent =
-    _matchedFiltered.length + ' jobs match your current filters';
+    aboveCnt + ' above threshold · ' + (total - aboveCnt) + ' below';
 
   const tbody = document.getElementById('matched-tbody');
-  if (!_matchedFiltered.length) {
+  if (!total) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:20px;">No jobs match the filter.</td></tr>';
     return;
   }
   tbody.innerHTML = _matchedFiltered.map((j) => {
-    const sc = parseInt(j.match_score) || 0;
-    return `<tr class="clickable" data-url="${esc(j.url||'')}" onclick="rowClick(event,this)">
+    const sc     = parseInt(j.match_score) || 0;
+    const dimmed = sc < minSc;
+    return `<tr class="clickable${dimmed ? ' row-dimmed' : ''}" data-url="${esc(j.url||'')}" onclick="rowClick(event,this)">
       <td onclick="event.stopPropagation()"><input type="checkbox" class="row-cb" value="${esc(j.url||'')}"></td>
       <td class="td-title">${esc(j.title||'?')}</td>
       <td>${esc(j.company||'')}</td>
@@ -1862,6 +2023,7 @@ function renderMatchedTable() {
       <td><span class="badge-de">${esc(j.german_level_required||j.german_level||'—')}</span></td>
       <td class="td-actions" onclick="event.stopPropagation()">
         <div class="man-row-btns">
+          ${dimmed ? `<span class="badge-below">Below ${minSc}%</span>` : ''}
           ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="btn-sm" style="text-decoration:none;">View Job</a>` : ''}
           <button class="btn-sm btn-primary" data-url="${esc(j.url||'')}" onclick="applySingle(this.dataset.url)">Apply</button>
           <button class="btn-icon del" title="Dismiss forever" data-url="${esc(j.url||'')}" onclick="dismissJob(this.dataset.url,this.closest('tr'))">&#215;</button>
@@ -1938,6 +2100,85 @@ function closeJobDetail() {
   _jdCurrentUrl = '';
 }
 
+function _auditSection(label, jobs, totalScored) {
+  if (!jobs.length) return '';
+  const rows = jobs.map(j => {
+    const sc = parseInt(j.match_score) || 0;
+    const reason = j.skip_reason ? `<div class="audit-job-reason">${esc(j.skip_reason)}</div>` : '';
+    return `<div class="audit-job-row">
+      <div><div class="audit-job-title">${esc(j.title||'?')}</div>
+           <div class="audit-job-co">${esc(j.company||'')}</div></div>
+      <div class="audit-job-score">${_scoreBadge(sc)}</div>
+      <div class="audit-job-score">${_chanceBadge(j.interview_chance)}</div>
+      ${reason}
+    </div>`;
+  }).join('');
+  return `<details class="audit-section">
+    <summary>${label} <span style="color:#475569;font-weight:400;">(${jobs.length})</span></summary>
+    <div class="audit-jobs">${rows}</div>
+  </details>`;
+}
+
+async function openAuditModal() {
+  document.getElementById('audit-modal').classList.remove('hidden');
+  document.getElementById('audit-modal-body').innerHTML =
+    '<div style="color:#64748b;font-size:0.84rem;text-align:center;padding:20px;">Loading…</div>';
+  try {
+    const d = await (await fetch('/api/matcher/audit')).json();
+    if (d.error) throw new Error(d.error);
+    const s = d.summary;
+    const t = s.total_scored || 1;
+    const pct = n => Math.round(n / t * 100) + '%';
+    const bd = d.breakdown;
+
+    document.getElementById('audit-modal-body').innerHTML = `
+      <p style="font-size:0.78rem;color:#64748b;margin:0 0 12px;">
+        ${t} scored jobs &mdash; min score threshold: <strong style="color:#c9d1d9;">${s.min_match_score}</strong>
+      </p>
+      <div class="audit-summary">
+        <div class="audit-row passed">
+          <div class="audit-label">&#10003; Passed threshold</div>
+          <div class="audit-n">${s.passed}</div>
+          <div class="audit-pct">${pct(s.passed)}</div>
+        </div>
+        <div class="audit-row failed">
+          <div class="audit-label">&#215; Score too low</div>
+          <div class="audit-n">${s.failed_score}</div>
+          <div class="audit-pct">${pct(s.failed_score)}</div>
+        </div>
+        <div class="audit-row failed">
+          <div class="audit-label">&#215; German too high</div>
+          <div class="audit-n">${s.failed_german}</div>
+          <div class="audit-pct">${pct(s.failed_german)}</div>
+        </div>
+        <div class="audit-row failed">
+          <div class="audit-label">&#215; Wrong tech stack</div>
+          <div class="audit-n">${s.failed_stack}</div>
+          <div class="audit-pct">${pct(s.failed_stack)}</div>
+        </div>
+      </div>
+      ${_auditSection('&#10003; Passed', bd.passed, t)}
+      ${_auditSection('&#215; Score too low', bd.failed_score, t)}
+      ${_auditSection('&#215; German too high', bd.failed_german, t)}
+      ${_auditSection('&#215; Wrong tech stack', bd.failed_stack, t)}
+    `;
+  } catch(err) {
+    document.getElementById('audit-modal-body').innerHTML =
+      `<div style="color:#f87171;font-size:0.84rem;">Error: ${esc(err.message)}</div>`;
+  }
+}
+
+function closeAuditModal() {
+  document.getElementById('audit-modal').classList.add('hidden');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (_jdCurrentUrl) closeJobDetail();
+    else closeAuditModal();
+  }
+});
+
 function toggleJobDesc() {
   const descEl = document.getElementById('jd-desc');
   const btn    = document.getElementById('jd-desc-toggle');
@@ -1958,10 +2199,6 @@ function _jdApply() {
   const url = document.getElementById('jd-apply-btn').dataset.url;
   if (url) applySingle(url);
 }
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && _jdCurrentUrl) closeJobDetail();
-});
 
 async function renderMatchedJobs() {
   try {
@@ -1992,17 +2229,19 @@ async function renderMatchedJobs() {
     _applyMatchFilters();
     renderMatchedTable();
 
-    // Show scoring cache stats
+    // Show scoring stats bar — always visible after matching completes
     try {
       const sp = await (await fetch('/api/pipeline/match_progress')).json();
       const statsEl = document.getElementById('match-score-stats');
-      if (statsEl && (sp.fresh > 0 || sp.cache_hits > 0 || sp.resume_changed)) {
-        let txt;
+      if (statsEl && sp.scored > 0) {
+        let txt = sp.scored + ' scored by Claude'
+          + ' · ' + sp.passed + ' above ' + sp.min_score + '% threshold'
+          + ' · ' + sp.below_threshold + ' below threshold';
         if (sp.resume_changed) {
-          txt = '⚠ Resume changed — all ' + sp.total + ' jobs re-scored with your new resume';
-        } else {
-          txt = sp.fresh + ' scored fresh';
-          if (sp.cache_hits > 0) txt += ' · ' + sp.cache_hits + ' loaded from score cache (same resume)';
+          txt += ' · ⚠ resume changed — all re-scored';
+        } else if (sp.fresh > 0 || sp.cache_hits > 0) {
+          txt += ' · ' + sp.fresh + ' fresh';
+          if (sp.cache_hits > 0) txt += ' · ' + sp.cache_hits + ' from cache';
         }
         statsEl.textContent = txt;
         statsEl.classList.remove('hidden');
@@ -2013,14 +2252,15 @@ async function renderMatchedJobs() {
 
 function goToApply() {
   setWizardStep(4);
-  const jobs = _matchedFiltered.length ? _matchedFiltered : _matchedJobs;
+  const minSc = parseInt(document.getElementById('match-min-score').value) || 0;
+  const jobs  = _matchedFiltered.filter(j => (parseInt(j.match_score)||0) >= minSc);
   document.getElementById('apply-jobs-list').innerHTML = `
     <div class="pip-table-wrap" style="max-height:420px;">
       <table class="pip-table">
         <thead><tr>
           <th>Title</th><th>Company</th><th>Match %</th><th>Actions</th>
         </tr></thead>
-        <tbody>${jobs.map(j => {
+        <tbody>${jobs.length ? jobs.map(j => {
           const sc = parseInt(j.match_score) || 0;
           return `<tr>
             <td class="td-title">${esc(j.title||'?')}</td>
@@ -2033,7 +2273,7 @@ function goToApply() {
               </div>
             </td>
           </tr>`;
-        }).join('')}</tbody>
+        }).join('') : '<tr><td colspan="4" style="text-align:center;color:#64748b;padding:20px;">No jobs above the current threshold. Lower the Min Score in Step 3 to include more.</td></tr>'}</tbody>
       </table>
     </div>`;
 }
@@ -2182,11 +2422,13 @@ async function saveRoles() {
 // ── Config editor ─────────────────────────────────────────────────────────────
 let _cfgData = {};
 const _tagLists = {};
-const _TEXT_KEYS = ['full_name','hotmail_address','notify_email','phone','cv_root','resume_en','resume_de','tracker_file'];
-const _NUM_KEYS  = ['min_match_score','max_applications_per_day','scrape_pool_size'];
-const _TOG_KEYS  = ['auto_confirm_recruiter_call','auto_confirm_technical','headless','confirm_before_apply','retry_captcha_as_manual','smart_scrape'];
+const _TEXT_KEYS   = ['full_name','hotmail_address','notify_email','phone','work_permit','current_location'];
+const _NUM_KEYS    = ['min_match_score','max_applications_per_day','scrape_pool_size','years_of_experience','salary_expectation'];
+const _TOG_KEYS    = ['auto_confirm_recruiter_call','auto_confirm_technical','headless','confirm_before_apply','retry_captcha_as_manual','smart_scrape','willing_to_relocate'];
 // smart_scrape rendered inline with scrape_pool_size — still in _TOG_KEYS so loadConfig/saveConfig handle it automatically
-const _TAG_KEYS  = ['locations','skip_german_levels'];
+const _SELECT_KEYS = ['notice_period','salary_currency','willing_to_travel','earliest_start'];
+const _TAG_KEYS    = ['locations','skip_german_levels'];
+let _languages     = [];
 
 function updatePoolCostEstimate() {
   const el   = document.getElementById('cfg-scrape_pool_size');
@@ -2209,12 +2451,15 @@ async function loadConfig() {
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     _cfgData = d;
-    _TEXT_KEYS.forEach(k => { const el = document.getElementById('cfg-' + k); if (el) el.value = d[k] || ''; });
-    _NUM_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el) el.value = d[k] ?? ''; });
-    _TOG_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el) el.checked = !!d[k]; });
-    _TAG_KEYS.forEach(k  => { _tagLists[k] = [...(d[k] || [])]; renderTagList(k); });
+    _TEXT_KEYS.forEach(k   => { const el = document.getElementById('cfg-' + k); if (el) el.value = d[k] || ''; });
+    _NUM_KEYS.forEach(k    => { const el = document.getElementById('cfg-' + k); if (el) el.value = d[k] ?? ''; });
+    _TOG_KEYS.forEach(k    => { const el = document.getElementById('cfg-' + k); if (el) el.checked = !!d[k]; });
+    _SELECT_KEYS.forEach(k => { const el = document.getElementById('cfg-' + k); if (el && d[k] != null) el.value = d[k]; });
+    _TAG_KEYS.forEach(k    => { _tagLists[k] = [...(d[k] || [])]; renderTagList(k); });
     const plEl = document.getElementById('cfg-posted_limit');
     if (plEl && d.posted_limit) plEl.value = d.posted_limit;
+    _languages = (d.languages || []).map(l => ({language: l.language || '', level: l.level || ''}));
+    renderLanguages();
     updatePoolCostEstimate();
   } catch (err) { showToast('Config load error: ' + err.message, 'error'); }
 }
@@ -2243,12 +2488,14 @@ function addTag(key) {
 function addTagOnEnter(e, key) { if (e.key === 'Enter') { e.preventDefault(); addTag(key); } }
 async function saveConfig() {
   const payload = {..._cfgData};
-  _TEXT_KEYS.forEach(k => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.value; });
-  _NUM_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.value !== '' ? Number(el.value) : null; });
-  _TOG_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.checked; });
-  _TAG_KEYS.forEach(k  => { payload[k] = _tagLists[k] || []; });
+  _TEXT_KEYS.forEach(k   => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.value; });
+  _NUM_KEYS.forEach(k    => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.value !== '' ? Number(el.value) : null; });
+  _TOG_KEYS.forEach(k    => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.checked; });
+  _SELECT_KEYS.forEach(k => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.value; });
+  _TAG_KEYS.forEach(k    => { payload[k] = _tagLists[k] || []; });
   const plEl = document.getElementById('cfg-posted_limit');
   if (plEl) payload.posted_limit = plEl.value;
+  payload.languages = _languages.filter(l => (l.language || '').trim());
   delete payload.paths; delete payload.contact;
   const btn = document.getElementById('btn-save-config');
   btn.disabled = true; btn.textContent = 'Saving…';
@@ -2258,6 +2505,89 @@ async function saveConfig() {
     d.ok ? showToast('Config saved ✓') : showToast('Save failed: ' + d.error, 'error');
   } catch (err) { showToast('Error: ' + err.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Config'; }
+}
+
+// ── Language widget ───────────────────────────────────────────────────────────
+function renderLanguages() {
+  const box = document.getElementById('lang-list');
+  if (!box) return;
+  if (!_languages.length) { box.innerHTML = ''; return; }
+  box.innerHTML = _languages.map((l, i) => `
+    <div class="lang-row">
+      <input type="text" placeholder="Language (e.g. English)" value="${esc(l.language||'')}"
+             oninput="_languages[${i}].language=this.value">
+      <input type="text" placeholder="Level (e.g. Fluent, B1)" value="${esc(l.level||'')}"
+             oninput="_languages[${i}].level=this.value" style="max-width:130px;">
+      <button class="lang-rm" onclick="_languages.splice(${i},1);renderLanguages()" title="Remove">&#215;</button>
+    </div>`).join('');
+}
+
+function addLanguage() {
+  _languages.push({language:'', level:''});
+  renderLanguages();
+  const inputs = document.querySelectorAll('#lang-list .lang-row:last-child input');
+  if (inputs[0]) inputs[0].focus();
+}
+
+// ── Support documents (slot-based) ────────────────────────────────────────────
+const _SUPPORT_SLOTS = ['cover_letter','reference_1','reference_2','reference_3',
+                        'photo','german_cert','university_doc','other'];
+
+async function loadSupportDocs() {
+  try {
+    const r = await fetch('/api/upload/support');
+    const d = await r.json();
+    renderSupportDocs(d.slots || {});
+  } catch (_) {}
+}
+
+function renderSupportDocs(slots) {
+  const box = document.getElementById('sdoc-list');
+  if (!box) return;
+  box.innerHTML = Object.entries(slots).map(([key, info]) => `
+    <div class="sdoc-row">
+      <span class="sdoc-label">&#128196; ${esc(info.label)}</span>
+      ${info.exists
+        ? `<span class="sdoc-status uploaded">&#10003; ${esc(info.filename)}</span>
+           <button class="btn-sm" style="padding:2px 8px;font-size:0.75rem;"
+                   onclick="removeSlot('${esc(key)}')">&#215;</button>`
+        : `<span class="sdoc-status">—</span>
+           <button class="btn-sm" style="padding:2px 8px;font-size:0.75rem;"
+                   onclick="triggerSlotUpload('${esc(key)}')">Upload</button>`
+      }
+      <input type="file" id="sdoc-input-${esc(key)}" accept=".pdf,.docx,.doc" class="hidden"
+             onchange="uploadSlot('${esc(key)}', this)">
+    </div>`).join('');
+}
+
+function triggerSlotUpload(slot) {
+  const el = document.getElementById('sdoc-input-' + slot);
+  if (el) el.click();
+}
+
+async function uploadSlot(slot, input) {
+  if (!input.files.length) return;
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  showToast('Uploading…');
+  try {
+    const r = await fetch('/api/upload/support/' + encodeURIComponent(slot), {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    showToast(d.filename + ' uploaded');
+    await loadSupportDocs();
+  } catch(err) { showToast(err.message, 'error'); }
+  input.value = '';
+}
+
+async function removeSlot(slot) {
+  try {
+    const r = await fetch('/api/upload/support/' + encodeURIComponent(slot), {method:'DELETE'});
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    showToast('Removed');
+    await loadSupportDocs();
+  } catch(err) { showToast(err.message, 'error'); }
 }
 
 // ── LinkedIn connection ───────────────────────────────────────────────────────
@@ -2995,6 +3325,78 @@ def api_upload_status():
     return jsonify(result)
 
 
+# ── Support documents upload (slot-based) ─────────────────────────────────────
+
+_SUPPORT_DIR = _UPLOADS_DIR / "support"
+_ALLOWED_SUPPORT = {".pdf", ".docx", ".doc"}
+_SUPPORT_SLOTS = {
+    "cover_letter":   "Cover Letter",
+    "reference_1":    "Reference Letter 1",
+    "reference_2":    "Reference Letter 2",
+    "reference_3":    "Reference Letter 3",
+    "photo":          "Personal Photo",
+    "german_cert":    "German Language Certificate",
+    "university_doc": "University Document",
+    "other":          "Other",
+}
+
+
+def _slot_file(slot: str) -> Path | None:
+    """Return the existing file for a slot (any allowed extension), or None."""
+    if slot not in _SUPPORT_SLOTS:
+        return None
+    for ext in _ALLOWED_SUPPORT:
+        p = _SUPPORT_DIR / (slot + ext)
+        if p.exists():
+            return p
+    return None
+
+
+@app.route("/api/upload/support", methods=["GET"])
+def api_upload_support_list():
+    _SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
+    slots = {}
+    for key, label in _SUPPORT_SLOTS.items():
+        f = _slot_file(key)
+        slots[key] = {
+            "label":    label,
+            "exists":   f is not None,
+            "filename": f.name if f else None,
+        }
+    return jsonify({"slots": slots})
+
+
+@app.route("/api/upload/support/<slot>", methods=["POST"])
+def api_upload_support_slot(slot: str):
+    if slot not in _SUPPORT_SLOTS:
+        return jsonify({"error": "Unknown slot"}), 400
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No file"}), 400
+    ext = Path(f.filename).suffix.lower()
+    if ext not in _ALLOWED_SUPPORT:
+        return jsonify({"error": "File type not allowed"}), 400
+    _SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
+    # Remove any previously uploaded file for this slot
+    old = _slot_file(slot)
+    if old:
+        old.unlink(missing_ok=True)
+    dest = _SUPPORT_DIR / (slot + ext)
+    f.save(str(dest))
+    return jsonify({"ok": True, "filename": dest.name})
+
+
+@app.route("/api/upload/support/<slot>", methods=["DELETE"])
+def api_upload_support_slot_delete(slot: str):
+    if slot not in _SUPPORT_SLOTS:
+        return jsonify({"error": "Unknown slot"}), 400
+    f = _slot_file(slot)
+    if not f:
+        return jsonify({"error": "No file for this slot"}), 404
+    f.unlink()
+    return jsonify({"ok": True})
+
+
 # ── Pipeline workers + routes ─────────────────────────────────────────────────
 
 def _run_in_thread(fn, *args) -> bool:
@@ -3021,7 +3423,23 @@ def _match_worker():
     _pipeline_set(step=3, error=None)
     try:
         import main as _main
+        import db as _db
         jobs = _main.run_match_only()
+        # Sync matched_jobs scores back into seen_jobs so audit and cache stats stay consistent
+        _db.init_db()
+        with _db._conn() as db:
+            rows = db.execute("""
+                SELECT sj.url, mj.match_score, mj.interview_chance,
+                       mj.skip_reason, mj.german_level
+                FROM matched_jobs mj
+                JOIN scraped_jobs sj ON sj.id = mj.scraped_job_id
+            """).fetchall()
+            db.executemany("""
+                UPDATE seen_jobs
+                SET match_score=?, interview_chance=?, skip_reason=?,
+                    german_level_required=?
+                WHERE url=?
+            """, [(r[1], r[2], r[3], r[4], r[0]) for r in rows])
         _pipeline_set(step=4, matched_count=len(jobs))
     except Exception as exc:
         _pipeline_set(step=-1, error=str(exc))
@@ -3099,9 +3517,16 @@ def api_pipeline_match_progress():
     try:
         import db as _db
         _db.init_db()
+        cfg = load_config()
+        min_score = int(cfg.get("min_match_score", 70))
         with _db._conn() as db:
             total   = db.execute("SELECT COUNT(*) FROM scraped_jobs").fetchone()[0]
             scored  = db.execute("SELECT COUNT(*) FROM matched_jobs").fetchone()[0]
+            passed  = db.execute(
+                "SELECT COUNT(*) FROM matched_jobs WHERE match_score >= ?"
+                " AND (skip_reason IS NULL OR skip_reason = '')",
+                (min_score,)
+            ).fetchone()[0]
             last    = db.execute("""
                 SELECT s.title, s.company FROM matched_jobs m
                 JOIN scraped_jobs s ON s.id = m.scraped_job_id
@@ -3111,18 +3536,22 @@ def api_pipeline_match_progress():
         import matcher as _matcher
         stats = _matcher.get_match_stats()
         return jsonify({
-            "total":          total,
-            "scored":         scored,
-            "remaining":      max(0, total - scored),
-            "current_job":    current_job,
-            "fresh":          stats.get("fresh", 0),
-            "cache_hits":     stats.get("cache_hits", 0),
-            "resume_changed": stats.get("resume_changed", False),
+            "total":           total,
+            "scored":          scored,
+            "remaining":       max(0, total - scored),
+            "current_job":     current_job,
+            "fresh":           stats.get("fresh", 0),
+            "cache_hits":      stats.get("cache_hits", 0),
+            "resume_changed":  stats.get("resume_changed", False),
+            "passed":          passed,
+            "below_threshold": max(0, scored - passed),
+            "min_score":       min_score,
         })
     except Exception:
         return jsonify({
             "total": 0, "scored": 0, "remaining": 0, "current_job": "",
             "fresh": 0, "cache_hits": 0, "resume_changed": False,
+            "passed": 0, "below_threshold": 0, "min_score": 70,
         })
 
 
@@ -3208,6 +3637,56 @@ def api_pipeline_matched_jobs():
         if not p.exists():
             return jsonify({"jobs": []})
         return jsonify({"jobs": json.loads(p.read_text(encoding="utf-8"))})
+
+
+@app.route("/api/matcher/audit")
+def api_matcher_audit():
+    try:
+        import db as _db
+        _db.init_db()
+        cfg = load_config()
+        min_score = int(cfg.get("min_match_score", 70))
+        with _db._conn() as db:
+            rows = db.execute("""
+                SELECT s.title, s.company, s.url,
+                       m.match_score, m.interview_chance,
+                       m.german_level AS german_level_required, m.skip_reason
+                FROM matched_jobs m
+                JOIN scraped_jobs s ON s.id = m.scraped_job_id
+                ORDER BY m.match_score DESC
+            """).fetchall()
+        passed, failed_score, failed_german, failed_stack = [], [], [], []
+        for r in rows:
+            j    = dict(r)
+            skip = (j.get("skip_reason") or "").lower()
+            sc   = j.get("match_score") or 0
+            if "german level" in skip:
+                failed_german.append(j)
+            elif "stack" in skip or "language" in skip:
+                failed_stack.append(j)
+            elif sc >= min_score and not skip:
+                passed.append(j)
+            else:
+                failed_score.append(j)
+        total = len(passed) + len(failed_score) + len(failed_german) + len(failed_stack)
+        return jsonify({
+            "summary": {
+                "total_scored":    total,
+                "min_match_score": min_score,
+                "passed":          len(passed),
+                "failed_score":    len(failed_score),
+                "failed_german":   len(failed_german),
+                "failed_stack":    len(failed_stack),
+            },
+            "breakdown": {
+                "passed":        passed,
+                "failed_score":  failed_score,
+                "failed_german": failed_german,
+                "failed_stack":  failed_stack,
+            },
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ── Agent subprocess ──────────────────────────────────────────────────────────

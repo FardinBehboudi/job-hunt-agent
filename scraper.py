@@ -264,7 +264,7 @@ def run(cfg: dict | None = None) -> list[dict]:
     import db as _db_cache
     _db_cache.init_db()
     cached_urls = _db_cache.get_cached_job_urls()
-    applied_urls = _get_applied_urls()
+    applied_urls, applied_combos = _get_applied_data()
     log.info("Cache: %d known URLs, %d already applied", len(cached_urls), len(applied_urls))
 
     # Clear previous run's temp data before fetching fresh results
@@ -322,12 +322,25 @@ def run(cfg: dict | None = None) -> list[dict]:
     else:
         jobs = jobs[:_MAX_TOTAL_JOBS]
 
-    # ── Applied-URL dedup ────────────────────────────────────────────────────
+    # ── Applied dedup (URL + company+title) ─────────────────────────────────
     before = len(jobs)
-    jobs = [j for j in jobs if not (j.get("url") and j["url"] in applied_urls)]
-    skipped = before - len(jobs)
+    filtered: list[dict] = []
+    for j in jobs:
+        url     = j.get("url") or ""
+        company = (j.get("company") or "").lower().strip()
+        title   = (j.get("title") or "").lower().strip()
+        combo   = (company, title)
+        if url and url in applied_urls:
+            log.info("Skip (already in dashboard): %s @ %s", j.get("title"), j.get("company"))
+            continue
+        if company and title and combo in applied_combos:
+            log.info("Skip (already in dashboard): %s @ %s", j.get("title"), j.get("company"))
+            continue
+        filtered.append(j)
+    skipped = before - len(filtered)
     if skipped:
         log.info("Skipped %d jobs already in applications table", skipped)
+    jobs = filtered
 
     # Tag fresh jobs: "new" if not seen before, "cached" if already in the cache
     for j in jobs:
@@ -336,10 +349,18 @@ def run(cfg: dict | None = None) -> list[dict]:
     # ── Stage 3: Add cached jobs within the configured time window ─────────────
     fresh_urls    = {j.get("url") for j in jobs if j.get("url")}
     all_cached    = _db_cache.get_relevant_cached_jobs(cfg)
-    cached_extra  = [
-        j for j in all_cached
-        if j.get("url") not in fresh_urls and j.get("url") not in applied_urls
-    ]
+    cached_extra = []
+    for j in all_cached:
+        url     = j.get("url") or ""
+        company = (j.get("company") or "").lower().strip()
+        title   = (j.get("title") or "").lower().strip()
+        if url and url in fresh_urls:
+            continue
+        if url and url in applied_urls:
+            continue
+        if company and title and (company, title) in applied_combos:
+            continue
+        cached_extra.append(j)
     for j in cached_extra:
         j["cache_status"] = "cached"
 
@@ -390,23 +411,30 @@ def _clear_run_tables() -> None:
         log.warning("Could not clear run tables: %s", exc)
 
 
-def _get_applied_urls() -> set[str]:
-    """Return non-empty job URLs from the applications table (already-applied guard)."""
+def _get_applied_data() -> tuple[set[str], set[tuple[str, str]]]:
+    """Return (applied_urls, applied_combos) from the applications table."""
     try:
         con = _db_connect()
         try:
             rows = con.execute(
-                "SELECT job_url FROM applications"
-                " WHERE job_url IS NOT NULL AND job_url != ''"
+                "SELECT job_url, company, role FROM applications"
+                " WHERE job_url IS NOT NULL OR company IS NOT NULL"
             ).fetchall()
-            urls = {r[0].strip() for r in rows if r[0] and r[0].strip()}
-            log.info("Applied-URL dedup set: %d entries", len(urls))
-            return urls
+            applied_urls   = {r[0].strip() for r in rows if r[0] and r[0].strip()}
+            applied_combos = {
+                (r[1].lower().strip(), r[2].lower().strip())
+                for r in rows if r[1] and r[2]
+            }
+            log.info(
+                "Applied dedup: %d URLs, %d company+title combos",
+                len(applied_urls), len(applied_combos),
+            )
+            return applied_urls, applied_combos
         finally:
             con.close()
     except Exception as exc:
-        log.warning("Could not fetch applied URLs from DB: %s", exc)
-        return set()
+        log.warning("Could not fetch applied data from DB: %s", exc)
+        return set(), set()
 
 
 def _save_to_db(jobs: list[dict]) -> None:

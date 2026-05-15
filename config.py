@@ -8,12 +8,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
+_UPLOADS_DIR         = Path(__file__).parent / "uploads"
 
+# Only the keys the core pipeline cannot function without.
+# Path-based keys (cv_root, resume_en, cover_letter_template, etc.) are no
+# longer required — files are managed through the web UI upload panel.
 _REQUIRED_KEYS = [
-    "locations", "min_match_score", "max_applications_per_day",
-    "skip_german_levels", "cv_root",
-    "resume_en", "cover_letter_template", "tracker_file",
-    "history_folder", "support_folder", "log_file",
+    "locations",
+    "min_match_score",
+    "max_applications_per_day",
+    "posted_limit",
+    "scrape_pool_size",
 ]
 
 _cfg_cache: dict | None = None
@@ -35,26 +40,35 @@ def load_config(path: str | None = None) -> dict:
     if missing:
         raise ValueError(f"config.yaml missing required keys: {missing}")
 
-    cv_root = Path(cfg["cv_root"])
+    # ── Path resolution ───────────────────────────────────────────────────────
+    # Web-UI managed files live in uploads/.
+    # cv_root is optional: if set (legacy CLI), it overrides the tracker and
+    # log paths the way the old system expected.
+    cv_root = Path(cfg["cv_root"]) if cfg.get("cv_root") else None
+
+    def _cv(rel: str | None, fallback: Path) -> Path:
+        """Return cv_root/rel if cv_root is set and rel is non-empty, else fallback."""
+        return (cv_root / rel) if (cv_root and rel) else fallback
+
     cfg["paths"] = {
-        "cv_root":               cv_root,
-        "resume_en":             cv_root / cfg["resume_en"],
-        "resume_de":             cv_root / cfg.get("resume_de", "agent/resume_de.pdf"),
-        "cover_letter_template": cv_root / cfg["cover_letter_template"],
-        "tracker_file":          cv_root / cfg["tracker_file"],
-        "history_folder":        cv_root / cfg["history_folder"],
-        "support_folder":        cv_root / cfg["support_folder"],
-        "log_file":              cv_root / cfg["log_file"],
-        "agent_dir":             cv_root / "agent",
+        "cv_root":               cv_root or _UPLOADS_DIR,
+        "resume_en":             _UPLOADS_DIR / "resume_en.pdf",
+        "resume_de":             _UPLOADS_DIR / "resume_de.pdf",
+        "cover_letter_template": _UPLOADS_DIR / "cover_letter.pdf",
+        "tracker_file":          _cv(cfg.get("tracker_file"),
+                                      _UPLOADS_DIR / (cfg.get("tracker_file") or "job_applications.xlsx")),
+        "history_folder":        _cv(cfg.get("history_folder"), _UPLOADS_DIR / "history"),
+        "support_folder":        _UPLOADS_DIR / "support",
+        "log_file":              _cv(cfg.get("log_file"), _UPLOADS_DIR / "applied_jobs_log.json"),
+        "agent_dir":             _UPLOADS_DIR,
     }
 
-    # Normalise contact fields — support both naming conventions in config.yaml
+    # ── Contact normalisation ─────────────────────────────────────────────────
     cfg["contact"] = {
         "name":  cfg.get("full_name") or cfg.get("name", ""),
         "email": cfg.get("email") or cfg.get("hotmail_address", ""),
         "phone": cfg.get("phone", ""),
     }
-    # Ensure hotmail_address is set (used by email_watcher)
     if "hotmail_address" not in cfg:
         cfg["hotmail_address"] = cfg["contact"]["email"]
     if "notify_email" not in cfg:

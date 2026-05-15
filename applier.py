@@ -94,6 +94,9 @@ async def _apply_linkedin(page: Page, job: dict, archive: Path,
             contact.get("phone", ""),
         )
 
+        # Fill Application Profile fields (salary, notice period, experience, etc.)
+        await _fill_profile_fields(page, cfg)
+
         # Upload resume (prefer PDF from archive, fall back to docx)
         resume_pdf = archive / "resume_en.pdf"
         if not resume_pdf.exists():
@@ -145,30 +148,63 @@ async def _apply_linkedin(page: Page, job: dict, archive: Path,
         return False
 
 
-async def _maybe_attach_references(page: Page, cfg: dict) -> None:
-    """Attach reference PDFs if a 'references' file-upload field appears."""
-    support_dir: Path = cfg["paths"]["support_folder"]
-    if not support_dir.exists():
-        return
+_SUPPORT_DIR = Path(__file__).resolve().parent / "uploads" / "support"
 
-    ref_pdfs = [
-        p for p in support_dir.iterdir()
-        if p.suffix.lower() == ".pdf" and "reference" in p.name.lower()
+
+async def _fill_profile_fields(page: Page, cfg: dict) -> None:
+    """Fill common Easy Apply form fields from Application Profile config."""
+    salary = str(cfg.get("salary_expectation") or "")
+    notice = str(cfg.get("notice_period") or "")
+    years  = str(cfg.get("years_of_experience") or "")
+    permit = str(cfg.get("work_permit") or "")
+    loc    = str(cfg.get("current_location") or "")
+
+    field_map = [
+        ("input[aria-label*='salary' i], input[aria-label*='expected salary' i], "
+         "input[id*='salary' i]",                                                     salary),
+        ("input[aria-label*='notice period' i], input[aria-label*='notice' i], "
+         "input[id*='notice' i]",                                                     notice),
+        ("input[aria-label*='years of experience' i], input[aria-label*='experience' i]", years),
+        ("input[aria-label*='work authorization' i], input[aria-label*='work permit' i], "
+         "input[aria-label*='visa' i], input[aria-label*='right to work' i]",         permit),
+        ("input[aria-label*='current city' i], input[aria-label*='current location' i]", loc),
     ]
-    if not ref_pdfs:
+    for selector, value in field_map:
+        if value:
+            await _fill_if_empty(page, selector, value)
+
+    if cfg.get("willing_to_relocate"):
+        relocate_yes = page.locator(
+            "label:has-text('Yes')[for*='relocate' i], "
+            "input[type='radio'][aria-label*='willing to relocate' i][value*='yes' i]"
+        )
+        if await relocate_yes.count():
+            await relocate_yes.first.click()
+            log.info("Filled: willing to relocate = Yes")
+
+
+async def _maybe_attach_references(page: Page, cfg: dict) -> None:
+    """Attach support documents (reference letters, certificates) when upload field appears."""
+    if not _SUPPORT_DIR.exists():
+        return
+    support_files = [
+        p for p in _SUPPORT_DIR.iterdir()
+        if p.is_file() and p.suffix.lower() in {".pdf", ".docx"}
+    ]
+    if not support_files:
         return
 
-    # Look for a file input labelled "reference" or "additional documents"
-    ref_labels = ["reference", "additional", "document", "anlage"]
+    ref_labels = ["reference", "certificate", "additional", "document", "anlage"]
     for label in ref_labels:
         locator = page.locator(
             f"input[type='file'][aria-label*='{label}' i], "
+            f"label:has-text('{label}') ~ input[type='file'], "
             f"label:has-text('{label}') + input[type='file']"
         )
         if await locator.count():
-            await locator.first.set_input_files([str(p) for p in ref_pdfs])
+            await locator.first.set_input_files([str(p) for p in support_files])
             await _delay()
-            log.info("Attached %d reference PDF(s)", len(ref_pdfs))
+            log.info("Attached %d support document(s)", len(support_files))
             break
 
 
