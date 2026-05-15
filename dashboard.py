@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key as dotenv_set_key
 from flask import Flask, Response, jsonify, render_template_string, request, send_file
 
 load_dotenv()
@@ -207,13 +207,18 @@ td { padding: 10px 14px; vertical-align: middle; }
 .wz-indicator { display: flex; align-items: center; margin-bottom: 20px; padding: 14px 18px;
   background: #161b22; border: 1px solid #21262d; border-radius: 10px; }
 .wz-ind-step { display: flex; align-items: center; gap: 8px;
-  font-size: 0.82rem; color: #4b5563; flex-shrink: 0; }
+  font-size: 0.82rem; color: #4b5563; flex-shrink: 0;
+  background: none; border: none; padding: 0; font-family: inherit; }
 .wz-ind-step.active { color: #f0f6fc; }
-.wz-ind-step.done   { color: #34d399; }
+.wz-ind-step.done          { color: #34d399; }
+.wz-ind-step.done:hover    { color: #6ee7b7; }
+.wz-ind-step.done:hover .wz-num { border-color: #6ee7b7; }
+.wz-ind-step:not([disabled]) { cursor: pointer; }
+.wz-ind-step[disabled]     { cursor: default; opacity: 0.45; }
 .wz-num { width: 22px; height: 22px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 0.72rem; font-weight: 700;
-  background: #21262d; border: 1px solid #30363d; flex-shrink: 0; }
+  background: #21262d; border: 1px solid #30363d; flex-shrink: 0; color: #8b949e; }
 .wz-ind-step.active .wz-num { background: #1f6feb; border-color: #388bfd; color: #fff; }
 .wz-ind-step.done   .wz-num { background: #0d2818; border-color: #34d399; color: #34d399; }
 .wz-sep { flex: 1; height: 1px; background: #21262d; min-width: 16px; max-width: 48px; margin: 0 6px; }
@@ -376,6 +381,43 @@ td { padding: 10px 14px; vertical-align: middle; }
 .badge-de { display: inline-block; padding: 2px 7px; border-radius: 99px;
   font-size: 0.73rem; white-space: nowrap;
   background: #161b22; color: #8b949e; border: 1px solid #30363d; }
+/* Cache source badges */
+.badge-new    { display:inline-block; padding:2px 7px; border-radius:99px; font-size:0.72rem;
+  background:#0d2e1e; color:#34d399; border:1px solid #2d6a4f; white-space:nowrap; }
+.badge-cached { display:inline-block; padding:2px 7px; border-radius:99px; font-size:0.72rem;
+  background:#0c2a4a; color:#58a6ff; border:1px solid #1e3a5f; white-space:nowrap; }
+/* Cache stats bar */
+.cache-stats-bar { display:flex; gap:18px; padding:8px 18px; background:#0d1117;
+  border-bottom:1px solid #21262d; font-size:0.78rem; color:#64748b; align-items:center; }
+.cache-stats-bar strong { color:#c9d1d9; }
+
+/* ── Job detail side panel ── */
+.job-detail-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:300; }
+.job-detail-panel { position:fixed; top:0; right:0; bottom:0; width:480px; max-width:100vw;
+  background:#161b22; border-left:1px solid #30363d; z-index:301; display:flex;
+  flex-direction:column; overflow:hidden;
+  transform:translateX(100%); transition:transform 0.22s ease; }
+.job-detail-panel.open { transform:translateX(0); }
+.job-detail-header { display:flex; align-items:flex-start; justify-content:space-between;
+  padding:16px 18px 14px; border-bottom:1px solid #21262d; flex-shrink:0; }
+.job-detail-title { font-size:1rem; font-weight:700; color:#f0f6fc; line-height:1.3; flex:1; }
+.job-detail-close { background:none; border:none; color:#64748b; cursor:pointer;
+  font-size:1.4rem; line-height:1; padding:0 0 0 10px; flex-shrink:0; }
+.job-detail-close:hover { color:#e2e8f0; }
+.job-detail-body { flex:1; overflow-y:auto; padding:16px 18px; display:flex;
+  flex-direction:column; gap:14px; }
+.job-detail-meta { font-size:0.83rem; color:#94a3b8; }
+.job-detail-badges { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.job-detail-section-label { font-size:0.68rem; text-transform:uppercase;
+  letter-spacing:0.07em; color:#475569; margin-bottom:4px; }
+.job-detail-summary { font-size:0.83rem; color:#c9d1d9; line-height:1.5; }
+.job-detail-skip { font-size:0.8rem; color:#f87171; background:#450a0a;
+  border:1px solid #7f1d1d; border-radius:6px; padding:6px 10px; }
+.job-detail-desc { font-size:0.8rem; color:#8b949e; line-height:1.55;
+  white-space:pre-wrap; word-break:break-word; }
+.job-detail-actions { display:flex; gap:8px; flex-shrink:0; padding:14px 18px;
+  border-top:1px solid #21262d; }
+.pip-table tbody tr.clickable { cursor:pointer; }
 
 /* ── Manual interview / task tables ── */
 .man-section { background: #161b22; border: 1px solid #21262d; border-radius: 10px;
@@ -611,15 +653,23 @@ td { padding: 10px 14px; vertical-align: middle; }
       </div>
     </div>
 
+    <!-- Cache stats header -->
+    <div id="agent-cache-stats" class="hidden" style="display:flex;gap:20px;padding:8px 4px 12px;font-size:0.78rem;color:#64748b;flex-wrap:wrap;">
+      <span>&#128190; Cache: <strong id="acs-total">—</strong> jobs seen</span>
+      <span>&#128203; <strong id="acs-unseen">—</strong> unscored</span>
+      <span>&#9989; <strong id="acs-applied">—</strong> applied</span>
+      <span>&#128683; <strong id="acs-dismissed">—</strong> dismissed</span>
+    </div>
+
     <!-- Wizard step indicator -->
     <div class="wz-indicator mb16">
-      <div class="wz-ind-step active" id="step-ind-1"><div class="wz-num">1</div><span>Scrape</span></div>
+      <button class="wz-ind-step active" id="step-ind-1" onclick="navigateToStep(1)"><div class="wz-num">1</div><span>Scrape</span></button>
       <div class="wz-sep"></div>
-      <div class="wz-ind-step" id="step-ind-2"><div class="wz-num">2</div><span>Review</span></div>
+      <button class="wz-ind-step" id="step-ind-2" onclick="navigateToStep(2)" disabled><div class="wz-num">2</div><span>Review</span></button>
       <div class="wz-sep"></div>
-      <div class="wz-ind-step" id="step-ind-3"><div class="wz-num">3</div><span>Match</span></div>
+      <button class="wz-ind-step" id="step-ind-3" onclick="navigateToStep(3)" disabled><div class="wz-num">3</div><span>Match</span></button>
       <div class="wz-sep"></div>
-      <div class="wz-ind-step" id="step-ind-4"><div class="wz-num">4</div><span>Apply</span></div>
+      <button class="wz-ind-step" id="step-ind-4" onclick="navigateToStep(4)" disabled><div class="wz-num">4</div><span>Apply</span></button>
     </div>
 
     <!-- Step 1: Scrape -->
@@ -631,8 +681,9 @@ td { padding: 10px 14px; vertical-align: middle; }
         </p>
         <button id="btn-scrape" class="btn-primary" onclick="startScrape()">&#128270; Start Scraping</button>
         <div id="scrape-progress" class="hidden" style="margin-top:14px;">
-          <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
-          <div id="scrape-msg" style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
+          <div class="progress-bar"><div id="scrape-progress-fill" class="progress-fill" style="width:0%;transition:width 0.4s ease;"></div></div>
+          <div id="scrape-msg"     style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
+          <div id="scrape-current" style="margin-top:3px;font-size:0.76rem;color:#94a3b8;"></div>
         </div>
       </div>
     </div>
@@ -641,6 +692,13 @@ td { padding: 10px 14px; vertical-align: middle; }
     <div id="wz-2" class="panel mb16 hidden">
       <div class="panel-hd">
         <span class="panel-title">Step 2 — Review Scraped Jobs</span>
+      </div>
+      <div id="scrape-cache-stats" class="cache-stats-bar hidden">
+        <span>&#128994; <strong id="cs-new">0</strong> new</span>
+        <span>&#128290; <strong id="cs-cached">0</strong> from cache</span>
+        <span id="cs-outside-wrap" class="hidden" style="color:#475569;">
+          &#128683; <strong id="cs-outside">0</strong> outside time window (hidden)
+        </span>
       </div>
       <div class="pip-toolbar">
         <span id="scraped-count" class="pip-count"></span>
@@ -651,7 +709,7 @@ td { padding: 10px 14px; vertical-align: middle; }
         <table class="pip-table" id="scraped-table">
           <thead>
             <tr>
-              <th>Title</th><th>Company</th><th>Location</th><th>Source</th><th>Posted</th><th>Actions</th>
+              <th>Title</th><th>Company</th><th>Location</th><th>Posted</th><th>Source</th><th>Actions</th>
             </tr>
           </thead>
           <tbody id="scraped-tbody"></tbody>
@@ -668,9 +726,26 @@ td { padding: 10px 14px; vertical-align: middle; }
         <span class="panel-title">Step 3 — Match &amp; Filter</span>
         <button id="btn-match" class="btn-primary btn-sm" onclick="startMatch()">&#129302; Run Matching</button>
       </div>
-      <div id="match-progress" class="hidden" style="padding:14px 18px 0;">
-        <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
-        <div id="match-msg" style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
+      <div id="match-progress" class="hidden" style="padding:14px 18px 8px;">
+        <div class="progress-bar"><div id="match-progress-fill" class="progress-fill" style="width:0%;transition:width 0.4s ease;"></div></div>
+        <div id="match-msg"     style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
+        <div id="match-current" style="margin-top:3px;font-size:0.76rem;color:#94a3b8;"></div>
+      </div>
+      <div id="match-score-stats" class="hidden"
+           style="padding:5px 18px;font-size:0.77rem;color:#64748b;border-bottom:1px solid #21262d;background:#161b22;"></div>
+      <div id="match-filter-bar" class="hidden" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
+        <label style="font-size:0.82rem;font-weight:600;color:#475569;">Min Score</label>
+        <input id="match-min-score" type="number" min="0" max="100" value="70"
+               style="width:60px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.84rem;">
+        <label style="font-size:0.82rem;font-weight:600;color:#475569;">Interview Chance</label>
+        <select id="match-chance-filter" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.84rem;">
+          <option value="">Any</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+        <button class="btn-sm btn-primary" onclick="refilterMatchedJobs()">Re-filter</button>
+        <span id="match-filter-count" style="font-size:0.8rem;color:#64748b;margin-left:6px;"></span>
       </div>
       <div id="match-empty" style="padding:18px;color:#64748b;font-size:0.84rem;">
         Click <strong>Run Matching</strong> to score scraped jobs with Claude AI.
@@ -689,7 +764,7 @@ td { padding: 10px 14px; vertical-align: middle; }
               <tr>
                 <th class="cb-col"><input type="checkbox" id="matched-select-all" onchange="toggleSelectAll(this)"></th>
                 <th>Title</th><th>Company</th><th>Location</th>
-                <th>Match %</th><th>Chance</th><th>German</th><th>Summary</th><th>Actions</th>
+                <th>Match %</th><th>Chance</th><th>German</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="matched-tbody"></tbody>
@@ -700,6 +775,36 @@ td { padding: 10px 14px; vertical-align: middle; }
           <button class="btn-sm btn-primary" onclick="applyAll()">&#9654; Apply All</button>
           <button class="btn-sm" onclick="goToApply()">Continue to Apply &#8594;</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Job detail side panel -->
+    <div id="job-detail-overlay" class="job-detail-overlay hidden" onclick="closeJobDetail()"></div>
+    <div id="job-detail-panel" class="job-detail-panel">
+      <div class="job-detail-header">
+        <span id="jd-title" class="job-detail-title"></span>
+        <button class="job-detail-close" onclick="closeJobDetail()">&#215;</button>
+      </div>
+      <div class="job-detail-body">
+        <div id="jd-meta" class="job-detail-meta"></div>
+        <div id="jd-badges" class="job-detail-badges"></div>
+        <div id="jd-summary-wrap">
+          <div class="job-detail-section-label">Match Summary</div>
+          <div id="jd-summary" class="job-detail-summary"></div>
+        </div>
+        <div id="jd-skip-wrap" class="hidden">
+          <div class="job-detail-section-label">Skip Reason</div>
+          <div id="jd-skip" class="job-detail-skip"></div>
+        </div>
+        <div id="jd-desc-wrap">
+          <div class="job-detail-section-label">Job Description</div>
+          <div id="jd-desc" class="job-detail-desc"></div>
+          <button id="jd-desc-toggle" class="btn-sm hidden" style="margin-top:6px;" onclick="toggleJobDesc()">Show more</button>
+        </div>
+      </div>
+      <div class="job-detail-actions">
+        <a id="jd-view-link" href="#" target="_blank" class="btn-sm" style="text-decoration:none;">View on LinkedIn</a>
+        <button id="jd-apply-btn" class="btn-sm btn-primary" onclick="_jdApply()">Apply</button>
       </div>
     </div>
 
@@ -747,6 +852,33 @@ td { padding: 10px 14px; vertical-align: middle; }
           <button id="btn-save-config" class="btn-sm btn-primary" onclick="saveConfig()">Save Config</button>
         </div>
         <div class="config-form">
+          <div class="cfg-section">LinkedIn Connection</div>
+          <div id="li-session-status" style="margin-bottom:10px;padding:8px 10px;border-radius:6px;
+            font-size:0.81rem;background:#1c2128;border:1px solid #30363d;color:#8b949e;">
+            Checking session…
+          </div>
+          <div class="cfg-2col">
+            <div class="cfg-col"><label>LinkedIn Email</label>
+              <input id="li-email" type="email" placeholder="your@email.com"
+                style="background:#0d1117;border:1px solid #30363d;color:#e2e8f0;
+                  border-radius:6px;padding:6px 10px;font-size:0.83rem;outline:none;width:100%;">
+            </div>
+            <div class="cfg-col"><label>LinkedIn Password</label>
+              <input id="li-password" type="password" placeholder="••••••••"
+                style="background:#0d1117;border:1px solid #30363d;color:#e2e8f0;
+                  border-radius:6px;padding:6px 10px;font-size:0.83rem;outline:none;width:100%;">
+            </div>
+          </div>
+          <div style="margin-top:8px;margin-bottom:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button id="btn-li-connect" class="btn-primary btn-sm" onclick="startLinkedInLogin()">
+              &#128279; Connect LinkedIn (one-time setup)
+            </button>
+            <button id="btn-li-cancel" class="btn-sm" onclick="cancelLinkedInLogin()"
+                    style="display:none;background:#450a0a;border:1px solid #7f1d1d;color:#fca5a5;">
+              &#x2715; Cancel
+            </button>
+            <span id="li-login-msg" style="font-size:0.79rem;color:#8b949e;"></span>
+          </div>
           <div class="cfg-section">Identity</div>
           <div class="cfg-row"><label>Full Name</label><input id="cfg-full_name" type="text"></div>
           <div class="cfg-row"><label>Email Address</label><input id="cfg-hotmail_address" type="text"></div>
@@ -761,6 +893,20 @@ td { padding: 10px 14px; vertical-align: middle; }
           <div class="cfg-2col">
             <div class="cfg-col"><label>Min Match Score</label><input id="cfg-min_match_score" type="number" min="0" max="100"></div>
             <div class="cfg-col"><label>Max Apps / Day</label><input id="cfg-max_applications_per_day" type="number" min="1"></div>
+          </div>
+          <div class="cfg-2col">
+            <div class="cfg-col">
+              <label>Jobs to fetch per search</label>
+              <input id="cfg-scrape_pool_size" type="number" min="10" max="200" step="5"
+                     oninput="updatePoolCostEstimate()">
+              <div id="pool-cost-hint" style="font-size:0.76rem;color:#64748b;margin-top:4px;line-height:1.4;">
+                Higher = more candidates but more Apify cost (~$0.001 per job).
+              </div>
+            </div>
+            <div class="cfg-col" style="display:flex;align-items:center;gap:8px;padding-top:18px;">
+              <label class="t-switch" style="margin:0;"><input id="cfg-smart_scrape" type="checkbox"><div class="t-track"><div class="t-thumb"></div></div></label>
+              <span style="font-size:0.82rem;color:#8b949e;">Smart scrape (title filter before Claude)</span>
+            </div>
           </div>
           <div class="cfg-section">Search</div>
           <div class="cfg-row">
@@ -900,6 +1046,62 @@ function initAgentTab() {
   loadRoles();
   startLogStream();
   checkUploadedFiles();
+  loadCacheStats();
+  prefillLinkedInCredentials();
+  _initWizardFromHash();
+}
+
+async function prefillLinkedInCredentials() {
+  try {
+    const r = await fetch('/api/linkedin/credentials');
+    const d = await r.json();
+    if (d.email) document.getElementById('li-email').value = d.email;
+  } catch (_) {}
+  checkLinkedInSession();
+}
+
+async function _initWizardFromHash() {
+  await _refreshStepAvail();
+  // Restore step from URL hash (e.g. #step-3)
+  const m = location.hash.match(/^#step-([1-4])$/);
+  const requested = m ? parseInt(m[1]) : 1;
+  const key = 'step' + requested;
+  const target = (requested === 1 || _stepAvail[key]) ? requested : 1;
+  // Update indicators to reflect availability without navigating
+  setWizardStep(1);  // reset first
+  if (target > 1) await navigateToStep(target);
+}
+
+// Browser back/forward support
+window.addEventListener('hashchange', () => {
+  if (!_agentInited) return;
+  const m = location.hash.match(/^#step-([1-4])$/);
+  if (!m) return;
+  const n = parseInt(m[1]);
+  const key = 'step' + n;
+  if (n === _wizStep) return;  // already here
+  if (n === 1 || _stepAvail[key]) {
+    // Navigate without pushing another history entry (we're already at this hash)
+    if (n === 2) { setWizardStep(2); loadScrapedJobs(); }
+    else if (n === 3) { setWizardStep(3); renderMatchedJobs(); document.getElementById('match-progress').classList.add('hidden'); }
+    else setWizardStep(n);
+  }
+});
+
+async function loadCacheStats() {
+  try {
+    const d = await (await fetch('/api/cache/stats')).json();
+    if (d.error) return;
+    document.getElementById('acs-total').textContent     = d.total_cached;
+    document.getElementById('acs-unseen').textContent    = d.unseen;
+    document.getElementById('acs-applied').textContent   = d.applied;
+    document.getElementById('acs-dismissed').textContent = d.dismissed;
+    if (d.total_cached > 0) {
+      const el = document.getElementById('agent-cache-stats');
+      el.classList.remove('hidden');
+      el.style.display = 'flex';
+    }
+  } catch (_) {}
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -1203,7 +1405,10 @@ async function checkUploadedFiles() {
 
 // ── Wizard ───────────────────────────────────────────────────────────────────
 let _wizStep         = 1;
-let _pollTimer       = null;
+let _stepAvail       = {step1:true, step2:false, step3:false, step4:false};
+let _pollTimer            = null;
+let _scrapeProgressTimer  = null;
+let _matchProgressTimer   = null;
 let _scrapedJobs     = [];
 let _scrapedFiltered = [];
 let _matchedJobs     = [];
@@ -1213,16 +1418,112 @@ function setWizardStep(n) {
   _wizStep = n;
   [1,2,3,4].forEach(i => {
     document.getElementById('wz-' + i).classList.toggle('hidden', i !== n);
-    const ind = document.getElementById('step-ind-' + i);
-    ind.classList.remove('active','done');
-    if (i === n) ind.classList.add('active');
-    else if (i < n) { ind.classList.add('done'); ind.querySelector('.wz-num').textContent = '✓'; }
-    else ind.querySelector('.wz-num').textContent = i;
+    const ind  = document.getElementById('step-ind-' + i);
+    const avail = _stepAvail['step' + i];
+    ind.classList.remove('active', 'done');
+    ind.querySelector('.wz-num').textContent = i;  // reset to number first
+
+    if (i === n) {
+      // Current step: blue, always enabled
+      ind.classList.add('active');
+      ind.disabled = false;
+    } else if (i < n && avail) {
+      // Completed past step: green ✓, clickable to go back
+      ind.classList.add('done');
+      ind.querySelector('.wz-num').textContent = '✓';
+      ind.disabled = false;
+    } else if (i > n && avail) {
+      // Future step with data: grey number, clickable to jump forward
+      ind.disabled = false;
+    } else {
+      // No data for this step yet: grey, disabled
+      ind.disabled = true;
+    }
   });
+  const hash = '#step-' + n;
+  if (location.hash !== hash) history.pushState(null, '', hash);
+}
+
+async function _refreshStepAvail() {
+  try {
+    const d = await (await fetch('/api/pipeline/step_availability')).json();
+    _stepAvail = d;
+  } catch (_) {}
+}
+
+async function navigateToStep(n) {
+  await _refreshStepAvail();
+  const key = 'step' + n;
+  if (n !== 1 && !_stepAvail[key]) return;  // not available yet
+
+  setWizardStep(n);
+  if (n === 2) {
+    await loadScrapedJobs();
+  } else if (n === 3) {
+    await renderMatchedJobs();
+    document.getElementById('match-progress').classList.add('hidden');
+  }
+  // Step 1 and 4 don't need a fresh DB load — their state is already in the DOM
 }
 
 function _startPoll() { if (_pollTimer) clearInterval(_pollTimer); _pollTimer = setInterval(pollPipeline, 3000); }
 function _stopPoll()  { if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; } }
+
+function _startScrapeProgress() {
+  if (_scrapeProgressTimer) clearInterval(_scrapeProgressTimer);
+  _scrapeProgressTimer = setInterval(async () => {
+    try {
+      const d    = await (await fetch('/api/pipeline/scrape_progress')).json();
+      const fill = document.getElementById('scrape-progress-fill');
+      const msg  = document.getElementById('scrape-msg');
+      const cur  = document.getElementById('scrape-current');
+      const pct  = d.total_combinations > 0
+        ? Math.round((d.completed_combinations / d.total_combinations) * 100) : 0;
+      if (fill) fill.style.width = pct + '%';
+      if (msg)  msg.textContent  = 'Scraping LinkedIn — ' + d.completed_combinations + ' / ' +
+        d.total_combinations + ' searches done · ' + d.jobs_found_so_far + ' jobs found so far';
+      if (cur)  cur.textContent  = d.current_search ? 'Current search: "' + d.current_search + '"' : '';
+    } catch (_) {}
+  }, 2000);
+}
+
+function _stopScrapeProgress() {
+  if (_scrapeProgressTimer) { clearInterval(_scrapeProgressTimer); _scrapeProgressTimer = null; }
+  const fill = document.getElementById('scrape-progress-fill');
+  if (fill) fill.style.width = '100%';
+}
+
+function _startMatchProgress() {
+  if (_matchProgressTimer) clearInterval(_matchProgressTimer);
+  _matchProgressTimer = setInterval(async () => {
+    try {
+      const d    = await (await fetch('/api/pipeline/match_progress')).json();
+      const fill = document.getElementById('match-progress-fill');
+      const msg  = document.getElementById('match-msg');
+      const cur  = document.getElementById('match-current');
+      const pct  = d.total > 0 ? Math.round((d.scored / d.total) * 100) : 0;
+      if (fill) fill.style.width = pct + '%';
+      let statusMsg;
+      if (d.resume_changed) {
+        statusMsg = '⚠ Resume changed — re-scoring all jobs… ' + d.scored + ' / ' + d.total +
+          ' done, ' + d.remaining + ' remaining';
+      } else {
+        statusMsg = 'Scoring with Claude AI — ' + d.scored + ' / ' + d.total +
+          ' done, ' + d.remaining + ' remaining';
+        if (d.cache_hits > 0)
+          statusMsg += ' (' + d.fresh + ' fresh · ' + d.cache_hits + ' from cache)';
+      }
+      if (msg)  msg.textContent  = statusMsg;
+      if (cur)  cur.textContent  = d.current_job ? 'Currently scoring: "' + d.current_job + '"' : '';
+    } catch (_) {}
+  }, 2000);
+}
+
+function _stopMatchProgress() {
+  if (_matchProgressTimer) { clearInterval(_matchProgressTimer); _matchProgressTimer = null; }
+  const fill = document.getElementById('match-progress-fill');
+  if (fill) { fill.style.width = '100%'; fill.style.background = '#22c55e'; }
+}
 
 // ── Scrape button state helpers ───────────────────────────────────────────────
 let _statusPollTimer = null;
@@ -1249,6 +1550,7 @@ function _resetScrapeButton() {
   const msg = document.getElementById('scrape-msg');
   msg.className = '';
   _stopStatusPoll();
+  _stopScrapeProgress();
 }
 
 function _startStatusPoll() {
@@ -1273,14 +1575,17 @@ async function pollPipeline() {
     if (d.step === 1) {
       // still running — _setScrapeRunning already set the message
     } else if (d.step === 2) {
-      _stopPoll(); _stopStatusPoll(); _resetScrapeButton();
+      _stopPoll(); _stopStatusPoll(); _stopScrapeProgress(); _resetScrapeButton();
       document.getElementById('scrape-progress').classList.add('hidden');
       showToast('✓ Scraping complete — ' + d.jobs_count + ' jobs found');
+      await _refreshStepAvail();
       setWizardStep(2); await loadScrapedJobs();
     } else if (d.step === 3) {
-      document.getElementById('match-msg').textContent = 'Scoring with Claude AI (' + d.jobs_count + ' jobs)…';
+      // match progress timer handles the message update
     } else if (d.step === 4) {
-      _stopPoll(); showToast('✓ Matching complete — ' + d.matched_count + ' jobs matched');
+      _stopPoll(); _stopMatchProgress();
+      showToast('✓ Matching complete — ' + d.matched_count + ' jobs matched');
+      await _refreshStepAvail();
       await renderMatchedJobs();
     } else if (d.step === 5) {
       document.getElementById('apply-msg').textContent = 'Submitting applications…';
@@ -1291,7 +1596,7 @@ async function pollPipeline() {
       showToast('✓ Done! Download the updated tracker below.');
       fetchDashboard();
     } else if (d.step < 0) {
-      _stopPoll(); _stopStatusPoll(); _resetScrapeButton();
+      _stopPoll(); _stopStatusPoll(); _stopScrapeProgress(); _stopMatchProgress(); _resetScrapeButton();
       document.getElementById('scrape-progress').classList.add('hidden');
       showToast(d.error || 'Pipeline error', 'error');
       document.getElementById('btn-match').disabled = false;
@@ -1307,6 +1612,7 @@ async function startScrape() {
     if (d.error) throw new Error(d.error);
     _startPoll();
     _startStatusPoll();
+    _startScrapeProgress();
   } catch (err) {
     showToast(err.message, 'error');
     _resetScrapeButton();
@@ -1320,6 +1626,7 @@ async function stopScraping() {
   btn.innerHTML = 'Stopping…';
   _stopPoll();
   _stopStatusPoll();
+  _stopScrapeProgress();
   try { await fetch('/api/agent/stop', {method: 'POST'}); } catch (_) {}
   document.getElementById('scrape-progress').classList.add('hidden');
   _resetScrapeButton();
@@ -1330,13 +1637,31 @@ async function stopScraping() {
 
 async function loadScrapedJobs() {
   try {
-    const r = await fetch('/api/pipeline/scraped_jobs');
+    const [r, sr] = await Promise.all([
+      fetch('/api/pipeline/scraped_jobs'),
+      fetch('/api/cache/stats'),
+    ]);
     const d = await r.json();
+    const s = await sr.json();
     _scrapedJobs = d.jobs || [];
     _scrapedFiltered = [..._scrapedJobs];
     if (!_scrapedJobs.length) {
       showToast('Scraping finished but no jobs were saved to the database — check the agent log for errors.', 'error');
     }
+    // Show cache breakdown stats bar
+    const newCount    = _scrapedJobs.filter(j => (j.cache_status||'new') === 'new').length;
+    const cachedCount = _scrapedJobs.filter(j => j.cache_status === 'cached').length;
+    document.getElementById('cs-new').textContent    = newCount;
+    document.getElementById('cs-cached').textContent = cachedCount;
+    const outsideWrap = document.getElementById('cs-outside-wrap');
+    const outsideCount = (s && s.outside_window) ? s.outside_window : 0;
+    if (outsideCount > 0) {
+      document.getElementById('cs-outside').textContent = outsideCount;
+      outsideWrap.classList.remove('hidden');
+    } else {
+      outsideWrap.classList.add('hidden');
+    }
+    document.getElementById('scrape-cache-stats').classList.remove('hidden');
     renderScrapedTable();
   } catch (err) { showToast(err.message, 'error'); }
 }
@@ -1359,6 +1684,21 @@ function _fmtDate(ts) {
   return d.toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
 }
 
+function _fmtPostedDate(pd) {
+  if (!pd) return '—';
+  const m = (pd || '').match(/^(\\d{4}-\\d{2}-\\d{2})/);
+  if (!m) return pd;
+  const d = new Date(m[1] + 'T12:00:00Z');
+  if (isNaN(d)) return pd;
+  const diffDays = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (diffDays < 0)  return m[1];
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7)  return diffDays + 'd ago';
+  if (diffDays < 60) return Math.floor(diffDays / 7) + 'w ago';
+  return m[1];
+}
+
 function renderScrapedTable() {
   const total = _scrapedJobs.length;
   const shown = _scrapedFiltered.length;
@@ -1370,20 +1710,23 @@ function renderScrapedTable() {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#64748b;padding:20px;">No jobs match the filter.</td></tr>';
     return;
   }
-  tbody.innerHTML = _scrapedFiltered.map(j => `
-    <tr data-id="${j.id||''}">
+  tbody.innerHTML = _scrapedFiltered.map(j => {
+    const cs  = j.cache_status === 'cached' ? 'cached' : 'new';
+    const lbl = cs === 'new' ? 'New today' : 'From cache';
+    return `<tr data-id="${j.id||''}">
       <td class="td-title">${esc(j.title||'?')}</td>
       <td>${esc(j.company||'')}</td>
       <td>${esc(j.location||'')}</td>
-      <td>${esc(j.source||'')}</td>
-      <td style="white-space:nowrap;font-size:0.76rem;color:#64748b;">${_fmtDate(j.scraped_at)}</td>
+      <td style="white-space:nowrap;font-size:0.76rem;color:#94a3b8;">${_fmtPostedDate(j.posted_date)}</td>
+      <td><span class="badge-${cs}">${lbl}</span></td>
       <td class="td-actions">
         <div class="man-row-btns">
           ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="btn-sm" style="text-decoration:none;">View Job</a>` : ''}
-          <button class="btn-icon del" title="Remove" onclick="removeScrapedJob(${j.id||0},this)">&#128465;</button>
+          <button class="btn-icon del" title="Dismiss forever" data-url="${esc(j.url||'')}" onclick="dismissJob(this.dataset.url,this.closest('tr'))">&#215;</button>
         </div>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 async function removeScrapedJob(id, btn) {
@@ -1393,6 +1736,30 @@ async function removeScrapedJob(id, btn) {
     _scrapedJobs = _scrapedJobs.filter(j => j.id !== id);
     filterScrapedJobs();
   } catch (err) { showToast(err.message, 'error'); btn.disabled = false; }
+}
+
+async function dismissJob(url, row) {
+  if (!url) return;
+  try {
+    await fetch('/api/jobs/dismiss', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url}),
+    });
+    // Remove from both lists and animate out
+    if (row) { row.style.opacity = '0'; row.style.transition = 'opacity 0.2s'; setTimeout(() => row.remove(), 200); }
+    _scrapedJobs    = _scrapedJobs.filter(j => j.url !== url);
+    _matchedJobs    = _matchedJobs.filter(j => j.url !== url);
+    _scrapedFiltered = _scrapedFiltered.filter(j => j.url !== url);
+    _matchedFiltered = _matchedFiltered.filter(j => j.url !== url);
+    // Update counts without full re-render (row already removed from DOM)
+    document.getElementById('scraped-count').textContent =
+      _scrapedFiltered.length + ' of ' + _scrapedJobs.length + ' jobs';
+    if (_matchedFiltered.length !== _matchedJobs.length ||
+        document.getElementById('matched-tbody').querySelector(`[data-url="${CSS.escape(url)}"]`)) {
+      renderMatchedTable();
+    }
+  } catch (err) { showToast('Dismiss failed: ' + err.message, 'error'); }
 }
 
 function goToMatch() { setWizardStep(3); }
@@ -1413,12 +1780,18 @@ async function startMatch() {
   document.getElementById('btn-match').disabled = true;
   document.getElementById('match-progress').classList.remove('hidden');
   document.getElementById('match-empty').classList.add('hidden');
+  document.getElementById('match-filter-bar').classList.add('hidden');
+  document.getElementById('match-score-stats').classList.add('hidden');
+  document.getElementById('matched-table-wrap').classList.add('hidden');
+  const fill = document.getElementById('match-progress-fill');
+  if (fill) { fill.style.width = '0%'; fill.style.background = ''; }
   document.getElementById('match-msg').textContent = 'Starting AI scoring…';
   try {
     const r = await fetch('/api/pipeline/match', {method:'POST'});
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     _startPoll();
+    _startMatchProgress();
   } catch (err) {
     showToast(err.message, 'error');
     document.getElementById('btn-match').disabled = false;
@@ -1427,14 +1800,37 @@ async function startMatch() {
   }
 }
 
+function _applyMatchFilters() {
+  const q       = (document.getElementById('matched-search').value || '').toLowerCase();
+  const minSc   = parseInt(document.getElementById('match-min-score').value) || 0;
+  const chance  = (document.getElementById('match-chance-filter').value || '').toLowerCase();
+  _matchedFiltered = _matchedJobs.filter(j => {
+    if ((j.skip_reason||'').toLowerCase().includes('german level')) return false;
+    if ((parseInt(j.match_score) || 0) < minSc) return false;
+    if (chance && (j.interview_chance||'').toLowerCase() !== chance) return false;
+    if (q && !(
+      (j.title||'').toLowerCase().includes(q) ||
+      (j.company||'').toLowerCase().includes(q) ||
+      (j.location||'').toLowerCase().includes(q)
+    )) return false;
+    return true;
+  });
+}
+
 function filterMatchedJobs() {
-  const q = (document.getElementById('matched-search').value || '').toLowerCase();
-  _matchedFiltered = q
-    ? _matchedJobs.filter(j =>
-        (j.title||'').toLowerCase().includes(q) ||
-        (j.company||'').toLowerCase().includes(q) ||
-        (j.location||'').toLowerCase().includes(q))
-    : [..._matchedJobs];
+  _applyMatchFilters();
+  renderMatchedTable();
+}
+
+async function refilterMatchedJobs() {
+  const minSc = parseInt(document.getElementById('match-min-score').value) || 0;
+  try {
+    const cfgR = await fetch('/api/config');
+    const cfg  = await cfgR.json();
+    cfg.min_match_score = minSc;
+    await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg)});
+  } catch (_) { /* non-fatal — filter still applies client-side */ }
+  _applyMatchFilters();
   renderMatchedTable();
 }
 
@@ -1446,39 +1842,139 @@ function renderMatchedTable() {
   const scraped = _scrapedJobs.length || '?';
   document.getElementById('matched-count').textContent =
     _matchedFiltered.length + ' of ' + scraped + ' jobs matched';
+  document.getElementById('match-filter-count').textContent =
+    _matchedFiltered.length + ' jobs match your current filters';
 
   const tbody = document.getElementById('matched-tbody');
   if (!_matchedFiltered.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#64748b;padding:20px;">No jobs match the filter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:20px;">No jobs match the filter.</td></tr>';
     return;
   }
-  tbody.innerHTML = _matchedFiltered.map((j, idx) => {
+  tbody.innerHTML = _matchedFiltered.map((j) => {
     const sc = parseInt(j.match_score) || 0;
-    return `<tr>
-      <td><input type="checkbox" class="row-cb" value="${esc(j.url||'')}"></td>
+    return `<tr class="clickable" data-url="${esc(j.url||'')}" onclick="rowClick(event,this)">
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-cb" value="${esc(j.url||'')}"></td>
       <td class="td-title">${esc(j.title||'?')}</td>
       <td>${esc(j.company||'')}</td>
       <td>${esc(j.location||'')}</td>
       <td>${_scoreBadge(sc)}</td>
       <td>${_chanceBadge(j.interview_chance)}</td>
       <td><span class="badge-de">${esc(j.german_level_required||j.german_level||'—')}</span></td>
-      <td class="td-summary">${esc(j.match_summary||'')}</td>
-      <td class="td-actions">
+      <td class="td-actions" onclick="event.stopPropagation()">
         <div class="man-row-btns">
-          ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="btn-sm" style="text-decoration:none;">View Job</a>` : ''}
-          <button class="btn-sm btn-primary" onclick="applySingle(${JSON.stringify(j.url)})">Apply</button>
+          <button class="btn-sm btn-primary" data-url="${esc(j.url||'')}" onclick="applySingle(this.dataset.url)">Apply</button>
+          <button class="btn-icon del" title="Dismiss forever" data-url="${esc(j.url||'')}" onclick="dismissJob(this.dataset.url,this.closest('tr'))">&#215;</button>
         </div>
       </td>
     </tr>`;
   }).join('');
 }
 
+let _jdCurrentUrl = '';
+
+function rowClick(e, tr) {
+  const url = tr.dataset.url;
+  if (url) openJobDetail(url);
+}
+
+function openJobDetail(url) {
+  const j = _matchedJobs.find(x => x.url === url);
+  if (!j) return;
+  _jdCurrentUrl = url;
+
+  document.getElementById('jd-title').textContent = j.title || '?';
+  document.getElementById('jd-meta').textContent =
+    [j.company, j.location].filter(Boolean).join(' · ');
+
+  const sc = parseInt(j.match_score) || 0;
+  document.getElementById('jd-badges').innerHTML =
+    _scoreBadge(sc) + ' ' + _chanceBadge(j.interview_chance) +
+    ' <span class="badge-de">' + esc(j.german_level_required || j.german_level || '—') + '</span>';
+
+  const sumWrap = document.getElementById('jd-summary-wrap');
+  if (j.match_summary) {
+    document.getElementById('jd-summary').textContent = j.match_summary;
+    sumWrap.classList.remove('hidden');
+  } else {
+    sumWrap.classList.add('hidden');
+  }
+
+  const skipWrap = document.getElementById('jd-skip-wrap');
+  if (j.skip_reason) {
+    document.getElementById('jd-skip').textContent = j.skip_reason;
+    skipWrap.classList.remove('hidden');
+  } else {
+    skipWrap.classList.add('hidden');
+  }
+
+  const desc       = (j.description || '').trim();
+  const descEl     = document.getElementById('jd-desc');
+  const descToggle = document.getElementById('jd-desc-toggle');
+  const SHORT      = 400;
+  descEl.dataset.full     = desc;
+  descEl.dataset.expanded = '0';
+  if (desc.length > SHORT) {
+    descEl.textContent     = desc.slice(0, SHORT) + '…';
+    descToggle.textContent = 'Show more';
+    descToggle.classList.remove('hidden');
+  } else {
+    descEl.textContent = desc || '—';
+    descToggle.classList.add('hidden');
+  }
+
+  const viewLink = document.getElementById('jd-view-link');
+  if (j.url) { viewLink.href = j.url; viewLink.style.display = ''; }
+  else        { viewLink.style.display = 'none'; }
+  document.getElementById('jd-apply-btn').dataset.url = j.url || '';
+
+  document.getElementById('job-detail-overlay').classList.remove('hidden');
+  document.getElementById('job-detail-panel').classList.add('open');
+}
+
+function closeJobDetail() {
+  document.getElementById('job-detail-overlay').classList.add('hidden');
+  document.getElementById('job-detail-panel').classList.remove('open');
+  _jdCurrentUrl = '';
+}
+
+function toggleJobDesc() {
+  const descEl = document.getElementById('jd-desc');
+  const btn    = document.getElementById('jd-desc-toggle');
+  const full   = descEl.dataset.full || '';
+  const SHORT  = 400;
+  if (descEl.dataset.expanded === '1') {
+    descEl.textContent     = full.slice(0, SHORT) + '…';
+    descEl.dataset.expanded = '0';
+    btn.textContent        = 'Show more';
+  } else {
+    descEl.textContent      = full;
+    descEl.dataset.expanded = '1';
+    btn.textContent         = 'Show less';
+  }
+}
+
+function _jdApply() {
+  const url = document.getElementById('jd-apply-btn').dataset.url;
+  if (url) applySingle(url);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && _jdCurrentUrl) closeJobDetail();
+});
+
 async function renderMatchedJobs() {
   try {
-    const r = await fetch('/api/pipeline/matched_jobs');
-    const d = await r.json();
+    const [matchR, cfgR] = await Promise.all([
+      fetch('/api/pipeline/matched_jobs'),
+      fetch('/api/config'),
+    ]);
+    const d   = await matchR.json();
+    const cfg = await cfgR.json();
     _matchedJobs = d.jobs || [];
-    _matchedFiltered = [..._matchedJobs];
+
+    // Seed filter bar from saved config
+    const savedMin = cfg.min_match_score ?? 70;
+    document.getElementById('match-min-score').value = savedMin;
 
     document.getElementById('match-progress').classList.add('hidden');
     document.getElementById('match-empty').classList.add('hidden');
@@ -1489,8 +1985,28 @@ async function renderMatchedJobs() {
       document.getElementById('match-empty').classList.remove('hidden');
       return;
     }
+
+    document.getElementById('match-filter-bar').classList.remove('hidden');
     document.getElementById('matched-table-wrap').classList.remove('hidden');
+    _applyMatchFilters();
     renderMatchedTable();
+
+    // Show scoring cache stats
+    try {
+      const sp = await (await fetch('/api/pipeline/match_progress')).json();
+      const statsEl = document.getElementById('match-score-stats');
+      if (statsEl && (sp.fresh > 0 || sp.cache_hits > 0 || sp.resume_changed)) {
+        let txt;
+        if (sp.resume_changed) {
+          txt = '⚠ Resume changed — all ' + sp.total + ' jobs re-scored with your new resume';
+        } else {
+          txt = sp.fresh + ' scored fresh';
+          if (sp.cache_hits > 0) txt += ' · ' + sp.cache_hits + ' loaded from score cache (same resume)';
+        }
+        statsEl.textContent = txt;
+        statsEl.classList.remove('hidden');
+      }
+    } catch (_) {}
   } catch (err) { showToast(err.message, 'error'); }
 }
 
@@ -1502,7 +2018,7 @@ function goToApply() {
         <div class="jc-title">${esc(j.title||'?')}</div>
         <div class="jc-meta">${esc(j.company||'?')} &bull; ${esc(j.location||'?')}</div>
       </div>
-      <button class="btn-sm btn-primary" onclick="applySingle(${JSON.stringify(j.url)})">Apply</button>
+      <button class="btn-sm btn-primary" data-url="${esc(j.url||'')}" onclick="applySingle(this.dataset.url)">Apply</button>
     </div>`).join('');
 }
 
@@ -1651,9 +2167,25 @@ async function saveRoles() {
 let _cfgData = {};
 const _tagLists = {};
 const _TEXT_KEYS = ['full_name','hotmail_address','notify_email','phone','cv_root','resume_en','resume_de','tracker_file'];
-const _NUM_KEYS  = ['min_match_score','max_applications_per_day'];
-const _TOG_KEYS  = ['auto_confirm_recruiter_call','auto_confirm_technical','headless','confirm_before_apply','retry_captcha_as_manual'];
+const _NUM_KEYS  = ['min_match_score','max_applications_per_day','scrape_pool_size'];
+const _TOG_KEYS  = ['auto_confirm_recruiter_call','auto_confirm_technical','headless','confirm_before_apply','retry_captcha_as_manual','smart_scrape'];
+// smart_scrape rendered inline with scrape_pool_size — still in _TOG_KEYS so loadConfig/saveConfig handle it automatically
 const _TAG_KEYS  = ['locations','skip_german_levels'];
+
+function updatePoolCostEstimate() {
+  const el   = document.getElementById('cfg-scrape_pool_size');
+  const hint = document.getElementById('pool-cost-hint');
+  if (!el || !hint) return;
+  const pool      = parseInt(el.value) || 25;
+  const roles     = (_tagLists['locations'] ? _tagLists['locations'].length : 1);  // use location count as proxy
+  const locations = (_cfgData && _cfgData.locations) ? _cfgData.locations.length : 1;
+  const rolesCount = (_cfgData && _cfgData.roles) ? _cfgData.roles.length : 1;
+  const total = rolesCount * locations * pool;
+  const cost  = (total * 0.001).toFixed(2);
+  hint.textContent =
+    `Higher = more candidates but more Apify cost (~$0.001 per job). ` +
+    `With ${rolesCount} role(s) × ${locations} location(s) × ${pool} = ${total} jobs fetched per run ≈ $${cost}`;
+}
 
 async function loadConfig() {
   try {
@@ -1667,6 +2199,7 @@ async function loadConfig() {
     _TAG_KEYS.forEach(k  => { _tagLists[k] = [...(d[k] || [])]; renderTagList(k); });
     const plEl = document.getElementById('cfg-posted_limit');
     if (plEl && d.posted_limit) plEl.value = d.posted_limit;
+    updatePoolCostEstimate();
   } catch (err) { showToast('Config load error: ' + err.message, 'error'); }
 }
 
@@ -1709,6 +2242,100 @@ async function saveConfig() {
     d.ok ? showToast('Config saved ✓') : showToast('Save failed: ' + d.error, 'error');
   } catch (err) { showToast('Error: ' + err.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Config'; }
+}
+
+// ── LinkedIn connection ───────────────────────────────────────────────────────
+let _liPollTimer = null;
+
+async function checkLinkedInSession() {
+  try {
+    const r = await fetch('/api/linkedin/session_status');
+    const d = await r.json();
+    const box = document.getElementById('li-session-status');
+    if (d.connected) {
+      box.style.background = '#0d2e1e';
+      box.style.borderColor = '#2d6a4f';
+      box.style.color = '#4caf82';
+      box.textContent = '✓ LinkedIn connected — session saved ' + d.saved_at + ' (no login needed for future runs)';
+    } else {
+      box.style.background = '#1c2128';
+      box.style.borderColor = '#30363d';
+      box.style.color = '#8b949e';
+      box.textContent = 'Not connected — click "Connect LinkedIn" to authenticate';
+    }
+  } catch (_) {}
+}
+
+async function startLinkedInLogin() {
+  const email    = document.getElementById('li-email').value.trim();
+  const password = document.getElementById('li-password').value;
+  const btn      = document.getElementById('btn-li-connect');
+  const cancel   = document.getElementById('btn-li-cancel');
+  const msg      = document.getElementById('li-login-msg');
+
+  if (!email || !password) { showToast('Enter LinkedIn email and password first.', 'error'); return; }
+
+  // Save credentials to .env
+  try {
+    await fetch('/api/linkedin/set_credentials', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email, password}),
+    });
+  } catch (_) {}
+
+  btn.disabled = true;
+  cancel.style.display = 'inline-flex';
+  msg.style.color = '#58a6ff';
+  msg.textContent = 'Browser window opening…';
+
+  try {
+    const r = await fetch('/api/linkedin/manual_login', {method: 'POST'});
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+  } catch (err) {
+    msg.style.color = '#f87171';
+    msg.textContent = 'Error: ' + err.message;
+    btn.disabled = false;
+    cancel.style.display = 'none';
+    return;
+  }
+
+  // Poll login status every 3 s until done or error
+  if (_liPollTimer) clearInterval(_liPollTimer);
+  _liPollTimer = setInterval(async () => {
+    try {
+      const r = await fetch('/api/linkedin/login_status');
+      const d = await r.json();
+      if (d.status === 'done') {
+        clearInterval(_liPollTimer); _liPollTimer = null;
+        btn.disabled = false;
+        cancel.style.display = 'none';
+        msg.style.color = '#4caf82';
+        msg.textContent = '✓ Connected — session saved, no login needed for future runs';
+        checkLinkedInSession();
+      } else if (d.status === 'error') {
+        clearInterval(_liPollTimer); _liPollTimer = null;
+        btn.disabled = false;
+        cancel.style.display = 'none';
+        msg.style.color = '#f87171';
+        msg.textContent = 'Connection failed: ' + d.message;
+      } else if (d.message) {
+        msg.style.color = '#58a6ff';
+        msg.textContent = d.message;
+      }
+    } catch (_) {}
+  }, 3000);
+}
+
+async function cancelLinkedInLogin() {
+  try { await fetch('/api/linkedin/cancel_login', {method: 'POST'}); } catch (_) {}
+  document.getElementById('btn-li-cancel').style.display = 'none';
+  document.getElementById('btn-li-connect').disabled = false;
+  const msg = document.getElementById('li-login-msg');
+  msg.style.color = '#8b949e';
+  msg.textContent = 'Cancelled.';
+  if (_liPollTimer) { clearInterval(_liPollTimer); _liPollTimer = null; }
 }
 
 // ── Live log ──────────────────────────────────────────────────────────────────
@@ -2423,6 +3050,66 @@ def api_pipeline_status():
         return jsonify(dict(_pipeline))
 
 
+@app.route("/api/pipeline/step_availability")
+def api_pipeline_step_availability():
+    """Return which wizard steps have data available to navigate to."""
+    try:
+        import db as _db
+        _db.init_db()
+        with _db._conn() as db:
+            has_scraped = db.execute("SELECT 1 FROM scraped_jobs LIMIT 1").fetchone() is not None
+            has_matched = db.execute("SELECT 1 FROM matched_jobs LIMIT 1").fetchone() is not None
+            has_applied = db.execute(
+                "SELECT 1 FROM applications WHERE date_applied IS NOT NULL LIMIT 1"
+            ).fetchone() is not None
+        return jsonify({
+            "step1": True,
+            "step2": has_scraped,
+            "step3": has_matched,
+            "step4": has_applied or has_matched,
+        })
+    except Exception:
+        return jsonify({"step1": True, "step2": False, "step3": False, "step4": False})
+
+
+@app.route("/api/pipeline/scrape_progress")
+def api_pipeline_scrape_progress():
+    import scraper as _scraper
+    return jsonify(_scraper.get_scrape_progress())
+
+
+@app.route("/api/pipeline/match_progress")
+def api_pipeline_match_progress():
+    try:
+        import db as _db
+        _db.init_db()
+        with _db._conn() as db:
+            total   = db.execute("SELECT COUNT(*) FROM scraped_jobs").fetchone()[0]
+            scored  = db.execute("SELECT COUNT(*) FROM matched_jobs").fetchone()[0]
+            last    = db.execute("""
+                SELECT s.title, s.company FROM matched_jobs m
+                JOIN scraped_jobs s ON s.id = m.scraped_job_id
+                ORDER BY m.id DESC LIMIT 1
+            """).fetchone()
+        current_job = f"{last[0]} @ {last[1]}" if last else ""
+        import matcher as _matcher
+        stats = _matcher.get_match_stats()
+        return jsonify({
+            "total":          total,
+            "scored":         scored,
+            "remaining":      max(0, total - scored),
+            "current_job":    current_job,
+            "fresh":          stats.get("fresh", 0),
+            "cache_hits":     stats.get("cache_hits", 0),
+            "resume_changed": stats.get("resume_changed", False),
+        })
+    except Exception:
+        return jsonify({
+            "total": 0, "scored": 0, "remaining": 0, "current_job": "",
+            "fresh": 0, "cache_hits": 0, "resume_changed": False,
+        })
+
+
 @app.route("/api/pipeline/scraped_jobs")
 def api_pipeline_scraped_jobs():
     try:
@@ -2430,9 +3117,12 @@ def api_pipeline_scraped_jobs():
         _db.init_db()
         with _db._conn() as db:
             rows = db.execute(
-                "SELECT id, title, company, location, url, source, scraped_at"
+                "SELECT id, title, company, location, url, source,"
+                "       posted_date, cache_status, scraped_at"
                 " FROM scraped_jobs"
-                " ORDER BY scraped_at DESC"
+                " ORDER BY"
+                "   CASE WHEN posted_date != '' AND posted_date IS NOT NULL"
+                "        THEN posted_date ELSE scraped_at END DESC"
             ).fetchall()
         return jsonify({"jobs": [dict(r) for r in rows]})
     except Exception:
@@ -2454,6 +3144,33 @@ def api_pipeline_scraped_job_delete(job_id):
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/jobs/dismiss", methods=["POST"])
+def api_jobs_dismiss():
+    url = (request.get_json(silent=True) or {}).get("url", "").strip()
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    try:
+        import db as _db
+        _db.init_db()
+        _db.dismiss_job(url)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/cache/stats")
+def api_cache_stats():
+    try:
+        import db as _db
+        _db.init_db()
+        cfg = load_config()
+        stats  = _db.get_cache_stats()
+        wstats = _db.get_cache_window_stats(cfg)
+        return jsonify({**stats, **wstats})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/pipeline/matched_jobs")
 def api_pipeline_matched_jobs():
     try:
@@ -2462,8 +3179,9 @@ def api_pipeline_matched_jobs():
         with _db._conn() as db:
             rows = db.execute("""
                 SELECT s.id AS scraped_id, s.title, s.company, s.location, s.url, s.source,
+                       s.description,
                        m.match_score, m.interview_chance, m.german_level AS german_level_required,
-                       m.match_summary
+                       m.match_summary, m.skip_reason
                 FROM matched_jobs m
                 JOIN scraped_jobs s ON s.id = m.scraped_job_id
                 ORDER BY m.match_score DESC
@@ -2522,6 +3240,165 @@ def api_agent_status():
             and _pipeline.get("step", 0) in (1, 3, 5)
         )
     return jsonify({"running": thread_running, "pid": None})
+
+
+# ── LinkedIn session ──────────────────────────────────────────────────────────
+
+_SESSION_FILE      = _UPLOADS_DIR / "linkedin_session.json"
+_LI_LOGIN_LOCK     = threading.Lock()
+_li_login_thread: "threading.Thread | None" = None
+_li_login_state: dict  = {"status": "idle", "message": ""}   # idle | running | done | error
+_li_cancel_requested   = False
+
+
+def _linkedin_login_worker():
+    """Open visible Chromium for LinkedIn 2FA; keep browser open until success or cancel."""
+    import asyncio as _asyncio
+    from playwright.async_api import async_playwright as _apw
+
+    async def _do_login():
+        global _li_cancel_requested
+        _li_cancel_requested = False
+
+        email    = os.getenv("LINKEDIN_EMAIL", "")
+        password = os.getenv("LINKEDIN_PASSWORD", "")
+        if not email or not password:
+            _li_login_state.update(status="error",
+                                   message="LINKEDIN_EMAIL / LINKEDIN_PASSWORD not set in .env")
+            return
+
+        async with _apw() as pw:
+            browser = await pw.chromium.launch(headless=False)
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 800},
+            )
+            page = await context.new_page()
+            logged_in = False
+            try:
+                await page.goto("https://www.linkedin.com/login", timeout=30_000)
+                await page.fill("#username", email)
+                await page.fill("#password", password)
+                await page.click("button[type='submit']")
+
+                _li_login_state["message"] = (
+                    "Credentials submitted — approve the LinkedIn notification on your phone…"
+                )
+
+                # Poll every 3 s; show 10-minute countdown but keep browser open after
+                deadline = time.time() + 600
+                while True:
+                    if _li_cancel_requested:
+                        _li_login_state.update(status="error", message="Cancelled by user")
+                        return  # finally closes browser
+
+                    try:
+                        current_url = page.url
+                    except Exception:
+                        _li_login_state.update(status="error",
+                                               message="Browser was closed — run again to retry")
+                        return
+
+                    if "feed" in current_url or "mynetwork" in current_url or "jobs" in current_url:
+                        logged_in = True
+                        break
+
+                    remaining = max(0, int(deadline - time.time()))
+                    if remaining > 0:
+                        m, s = divmod(remaining, 60)
+                        _li_login_state["message"] = (
+                            f"Browser open — waiting for login approval ({m}:{s:02d} remaining)"
+                        )
+                    else:
+                        _li_login_state["message"] = (
+                            "Browser still open — log in or click Cancel to close"
+                        )
+
+                    await _asyncio.sleep(3)
+
+                if logged_in:
+                    _UPLOADS_DIR.mkdir(exist_ok=True)
+                    await context.storage_state(path=str(_SESSION_FILE))
+                    _li_login_state.update(status="done",
+                                           message="✓ Session saved — connected")
+            except Exception as _exc:
+                _li_login_state.update(status="error", message=f"Error: {_exc}")
+            finally:
+                if logged_in or _li_cancel_requested:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+                # On timeout: browser stays open — user closes it manually
+
+    _asyncio.run(_do_login())
+
+
+@app.route("/api/linkedin/manual_login", methods=["POST"])
+def api_linkedin_manual_login():
+    global _li_login_thread
+    with _LI_LOGIN_LOCK:
+        if _li_login_thread and _li_login_thread.is_alive():
+            return jsonify({"error": "Login already in progress"}), 409
+        _li_login_state.update(status="running",
+                               message="Browser opening — fill in credentials and approve 2FA")
+        _li_login_thread = threading.Thread(target=_linkedin_login_worker, daemon=True)
+        _li_login_thread.start()
+    return jsonify({"ok": True, "message": "Login started — approve the notification on your phone"})
+
+
+@app.route("/api/linkedin/login_status")
+def api_linkedin_login_status():
+    return jsonify(dict(_li_login_state))
+
+
+@app.route("/api/linkedin/session_status")
+def api_linkedin_session_status():
+    if _SESSION_FILE.exists():
+        saved_at = time.strftime(
+            "%Y-%m-%d %H:%M:%S",
+            time.localtime(_SESSION_FILE.stat().st_mtime),
+        )
+        return jsonify({"connected": True, "saved_at": saved_at})
+    return jsonify({"connected": False, "saved_at": None})
+
+
+@app.route("/api/linkedin/set_credentials", methods=["POST"])
+def api_linkedin_set_credentials():
+    data = request.get_json(silent=True) or {}
+    email    = (data.get("email") or "").strip()
+    password = (data.get("password") or "").strip()
+
+    env_path = Path(__file__).parent / ".env"
+    if not env_path.exists():
+        env_path.touch()
+
+    try:
+        if email:
+            dotenv_set_key(str(env_path), "LINKEDIN_EMAIL", email)
+        if password:
+            dotenv_set_key(str(env_path), "LINKEDIN_PASSWORD", password)
+        # Reload env vars in this process so the login worker picks them up
+        load_dotenv(str(env_path), override=True)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/linkedin/cancel_login", methods=["POST"])
+def api_linkedin_cancel_login():
+    global _li_cancel_requested
+    _li_cancel_requested = True
+    return jsonify({"ok": True})
+
+
+@app.route("/api/linkedin/credentials")
+def api_linkedin_credentials():
+    return jsonify({"email": os.getenv("LINKEDIN_EMAIL", "")})
 
 
 # ── SSE log stream ────────────────────────────────────────────────────────────

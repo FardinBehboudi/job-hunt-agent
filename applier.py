@@ -252,10 +252,21 @@ async def _apply_one(page: Page, job: dict, archive: Path, cfg: dict) -> bool:
     return False
 
 
+_SESSION_FILE = Path(__file__).resolve().parent / "uploads" / "linkedin_session.json"
+
+
 async def run_async(jobs_with_archives: list[tuple[dict, Path]],
                     cfg: dict | None = None) -> list[tuple[dict, bool]]:
     if cfg is None:
         cfg = load_config()
+
+    log.info("Checking for LinkedIn session at: %s", str(_SESSION_FILE.resolve()))
+    if not _SESSION_FILE.exists():
+        log.error(
+            "No saved LinkedIn session found — go to the web UI and click "
+            "'Connect LinkedIn' to authenticate before applying"
+        )
+        return []
 
     headless: bool = cfg.get("headless", True)
     results: list[tuple[dict, bool]] = []
@@ -263,15 +274,34 @@ async def run_async(jobs_with_archives: list[tuple[dict, Path]],
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=headless)
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 800},
-        )
+        try:
+            context = await browser.new_context(
+                storage_state=str(_SESSION_FILE),
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 800},
+            )
+            log.info("Loaded saved LinkedIn session — skipping login")
+        except Exception as exc:
+            log.error("Failed to load LinkedIn session (%s) — re-authenticate via web UI", exc)
+            await browser.close()
+            return []
+
         page = await context.new_page()
+
+        # Quick session validity check — LinkedIn redirects to login if session expired
+        await page.goto("https://www.linkedin.com/feed/", timeout=20_000)
+        if "login" in page.url or "authwall" in page.url:
+            log.error(
+                "LinkedIn session expired — go to the web UI and click "
+                "'Connect LinkedIn' to re-authenticate"
+            )
+            await browser.close()
+            return []
+        log.info("LinkedIn session valid — proceeding with applications")
 
         for job, archive in jobs_with_archives:
             if applied_count >= _MAX_PER_SESSION:

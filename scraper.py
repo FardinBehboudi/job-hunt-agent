@@ -50,8 +50,43 @@ def _extract_company(raw) -> str:
 _LINKEDIN_ACTOR  = os.getenv("APIFY_LINKEDIN_ACTOR", "harvestapi/linkedin-job-search")
 _MODEL           = "claude-sonnet-4-6"
 
-_RESULTS_PER_RUN = 25   # per actor call
-_MAX_TOTAL_JOBS  = 100  # hard cap on total jobs returned per daily run
+_MAX_TOTAL_JOBS = 100  # hard cap on total jobs returned per daily run
+
+_scrape_progress: dict = {
+    "total_combinations": 0,
+    "completed_combinations": 0,
+    "current_search": "",
+    "jobs_found_so_far": 0,
+}
+
+
+def get_scrape_progress() -> dict:
+    return dict(_scrape_progress)
+
+_SKIP_TITLE_KEYWORDS = [
+    "marketing", "sales", "accountant", "mechanic", "nurse", "driver",
+    "designer", "hr ", " hr", "recruiter", "lawyer", "finance", "intern",
+    "co-founder", "assistant", "coordinator", "consultant", "analyst",
+    "manager", "director", "product owner", "scrum master",
+]
+_TECH_TITLE_KEYWORDS = [
+    "engineer", "developer", "architect", "backend", "software", "java",
+    "python", "devops", "cloud", "data", "fullstack", "full-stack", "api",
+    "platform", "infrastructure", "site reliability", "sre", "ml ",
+    "machine learning", "golang", "kotlin", "scala", "typescript",
+]
+
+
+def is_title_relevant(job_title: str, search_role: str) -> bool:
+    """Fast keyword check — no API calls. Returns False for clearly off-topic titles."""
+    title = job_title.lower()
+    if any(kw in title for kw in _SKIP_TITLE_KEYWORDS):
+        return False
+    if any(kw in title for kw in _TECH_TITLE_KEYWORDS):
+        return True
+    # Fall back to checking overlap with the role's own words
+    role_words = set(search_role.lower().split())
+    return bool(role_words & set(title.split()))
 
 _extracted_roles_cache: list[str] | None = None
 
@@ -129,12 +164,17 @@ def _client() -> ApifyClient:
 def _scrape_linkedin(client: ApifyClient, role: str, location: str,
                      cfg: dict | None = None) -> list[dict]:
     log.info("LinkedIn scrape: %s @ %s", role, location)
-    posted_limit = (cfg or {}).get("posted_limit", "24h")
+    _cfg = cfg or {}
+    posted_limit = _cfg.get("posted_limit", "24h")
+    count = int(_cfg.get("scrape_pool_size", 25))
     run_input = {
-        "jobTitles":   [role],
-        "locations":   [location],
-        "maxItems":    min(_RESULTS_PER_RUN, 25),   # hard cap — cost guard
-        "postedLimit": posted_limit,
+        "jobTitles":       [role],
+        "locations":       [location],
+        "maxItems":        count,
+        "postedLimit":     posted_limit,
+        "employmentType":  ["full-time"],
+        "experienceLevel": ["entry", "associate", "mid-senior", "director", "executive"],
+        "sortBy":          "relevance",
     }
     log.info("Apify run_input: %s", run_input)
     run = client.actor(_LINKEDIN_ACTOR).call(run_input=run_input)
@@ -157,7 +197,7 @@ def _scrape_linkedin(client: ApifyClient, role: str, location: str,
             "location":    loc,
             "url":         url,
             "description": description,
-            "posted_date": _safe_str(item.get("postedDate")),
+            "posted_date": _safe_str(item.get("postedDate") or item.get("posted_date")),
             "source":      "LinkedIn",
         })
 
@@ -195,38 +235,108 @@ def run(cfg: dict | None = None) -> list[dict]:
     if not roles:
         raise ValueError("cfg['roles'] is empty — select at least one role in the dashboard before scraping")
 
+    smart_scrape = cfg.get("smart_scrape", True)
+
+    # Load the persistent cache before clearing the run tables
+    import db as _db_cache
+    _db_cache.init_db()
+    cached_urls = _db_cache.get_cached_job_urls()
+    applied_urls = _get_applied_urls()
+    log.info("Cache: %d known URLs, %d already applied", len(cached_urls), len(applied_urls))
+
     # Clear previous run's temp data before fetching fresh results
     _clear_run_tables()
 
     client = _client()
     all_jobs: list[dict] = []
 
-    for role, location in product(roles, cfg["locations"]):
+    # ── Stage 1: Broad scrape ────────────────────────────────────────────────
+    combos = list(product(roles, cfg["locations"]))
+    _scrape_progress.update({
+        "total_combinations":     len(combos),
+        "completed_combinations": 0,
+        "current_search":         "",
+        "jobs_found_so_far":      0,
+    })
+
+    for role, location in combos:
+        _scrape_progress["current_search"] = f"{role} @ {location}"
         try:
             batch = _scrape_linkedin(client, role, location, cfg)
-            log.debug(
-                "Batch %s @ %s — %d jobs, first 3 URLs: %s",
-                role, location, len(batch),
-                [j.get("url", "") for j in batch[:3]],
-            )
+            log.debug("Batch %s @ %s — %d jobs", role, location, len(batch))
             all_jobs.extend(batch)
         except Exception as exc:
             log.warning("LinkedIn failed for %s @ %s: %s", role, location, exc)
+        finally:
+            _scrape_progress["completed_combinations"] += 1
+            _scrape_progress["jobs_found_so_far"] = len(all_jobs)
 
-    log.info("Total before dedup: %d jobs across all role/location combos", len(all_jobs))
+    log.info("Stage 1 — scraped: %d jobs across all role/location combos", len(all_jobs))
     jobs = _deduplicate(all_jobs)
-    jobs = [j for j in jobs if j.get("description")]   # must have text; URL is optional
-    jobs = jobs[:_MAX_TOTAL_JOBS]
+    jobs = [j for j in jobs if j.get("description")]
 
-    # Filter out jobs we already applied to (applications table is the source of truth).
-    # Only skip a job when its URL is non-empty AND that URL is in the applied set.
-    # An empty applied_urls set (all rows had NULL job_url) means nothing is skipped.
-    applied_urls = _get_applied_urls()
+    # Upsert all fresh unique jobs into the persistent seen_jobs cache
+    _db_cache.upsert_seen_jobs(jobs)
+
+    # ── Stage 2: Title relevance filter (free, no API) ───────────────────────
+    scraped_total = len(jobs)
+    if smart_scrape:
+        role_set = roles
+        relevant = []
+        for job in jobs:
+            title = job.get("title", "")
+            if any(is_title_relevant(title, r) for r in role_set):
+                relevant.append(job)
+            else:
+                log.debug("Title filter drop: %s @ %s", title, job.get("company", ""))
+        saved_calls = scraped_total - len(relevant)
+        log.info(
+            "Smart scrape: %d scraped → %d passed title filter → "
+            "ready for Claude matching (saved %d API calls)",
+            scraped_total, len(relevant), saved_calls,
+        )
+        jobs = relevant
+    else:
+        jobs = jobs[:_MAX_TOTAL_JOBS]
+
+    # ── Applied-URL dedup ────────────────────────────────────────────────────
     before = len(jobs)
     jobs = [j for j in jobs if not (j.get("url") and j["url"] in applied_urls)]
     skipped = before - len(jobs)
-    log.info("Scraper done: %d jobs (%d skipped — already applied), capped at %d",
-             len(jobs), skipped, _MAX_TOTAL_JOBS)
+    if skipped:
+        log.info("Skipped %d jobs already in applications table", skipped)
+
+    # Tag fresh jobs: "new" if not seen before, "cached" if already in the cache
+    for j in jobs:
+        j["cache_status"] = "cached" if j.get("url") in cached_urls else "new"
+
+    # ── Stage 3: Add cached jobs within the configured time window ─────────────
+    fresh_urls    = {j.get("url") for j in jobs if j.get("url")}
+    all_cached    = _db_cache.get_relevant_cached_jobs(cfg)
+    cached_extra  = [
+        j for j in all_cached
+        if j.get("url") not in fresh_urls and j.get("url") not in applied_urls
+    ]
+    for j in cached_extra:
+        j["cache_status"] = "cached"
+
+    # Count jobs sitting in the cache but outside the time window (for logging)
+    win_stats = _db_cache.get_cache_window_stats(cfg)
+    outside_window = win_stats.get("outside_window", 0)
+
+    jobs = jobs + cached_extra
+    jobs = jobs[:_MAX_TOTAL_JOBS]
+
+    new_count    = sum(1 for j in jobs if j.get("cache_status") == "new")
+    cached_count = sum(1 for j in jobs if j.get("cache_status") == "cached")
+    limit_label  = cfg.get("posted_limit", "24h")
+    log.info(
+        "Cache: %d jobs loaded from cache (posted within last %s) | "
+        "%d new jobs scraped from LinkedIn | "
+        "%d jobs in cache but outside time window (ignored) | "
+        "%d total to process",
+        cached_count, limit_label, new_count, outside_window, len(jobs),
+    )
 
     _save_to_db(jobs)
     return jobs
@@ -283,8 +393,8 @@ def _save_to_db(jobs: list[dict]) -> None:
     try:
         con.executemany(
             "INSERT OR IGNORE INTO scraped_jobs"
-            " (title, company, location, url, description, source)"
-            " VALUES (?,?,?,?,?,?)",
+            " (title, company, location, url, description, source, posted_date, cache_status)"
+            " VALUES (?,?,?,?,?,?,?,?)",
             [
                 (
                     j.get("title", ""),
@@ -293,6 +403,8 @@ def _save_to_db(jobs: list[dict]) -> None:
                     j.get("url", ""),
                     j.get("description", ""),
                     j.get("source", "LinkedIn"),
+                    j.get("posted_date", ""),
+                    j.get("cache_status", "new"),
                 )
                 for j in jobs
             ],

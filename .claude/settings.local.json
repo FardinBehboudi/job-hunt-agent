@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(dir \"C:\\\\\\\\Users\\\\\\\\f_beh\\\\\\\\Projects\\\\\\\\claude\\\\\\\\job-hunt-agent\" /A)",
-      "WebFetch(domain:apify.com)"
+      "WebFetch(domain:apify.com)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(python -m py_compile db.py)",
+      "Bash(python -m py_compile matcher.py)",
+      "Bash(python -m py_compile dashboard.py)",
+      "Bash(python -m py_compile scraper.py)",
+      "Bash(python -m py_compile db.py scraper.py)",
+      "Bash(python -m py_compile matcher.py dashboard.py)"
     ]
   }
 }

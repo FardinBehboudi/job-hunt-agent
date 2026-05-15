@@ -6,7 +6,7 @@ Database: uploads/jobhunt.db  (project-local, gitignored).
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -61,14 +61,16 @@ def init_db() -> None:
             );
 
             CREATE TABLE IF NOT EXISTS scraped_jobs (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                title       TEXT,
-                company     TEXT,
-                location    TEXT,
-                url         TEXT UNIQUE,
-                description TEXT,
-                source      TEXT,
-                scraped_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                title        TEXT,
+                company      TEXT,
+                location     TEXT,
+                url          TEXT UNIQUE,
+                description  TEXT,
+                source       TEXT,
+                posted_date  TEXT DEFAULT '',
+                cache_status TEXT DEFAULT 'new',
+                scraped_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS matched_jobs (
@@ -109,7 +111,45 @@ def init_db() -> None:
                 notes      TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS seen_jobs (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                url                   TEXT UNIQUE,
+                title                 TEXT,
+                company               TEXT,
+                location              TEXT,
+                description           TEXT,
+                source                TEXT,
+                posted_date           TEXT DEFAULT '',
+                first_scraped_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_scraped_at       TIMESTAMP,
+                match_score           INTEGER DEFAULT NULL,
+                interview_chance      TEXT DEFAULT NULL,
+                skip_reason           TEXT DEFAULT NULL,
+                german_level_required TEXT DEFAULT NULL,
+                resume_hash           TEXT DEFAULT NULL,
+                applied               INTEGER DEFAULT 0,
+                dismissed             INTEGER DEFAULT 0
+            );
         """)
+    # Migrate existing tables — add columns if missing
+    _migrations = [
+        ("scraped_jobs", "cache_status",          "TEXT DEFAULT 'new'"),
+        ("scraped_jobs", "posted_date",           "TEXT DEFAULT ''"),
+        ("seen_jobs",    "posted_date",           "TEXT DEFAULT ''"),
+        ("seen_jobs",    "first_scraped_at",      "TIMESTAMP"),
+        ("seen_jobs",    "last_scraped_at",       "TIMESTAMP"),
+        ("seen_jobs",    "german_level_required", "TEXT DEFAULT NULL"),
+        ("seen_jobs",    "resume_hash",           "TEXT DEFAULT NULL"),
+        # legacy — kept for existing rows; ignored in new code
+        ("seen_jobs",    "match_summary",         "TEXT DEFAULT NULL"),
+    ]
+    for table, col, definition in _migrations:
+        try:
+            with _conn() as db:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
+        except Exception:
+            pass  # column already exists
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
@@ -398,8 +438,8 @@ def insert_scraped_jobs(jobs: list[dict]) -> int:
             try:
                 db.execute("""
                     INSERT OR IGNORE INTO scraped_jobs
-                    (title, company, location, url, description, source)
-                    VALUES (?,?,?,?,?,?)
+                    (title, company, location, url, description, source, posted_date)
+                    VALUES (?,?,?,?,?,?,?)
                 """, (
                     job.get("title", ""),
                     job.get("company", ""),
@@ -407,11 +447,235 @@ def insert_scraped_jobs(jobs: list[dict]) -> int:
                     url,
                     job.get("description", ""),
                     job.get("source", "LinkedIn"),
+                    job.get("posted_date", ""),
                 ))
                 inserted += db.execute("SELECT changes()").fetchone()[0]
             except Exception:
                 pass
     return inserted
+
+
+# ── seen_jobs cache ───────────────────────────────────────────────────────────
+
+def _cutoff_for_config(cfg) -> str:
+    """Return the ISO date string for the start of the configured time window."""
+    from datetime import timedelta
+    limit = (cfg or {}).get("posted_limit", "24h")
+    now   = datetime.utcnow()
+    delta = {"1h": timedelta(hours=1), "24h": timedelta(hours=24),
+             "week": timedelta(weeks=1), "month": timedelta(days=30)}.get(limit, timedelta(hours=24))
+    return (now - delta).strftime("%Y-%m-%d")
+
+
+def get_cached_job_urls() -> set[str]:
+    """Return all non-dismissed URLs from the persistent seen_jobs cache."""
+    with _conn() as db:
+        rows = db.execute("SELECT url FROM seen_jobs WHERE dismissed=0").fetchall()
+        return {r["url"] for r in rows if r["url"]}
+
+
+def upsert_seen_jobs(jobs: list[dict]) -> None:
+    """Insert new jobs into the cache; update last_scraped_at for jobs seen again."""
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    with _conn() as db:
+        for j in jobs:
+            url = (j.get("url") or "").strip()
+            if not url:
+                continue
+            pd = (j.get("posted_date") or "").strip()
+            db.execute("""
+                INSERT INTO seen_jobs (url, title, company, location, description, source,
+                                       posted_date, first_scraped_at, last_scraped_at)
+                VALUES (?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(url) DO UPDATE SET
+                    last_scraped_at = excluded.last_scraped_at,
+                    posted_date = CASE
+                        WHEN excluded.posted_date != '' THEN excluded.posted_date
+                        ELSE seen_jobs.posted_date
+                    END
+            """, (
+                url,
+                j.get("title", ""),
+                j.get("company", ""),
+                j.get("location", ""),
+                j.get("description", ""),
+                j.get("source", "LinkedIn"),
+                pd, now, now,
+            ))
+
+
+def get_relevant_cached_jobs(cfg) -> list[dict]:
+    """Return all cached jobs within the configured time window (scored + unscored)."""
+    cutoff = _cutoff_for_config(cfg)
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT url, title, company, location, description, source,
+                   posted_date,
+                   COALESCE(first_scraped_at, first_seen_at) AS scraped_at,
+                   match_score, interview_chance, skip_reason, german_level_required
+            FROM seen_jobs
+            WHERE dismissed = 0
+              AND applied = 0
+              AND (
+                  posted_date = ''
+                  OR posted_date IS NULL
+                  OR posted_date >= ?
+              )
+              AND url NOT IN (
+                  SELECT job_url FROM applications
+                  WHERE job_url IS NOT NULL AND job_url != ''
+              )
+            ORDER BY posted_date DESC, COALESCE(first_scraped_at, first_seen_at) DESC
+        """, (cutoff,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_cache_window_stats(cfg) -> dict:
+    """Return counts: jobs within the time window, outside it, and total active."""
+    cutoff = _cutoff_for_config(cfg)
+    with _conn() as db:
+        within = db.execute("""
+            SELECT COUNT(*) FROM seen_jobs
+            WHERE dismissed = 0 AND applied = 0
+              AND (
+                  posted_date = ''
+                  OR posted_date IS NULL
+                  OR posted_date >= ?
+              )
+              AND url NOT IN (
+                  SELECT job_url FROM applications WHERE job_url IS NOT NULL AND job_url != ''
+              )
+        """, (cutoff,)).fetchone()[0]
+
+        total_active = db.execute("""
+            SELECT COUNT(*) FROM seen_jobs
+            WHERE dismissed = 0 AND applied = 0
+              AND url NOT IN (
+                  SELECT job_url FROM applications WHERE job_url IS NOT NULL AND job_url != ''
+              )
+        """).fetchone()[0]
+
+    return {
+        "within_window":  within,
+        "outside_window": max(0, total_active - within),
+        "total_active":   total_active,
+    }
+
+
+def update_seen_job_score(url: str, scores: dict, resume_hash: str = "") -> None:
+    """Store Claude's scoring result back into the seen_jobs cache."""
+    with _conn() as db:
+        db.execute("""
+            UPDATE seen_jobs
+            SET match_score=?, interview_chance=?, skip_reason=?,
+                german_level_required=?, resume_hash=?
+            WHERE url=?
+        """, (
+            scores.get("match_score"),
+            scores.get("interview_chance"),
+            scores.get("skip_reason"),
+            scores.get("german_level_required"),
+            resume_hash or None,
+            url,
+        ))
+
+
+def dismiss_job(url: str) -> None:
+    """Mark a job as dismissed — never shown again."""
+    with _conn() as db:
+        db.execute("UPDATE seen_jobs SET dismissed=1 WHERE url=?", (url,))
+
+
+def get_cache_stats() -> dict:
+    """Return aggregate counts for the seen_jobs table."""
+    with _conn() as db:
+        total     = db.execute("SELECT COUNT(*) FROM seen_jobs").fetchone()[0]
+        unseen    = db.execute(
+            "SELECT COUNT(*) FROM seen_jobs WHERE dismissed=0 AND match_score IS NULL"
+        ).fetchone()[0]
+        applied   = db.execute("SELECT COUNT(*) FROM seen_jobs WHERE applied=1").fetchone()[0]
+        dismissed = db.execute("SELECT COUNT(*) FROM seen_jobs WHERE dismissed=1").fetchone()[0]
+    return {"total_cached": total, "unseen": unseen, "applied": applied, "dismissed": dismissed}
+
+
+# ── Scoring cache with resume hash ────────────────────────────────────────────
+
+def get_resume_hash(cfg: dict) -> str:
+    """Return the MD5 hex digest of the resume PDF, or '' if not found."""
+    import hashlib
+    resume_path = cfg["paths"]["resume_en"]
+    p = Path(resume_path)
+    if not p.exists():
+        return ""
+    h = hashlib.md5()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def get_scored_urls_for_hash(current_hash: str) -> set:
+    """Return URLs already scored with the given resume hash."""
+    if not current_hash:
+        return set()
+    with _conn() as db:
+        rows = db.execute(
+            "SELECT url FROM seen_jobs WHERE match_score IS NOT NULL AND resume_hash = ?",
+            (current_hash,),
+        ).fetchall()
+        return {r["url"] for r in rows if r["url"]}
+
+
+def has_scores_with_different_hash(current_hash: str, cfg=None) -> bool:
+    """Return True if any seen_job within the time window has a stale or missing resume hash."""
+    if not current_hash:
+        return False
+    cutoff = _cutoff_for_config(cfg)
+    with _conn() as db:
+        row = db.execute(
+            "SELECT COUNT(*) FROM seen_jobs "
+            "WHERE match_score IS NOT NULL "
+            "  AND (resume_hash IS NULL OR resume_hash != ?) "
+            "  AND applied = 0 AND dismissed = 0 "
+            "  AND (posted_date = '' OR posted_date IS NULL OR posted_date >= ?)",
+            (current_hash, cutoff),
+        ).fetchone()
+        return row[0] > 0
+
+
+def invalidate_scores_for_changed_resume(cfg=None) -> int:
+    """Clear cached scores for jobs within the configured time window; return row count."""
+    cutoff = _cutoff_for_config(cfg)
+    with _conn() as db:
+        count = db.execute(
+            "SELECT COUNT(*) FROM seen_jobs "
+            "WHERE match_score IS NOT NULL AND applied=0 AND dismissed=0 "
+            "  AND (posted_date = '' OR posted_date IS NULL OR posted_date >= ?)",
+            (cutoff,),
+        ).fetchone()[0]
+        db.execute(
+            "UPDATE seen_jobs "
+            "SET match_score=NULL, interview_chance=NULL, skip_reason=NULL, "
+            "    german_level_required=NULL, resume_hash=NULL "
+            "WHERE match_score IS NOT NULL AND applied=0 AND dismissed=0 "
+            "  AND (posted_date = '' OR posted_date IS NULL OR posted_date >= ?)",
+            (cutoff,),
+        )
+        return count
+
+
+def get_cached_scores_by_url(urls) -> dict:
+    """Return a {url: scores_dict} map for the given URL set."""
+    if not urls:
+        return {}
+    placeholders = ",".join("?" * len(urls))
+    with _conn() as db:
+        rows = db.execute(
+            f"SELECT url, match_score, interview_chance, skip_reason, german_level_required "
+            f"FROM seen_jobs WHERE url IN ({placeholders})",
+            list(urls),
+        ).fetchall()
+        return {r["url"]: dict(r) for r in rows}
 
 
 def get_unmatched_scraped_jobs() -> list[dict]:

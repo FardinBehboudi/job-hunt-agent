@@ -212,19 +212,7 @@ def run_match_only(cfg: dict | None = None) -> list[dict]:
     cfg = _override_resume(cfg)
     log.info("=== Match-only stage starting: %d jobs ===", len(jobs))
     matched = matcher.run(jobs, cfg)
-
-    # Persist matched scores to DB
-    db_id_map = {j["url"]: j["_db_id"] for j in jobs if "_db_id" in j}
-    for job in matched:
-        db_id = db_id_map.get(job.get("url", ""))
-        if db_id:
-            _db.insert_matched_job(db_id, {
-                "match_score":           job.get("match_score", 0),
-                "interview_chance":      job.get("interview_chance", "low"),
-                "german_level_required": job.get("german_level_required", "none"),
-                "skip_reason":           job.get("skip_reason"),
-                "match_summary":         job.get("match_summary", ""),
-            })
+    # DB inserts happen inside matcher.run() after each scored job for live progress
 
     out = _UPLOADS_DIR / "matched_jobs.json"
     out.write_text(json.dumps(matched, ensure_ascii=False, indent=2), encoding="utf-8")
