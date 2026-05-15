@@ -337,6 +337,63 @@ td { padding: 10px 14px; vertical-align: middle; }
 .sdoc-status { font-size:0.76rem; color:#64748b; white-space:nowrap; }
 .sdoc-status.uploaded { color:#34d399; }
 
+/* ── Apply tab ── */
+.apply-2col { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+@media (max-width:960px) { .apply-2col { grid-template-columns:1fr; } }
+.apply-session-bar { display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  background:#161b22; border:1px solid #21262d; border-radius:8px; padding:12px 18px;
+  margin-bottom:16px; font-size:0.84rem; }
+.asb-stat { display:flex; flex-direction:column; gap:2px; }
+.asb-label { font-size:0.72rem; color:#64748b; text-transform:uppercase; letter-spacing:0.04em; }
+.asb-value { font-size:1.2rem; font-weight:700; color:#f0f6fc; }
+.asb-value.success { color:#34d399; }
+.asb-value.manual  { color:#f59e0b; }
+.asb-value.failed  { color:#f87171; }
+.asb-spacer { flex:1; }
+.apply-job-card { background:#161b22; border:1px solid #21262d; border-radius:8px;
+  padding:12px 14px; margin-bottom:8px; display:flex; align-items:flex-start; gap:10px; }
+.apply-job-card.status-running  { border-color:#58a6ff; background:#0f1929; }
+.apply-job-card.status-done     { border-color:#34d399; background:#0a1f14; }
+.apply-job-card.status-failed   { border-color:#f87171; background:#1f0a0a; }
+.apply-job-card.status-manual   { border-color:#f59e0b; background:#1f1500; }
+.ajc-info { flex:1; min-width:0; }
+.ajc-title { font-size:0.88rem; font-weight:600; color:#f0f6fc; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+.ajc-company { font-size:0.78rem; color:#8b949e; margin-top:2px; }
+.ajc-note { font-size:0.75rem; color:#64748b; margin-top:4px; font-style:italic; }
+.ajc-badges { display:flex; gap:6px; align-items:center; flex-shrink:0; margin-left:auto; }
+.platform-badge { font-size:0.68rem; padding:2px 7px; border-radius:4px; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.05em; }
+.pb-linkedin      { background:#0a66c2; color:#fff; }
+.pb-greenhouse    { background:#24a960; color:#fff; }
+.pb-lever         { background:#3333cc; color:#fff; }
+.pb-smartrecruiters { background:#ff6a40; color:#fff; }
+.pb-ashby         { background:#6366f1; color:#fff; }
+.pb-workday       { background:#d73b4a; color:#fff; }
+.pb-personio      { background:#1eb980; color:#fff; }
+.pb-workable      { background:#2b5ce6; color:#fff; }
+.pb-recruitee     { background:#5b4cf5; color:#fff; }
+.pb-teamtailor    { background:#40c0cb; color:#000; }
+.pb-unknown,.pb-other { background:#30363d; color:#8b949e; }
+.status-icon { font-size:1.1rem; flex-shrink:0; }
+.apply-log { background:#0d1117; border:1px solid #21262d; border-radius:8px;
+  padding:0; font-family:monospace; font-size:0.78rem; display:flex; flex-direction:column;
+  max-height:640px; overflow:hidden; position:sticky; top:16px; }
+.apply-log-hd { padding:10px 14px; border-bottom:1px solid #21262d; font-size:0.82rem;
+  font-weight:600; color:#8b949e; display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.apply-log-body { flex:1; overflow-y:auto; padding:10px 14px; }
+.alog-line { padding:2px 0; line-height:1.4; }
+.alog-start   { color:#58a6ff; }
+.alog-step    { color:#8b949e; }
+.alog-answer  { color:#a8dadc; }
+.alog-success { color:#34d399; }
+.alog-manual  { color:#f59e0b; }
+.alog-failed  { color:#f87171; }
+.alog-delay   { color:#374151; }
+.alog-done    { color:#f0f6fc; font-weight:600; }
+.apply-cards-wrap { max-height:640px; overflow-y:auto; }
+.apply-empty { text-align:center; color:#64748b; padding:40px 20px; font-size:0.85rem; }
+
 /* ── Agent control ── */
 .agent-ctrl-row { padding: 14px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .agent-status { display: flex; align-items: center; gap: 7px; font-size: 0.84rem; color: #8b949e; }
@@ -597,6 +654,7 @@ td { padding: 10px 14px; vertical-align: middle; }
     <nav class="tab-nav">
       <button class="tab-btn active" data-tab="dashboard" onclick="showTab('dashboard')">&#128202; Dashboard</button>
       <button class="tab-btn"        data-tab="agent"     onclick="showTab('agent')">&#129302; Job Hunt Agent</button>
+      <button class="tab-btn"        data-tab="apply"     onclick="showTab('apply')">&#9654; Apply</button>
     </nav>
   </header>
 
@@ -1118,6 +1176,59 @@ td { padding: 10px 14px; vertical-align: middle; }
     </div>
 
   </div><!-- /tab-agent -->
+
+  <!-- ═══ APPLY TAB ═══ -->
+  <div id="tab-apply" class="tab-content hidden">
+
+    <!-- Session summary bar -->
+    <div id="apply-session-bar" class="apply-session-bar">
+      <div class="asb-stat"><span class="asb-label">Total</span><span id="asb-total" class="asb-value">0</span></div>
+      <div class="asb-stat"><span class="asb-label">Applied</span><span id="asb-success" class="asb-value success">0</span></div>
+      <div class="asb-stat"><span class="asb-label">Manual</span><span id="asb-manual" class="asb-value manual">0</span></div>
+      <div class="asb-stat"><span class="asb-label">Failed</span><span id="asb-failed" class="asb-value failed">0</span></div>
+      <div class="asb-spacer"></div>
+      <button id="btn-apply-start" class="btn-primary" onclick="startApplySession()">&#9654; Start Applying</button>
+      <button id="btn-apply-stop"  class="btn-sm"      onclick="stopApplySession()" style="display:none;">&#9632; Stop</button>
+    </div>
+
+    <div class="apply-2col">
+      <!-- Left: job cards -->
+      <div>
+        <div class="panel-hd" style="border:1px solid #21262d; border-radius:8px 8px 0 0; padding:10px 16px;">
+          <span class="panel-title">Jobs to Apply</span>
+          <span id="apply-cards-count" style="font-size:0.78rem; color:#64748b;"></span>
+        </div>
+        <div id="apply-cards-wrap" class="apply-cards-wrap" style="border:1px solid #21262d; border-top:none; border-radius:0 0 8px 8px; padding:10px;">
+          <div class="apply-empty" id="apply-cards-empty">No jobs queued. Go to <strong>Step 3 — Match</strong> and click Apply / Apply All.</div>
+        </div>
+        <!-- Manual queue -->
+        <div style="margin-top:16px;">
+          <div class="panel-hd" style="border:1px solid #21262d; border-radius:8px 8px 0 0; padding:10px 16px;">
+            <span class="panel-title">Manual Apply Queue</span>
+            <button class="btn-sm" onclick="loadManualQueue()" style="margin-left:auto;">Refresh</button>
+          </div>
+          <div id="manual-queue-wrap" style="border:1px solid #21262d; border-top:none; border-radius:0 0 8px 8px; padding:10px;">
+            <div class="apply-empty" id="manual-queue-empty" style="display:none;">No items in the manual queue.</div>
+            <table class="data-table" id="manual-queue-table" style="display:none;">
+              <thead><tr><th>Company</th><th>Role</th><th>Platform</th><th>Note</th><th>Link</th></tr></thead>
+              <tbody id="manual-queue-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: live log -->
+      <div class="apply-log" id="apply-log-panel">
+        <div class="apply-log-hd">
+          <span>&#128195; Apply Log</span>
+          <button class="btn-sm" onclick="document.getElementById('apply-log-body').innerHTML=''" style="margin-left:auto;">Clear</button>
+        </div>
+        <div class="apply-log-body" id="apply-log-body"></div>
+      </div>
+    </div>
+
+  </div><!-- /tab-apply -->
+
 </div><!-- /container -->
 
 <!-- ═══ INTERVIEW MODAL ═══ -->
@@ -1189,6 +1300,8 @@ td { padding: 10px 14px; vertical-align: middle; }
 // ── Tab switching ─────────────────────────────────────────────────────────────
 let _agentInited = false;
 
+let _applyInited = false;
+
 function showTab(name) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -1196,6 +1309,7 @@ function showTab(name) {
   document.querySelector('.tab-btn[data-tab="' + name + '"]').classList.add('active');
   document.getElementById('refresh-pill').classList.toggle('hidden', name !== 'dashboard');
   if (name === 'agent' && !_agentInited) { _agentInited = true; initAgentTab(); }
+  if (name === 'apply' && !_applyInited) { _applyInited = true; initApplyTab(); }
 }
 
 function initAgentTab() {
@@ -2279,6 +2393,21 @@ function goToApply() {
 }
 
 async function _doApply(body) {
+  // Resolve jobs from body, switch to Apply tab
+  let jobs = [];
+  if (body.all) {
+    const minSc = parseInt(document.getElementById('match-min-score')?.value) || 0;
+    jobs = (_matchedFiltered || []).filter(j => (parseInt(j.match_score)||0) >= minSc && !j.skip_reason);
+  } else if (body.urls) {
+    jobs = (_matchedFiltered || []).filter(j => body.urls.includes(j.url));
+  }
+  if (!jobs.length) { showToast('No jobs selected.', 'error'); return; }
+  setApplyJobs(jobs);
+  showTab('apply');
+  return;
+}
+
+async function _doApplyLegacy(body) {
   document.getElementById('btn-apply-all').disabled = true;
   document.getElementById('apply-progress').classList.remove('hidden');
   document.getElementById('apply-msg').textContent = 'Submitting applications…';
@@ -2302,6 +2431,219 @@ function applySelected() {
   const urls = [...document.querySelectorAll('#matched-tbody .row-cb:checked')].map(c => c.value).filter(Boolean);
   if (!urls.length) { showToast('No jobs selected.', 'error'); return; }
   _doApply({urls});
+}
+
+// ── Apply tab ─────────────────────────────────────────────────────────────────
+let _applyJobs     = [];   // jobs queued for this session
+let _applyRunning  = false;
+let _applyEvtSrc   = null; // EventSource for SSE stream
+let _applyStats    = {total:0, success:0, manual:0, failed:0};
+
+function initApplyTab() {
+  loadManualQueue();
+  // restore any jobs already queued
+  renderApplyCards();
+}
+
+function setApplyJobs(jobs) {
+  _applyJobs = jobs || [];
+  document.getElementById('asb-total').textContent = _applyJobs.length;
+  document.getElementById('asb-success').textContent = '0';
+  document.getElementById('asb-manual').textContent  = '0';
+  document.getElementById('asb-failed').textContent  = '0';
+  _applyStats = {total:_applyJobs.length, success:0, manual:0, failed:0};
+  renderApplyCards();
+}
+
+function _platformBadgeClass(p) {
+  const known = ['linkedin','greenhouse','lever','smartrecruiters','ashby','workday',
+                 'personio','workable','recruitee','teamtailor'];
+  return known.includes(p) ? 'pb-' + p : 'pb-unknown';
+}
+
+function renderApplyCards() {
+  const wrap  = document.getElementById('apply-cards-wrap');
+  const empty = document.getElementById('apply-cards-empty');
+  const count = document.getElementById('apply-cards-count');
+  if (!_applyJobs.length) {
+    empty.style.display = '';
+    count.textContent = '';
+    return;
+  }
+  empty.style.display = 'none';
+  count.textContent = _applyJobs.length + ' job' + (_applyJobs.length !== 1 ? 's' : '');
+  wrap.innerHTML = _applyJobs.map((j, idx) => {
+    const platform = _detectPlatformJS(j.url || '');
+    const statusCls = j._applyStatus ? 'status-' + j._applyStatus : '';
+    const icon = j._applyStatus === 'done'   ? '&#10003;' :
+                 j._applyStatus === 'failed' ? '&#10007;' :
+                 j._applyStatus === 'manual' ? '&#9888;'  :
+                 j._applyStatus === 'running'? '&#9654;'  : '&#8226;';
+    return `<div class="apply-job-card ${statusCls}" id="ajc-${idx}">
+      <span class="status-icon">${icon}</span>
+      <div class="ajc-info">
+        <div class="ajc-title">${esc(j.title||'')}</div>
+        <div class="ajc-company">${esc(j.company||'')} ${j.location ? '· '+esc(j.location) : ''}</div>
+        ${j._applyNote ? `<div class="ajc-note">${esc(j._applyNote)}</div>` : ''}
+      </div>
+      <div class="ajc-badges">
+        <span class="platform-badge ${_platformBadgeClass(platform)}">${platform}</span>
+        ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="btn-sm" style="text-decoration:none;font-size:0.72rem;">Link</a>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _detectPlatformJS(url) {
+  const u = (url||'').toLowerCase();
+  if (u.includes('linkedin.com'))       return 'linkedin';
+  if (u.includes('greenhouse.io') || u.includes('boards.greenhouse')) return 'greenhouse';
+  if (u.includes('lever.co'))           return 'lever';
+  if (u.includes('smartrecruiters'))    return 'smartrecruiters';
+  if (u.includes('ashbyhq') || u.includes('jobs.ashby')) return 'ashby';
+  if (u.includes('myworkdayjobs') || u.includes('workday')) return 'workday';
+  if (u.includes('taleo.net'))          return 'taleo';
+  if (u.includes('icims.com'))          return 'icims';
+  if (u.includes('bamboohr'))           return 'bamboohr';
+  if (u.includes('personio'))           return 'personio';
+  if (u.includes('workable'))           return 'workable';
+  if (u.includes('recruitee'))          return 'recruitee';
+  if (u.includes('jazzhr') || u.includes('resumatorjobs')) return 'jazzhr';
+  if (u.includes('teamtailor'))         return 'teamtailor';
+  if (u.includes('jobvite'))            return 'jobvite';
+  if (u.includes('successfactors'))     return 'successfactors';
+  if (u.includes('stepstone'))          return 'stepstone';
+  return 'unknown';
+}
+
+function applyLogLine(type, text) {
+  const body = document.getElementById('apply-log-body');
+  const div  = document.createElement('div');
+  div.className = 'alog-line alog-' + type;
+  div.textContent = text;
+  body.appendChild(div);
+  body.scrollTop = body.scrollHeight;
+}
+
+function handleApplyEvent(evt) {
+  try {
+    const d = JSON.parse(evt.data);
+    switch (d.type) {
+      case 'apply_start':
+        applyLogLine('start', '▶ Starting apply session — ' + d.total + ' job(s)');
+        break;
+      case 'platform_detected':
+        applyLogLine('step', '  [' + d.platform + '] ' + (d.url||'').split('/').pop());
+        // mark card as running
+        const idx = _applyJobs.findIndex(j => j.url === d.url);
+        if (idx >= 0) { _applyJobs[idx]._applyStatus = 'running'; renderApplyCards(); }
+        break;
+      case 'apply_step':
+        applyLogLine('step', '    → ' + d.step);
+        break;
+      case 'apply_answer':
+        applyLogLine('answer', '    ✎ ' + d.label + ' = ' + d.answer);
+        break;
+      case 'apply_result': {
+        const i = _applyJobs.findIndex(j => j.url === d.url);
+        if (d.success) {
+          if (i>=0){ _applyJobs[i]._applyStatus='done'; _applyJobs[i]._applyNote=''; }
+          _applyStats.success++;
+          applyLogLine('success', '  ✓ Applied: ' + d.company + ' — ' + d.title);
+        } else if (d.manual) {
+          if (i>=0){ _applyJobs[i]._applyStatus='manual'; _applyJobs[i]._applyNote=d.note; }
+          _applyStats.manual++;
+          applyLogLine('manual', '  ⚠ Manual: ' + d.company + ' — ' + (d.note||''));
+        } else {
+          if (i>=0){ _applyJobs[i]._applyStatus='failed'; _applyJobs[i]._applyNote=d.note; }
+          _applyStats.failed++;
+          applyLogLine('failed', '  ✗ Failed: ' + d.company + ' — ' + (d.note||''));
+        }
+        updateApplySessionBar();
+        renderApplyCards();
+        break;
+      }
+      case 'delay':
+        applyLogLine('delay', '  ⏳ ' + d.seconds + 's delay…');
+        break;
+      case 'session_done':
+        applyLogLine('done', '■ Session done — ✓ ' + d.success + '  ⚠ ' + d.manual + '  ✗ ' + d.failed);
+        _applyRunning = false;
+        document.getElementById('btn-apply-start').style.display = '';
+        document.getElementById('btn-apply-stop').style.display  = 'none';
+        if (_applyEvtSrc) { _applyEvtSrc.close(); _applyEvtSrc = null; }
+        loadManualQueue();
+        fetchDashboard();
+        break;
+    }
+  } catch(_) {}
+}
+
+function updateApplySessionBar() {
+  document.getElementById('asb-success').textContent = _applyStats.success;
+  document.getElementById('asb-manual').textContent  = _applyStats.manual;
+  document.getElementById('asb-failed').textContent  = _applyStats.failed;
+}
+
+async function startApplySession() {
+  if (_applyRunning) { showToast('Already running.', 'error'); return; }
+  if (!_applyJobs.length) { showToast('No jobs queued. Go to Step 3 and click Apply.', 'error'); return; }
+  _applyRunning = true;
+  _applyStats   = {total:_applyJobs.length, success:0, manual:0, failed:0};
+  updateApplySessionBar();
+  document.getElementById('btn-apply-start').style.display = 'none';
+  document.getElementById('btn-apply-stop').style.display  = '';
+  // Open SSE stream before starting so we don't miss early events
+  connectApplyStream();
+  try {
+    const r = await fetch('/api/apply/start', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({jobs: _applyJobs}),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+  } catch(err) {
+    showToast(err.message, 'error');
+    _applyRunning = false;
+    document.getElementById('btn-apply-start').style.display = '';
+    document.getElementById('btn-apply-stop').style.display  = 'none';
+    if (_applyEvtSrc) { _applyEvtSrc.close(); _applyEvtSrc = null; }
+  }
+}
+
+async function stopApplySession() {
+  await fetch('/api/apply/stop', {method:'POST'});
+  applyLogLine('failed', '■ Stop requested…');
+}
+
+function connectApplyStream() {
+  if (_applyEvtSrc) { _applyEvtSrc.close(); }
+  _applyEvtSrc = new EventSource('/api/apply/stream');
+  _applyEvtSrc.onmessage = handleApplyEvent;
+  _applyEvtSrc.onerror   = () => {};
+}
+
+async function loadManualQueue() {
+  try {
+    const d = await (await fetch('/api/apply/manual_queue')).json();
+    const items = d.items || [];
+    const empty = document.getElementById('manual-queue-empty');
+    const table = document.getElementById('manual-queue-table');
+    const tbody = document.getElementById('manual-queue-tbody');
+    if (!items.length) {
+      empty.style.display = ''; table.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none'; table.style.display = '';
+    tbody.innerHTML = items.map(item => `<tr>
+      <td>${esc(item.company||'')}</td>
+      <td>${esc(item.title||'')}</td>
+      <td><span class="platform-badge ${_platformBadgeClass(item.platform||'unknown')}">${esc(item.platform||'?')}</span></td>
+      <td style="color:#64748b;font-size:0.78rem;">${esc(item.note||'')}</td>
+      <td>${item.job_url ? `<a href="${esc(item.job_url)}" target="_blank" class="btn-sm">Open</a>` : ''}</td>
+    </tr>`).join('');
+  } catch(_) {}
 }
 
 // ── Roles panel ───────────────────────────────────────────────────────────────
@@ -3943,6 +4285,90 @@ def api_log_stream():
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ── Apply tab endpoints ───────────────────────────────────────────────────────
+
+_apply_stop_flag: threading.Event = threading.Event()
+_apply_thread:    "threading.Thread | None" = None
+_apply_lock       = threading.Lock()
+
+
+def _apply_tab_worker(jobs: list[dict]) -> None:
+    global _apply_stop_flag
+    try:
+        import applier
+        cfg = load_config()
+        applier.run(jobs, cfg, _apply_stop_flag)
+    except Exception as exc:
+        import applier
+        applier._emit("session_done", {"success": 0, "manual": 0, "failed": len(jobs),
+                                       "error": str(exc)})
+
+
+@app.route("/api/apply/start", methods=["POST"])
+def api_apply_start():
+    global _apply_thread, _apply_stop_flag
+    with _apply_lock:
+        if _apply_thread and _apply_thread.is_alive():
+            return jsonify({"error": "Apply session already running"}), 409
+        body = request.get_json(force=True) or {}
+        jobs = body.get("jobs") or []
+        if not jobs:
+            return jsonify({"error": "No jobs provided"}), 400
+        _apply_stop_flag = threading.Event()
+        _apply_thread = threading.Thread(
+            target=_apply_tab_worker, args=(jobs,), daemon=True
+        )
+        _apply_thread.start()
+    return jsonify({"ok": True, "total": len(jobs)})
+
+
+@app.route("/api/apply/stop", methods=["POST"])
+def api_apply_stop():
+    _apply_stop_flag.set()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/apply/stream")
+def api_apply_stream():
+    import applier
+
+    def generate():
+        last_ka = time.time()
+        while True:
+            try:
+                evt = applier._event_queue.get(timeout=0.5)
+                payload = json.dumps(evt)
+                yield "data: " + payload + _SSE_SEP
+                if evt.get("type") == "session_done":
+                    return  # close stream cleanly after final event
+            except Exception:
+                pass
+            if time.time() - last_ka > 15:
+                yield ": keepalive" + _SSE_SEP
+                last_ka = time.time()
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/api/apply/status")
+def api_apply_status():
+    global _apply_thread
+    running = bool(_apply_thread and _apply_thread.is_alive())
+    return jsonify({"running": running})
+
+
+@app.route("/api/apply/manual_queue")
+def api_apply_manual_queue():
+    try:
+        import db as _db
+        _db.init_db()
+        items = _db.get_manual_queue(status="pending")
+        return jsonify({"items": items})
+    except Exception as exc:
+        return jsonify({"error": str(exc), "items": []}), 500
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -131,6 +131,28 @@ def init_db() -> None:
                 applied               INTEGER DEFAULT 0,
                 dismissed             INTEGER DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS manual_apply_queue (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_url         TEXT,
+                title           TEXT,
+                company         TEXT,
+                platform        TEXT,
+                note            TEXT,
+                screenshot_path TEXT,
+                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status          TEXT DEFAULT 'pending'
+            );
+
+            CREATE TABLE IF NOT EXISTS apply_sessions (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                finished_at   TIMESTAMP,
+                total_jobs    INTEGER DEFAULT 0,
+                success_count INTEGER DEFAULT 0,
+                manual_count  INTEGER DEFAULT 0,
+                failed_count  INTEGER DEFAULT 0
+            );
         """)
     # Migrate existing tables — add columns if missing
     _migrations = [
@@ -142,7 +164,8 @@ def init_db() -> None:
         ("seen_jobs",    "german_level_required", "TEXT DEFAULT NULL"),
         ("seen_jobs",    "resume_hash",           "TEXT DEFAULT NULL"),
         # legacy — kept for existing rows; ignored in new code
-        ("seen_jobs",    "match_summary",         "TEXT DEFAULT NULL"),
+        ("seen_jobs",             "match_summary",  "TEXT DEFAULT NULL"),
+        ("manual_apply_queue",    "screenshot_path","TEXT DEFAULT NULL"),
     ]
     for table, col, definition in _migrations:
         try:
@@ -900,3 +923,52 @@ def update_task_manual(task_id: int, data: dict) -> None:
 def delete_task_manual(task_id: int) -> None:
     with _conn() as db:
         db.execute("DELETE FROM priority_tasks WHERE id=?", (task_id,))
+
+
+# ── Manual apply queue ────────────────────────────────────────────────────────
+
+def log_manual_apply(job_url: str, title: str, company: str, platform: str,
+                     note: str, screenshot_path: str = "") -> int:
+    with _conn() as db:
+        cur = db.execute("""
+            INSERT INTO manual_apply_queue
+            (job_url, title, company, platform, note, screenshot_path)
+            VALUES (?,?,?,?,?,?)
+        """, (job_url or "", title or "", company or "", platform or "",
+              note or "", screenshot_path or ""))
+        return cur.lastrowid
+
+
+def get_manual_queue(status: str = "pending") -> list[dict]:
+    with _conn() as db:
+        rows = db.execute(
+            "SELECT * FROM manual_apply_queue WHERE status=? ORDER BY created_at DESC",
+            (status,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_manual_queue_status(entry_id: int, status: str) -> None:
+    with _conn() as db:
+        db.execute("UPDATE manual_apply_queue SET status=? WHERE id=?", (status, entry_id))
+
+
+# ── Apply sessions ────────────────────────────────────────────────────────────
+
+def create_apply_session(total_jobs: int) -> int:
+    with _conn() as db:
+        cur = db.execute(
+            "INSERT INTO apply_sessions (total_jobs) VALUES (?)", (total_jobs,)
+        )
+        return cur.lastrowid
+
+
+def update_apply_session(session_id: int, finished_at: str,
+                         success_count: int, manual_count: int,
+                         failed_count: int) -> None:
+    with _conn() as db:
+        db.execute("""
+            UPDATE apply_sessions
+            SET finished_at=?, success_count=?, manual_count=?, failed_count=?
+            WHERE id=?
+        """, (finished_at, success_count, manual_count, failed_count, session_id))
