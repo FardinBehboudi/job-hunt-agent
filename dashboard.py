@@ -777,11 +777,14 @@ td { padding: 10px 14px; vertical-align: middle; }
 
       <!-- Step 1: Scrape -->
       <div id="wz-1" class="wz-step">
-        <div style="padding:20px 18px;">
-          <p style="color:#8b949e;font-size:0.84rem;margin-bottom:16px;">
+        <div class="panel-hd" style="border-top:none;">
+          <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 1 — Scrape</span>
+          <button id="btn-scrape" class="btn-primary btn-sm" onclick="startScrape()">&#128270; Start Scraping</button>
+        </div>
+        <div style="padding:12px 18px 18px;">
+          <p style="color:#8b949e;font-size:0.84rem;margin-bottom:0;">
             Searches LinkedIn for jobs posted in the last 24 h matching your resume.
           </p>
-          <button id="btn-scrape" class="btn-primary" onclick="startScrape()">&#128270; Start Scraping</button>
           <div id="scrape-progress" class="hidden" style="margin-top:14px;">
             <div class="progress-bar"><div id="scrape-progress-fill" class="progress-fill" style="width:0%;transition:width 0.4s ease;"></div></div>
             <div id="scrape-msg"     style="margin-top:8px;font-size:0.8rem;color:#64748b;"></div>
@@ -792,7 +795,10 @@ td { padding: 10px 14px; vertical-align: middle; }
 
       <!-- Step 2: Review -->
       <div id="wz-2" class="wz-step hidden">
-        <div class="panel-hd" style="border-top:none;"><span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 2 — Review Scraped Jobs</span></div>
+        <div class="panel-hd" style="border-top:none;">
+          <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 2 — Review Scraped Jobs</span>
+          <button class="btn-primary btn-sm" onclick="goToMatch()">Next: Match &amp; Filter &#8594;</button>
+        </div>
         <div id="scrape-cache-stats" class="cache-stats-bar hidden">
           <span>&#128994; <strong id="cs-new">0</strong> new</span>
           <span>&#128290; <strong id="cs-cached">0</strong> from cache</span>
@@ -815,16 +821,17 @@ td { padding: 10px 14px; vertical-align: middle; }
             <tbody id="scraped-tbody"></tbody>
           </table>
         </div>
-        <div class="pip-footer">
-          <button class="btn-primary" onclick="goToMatch()">Match &amp; Filter &#8594;</button>
-        </div>
       </div>
 
       <!-- Step 3: Match -->
       <div id="wz-3" class="wz-step hidden">
         <div class="panel-hd" style="border-top:none;">
           <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 3 — Match &amp; Score</span>
-          <button id="btn-match" class="btn-primary btn-sm" onclick="startMatch()">&#129302; Run Matching</button>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button id="btn-match" class="btn-primary btn-sm" onclick="startMatch()">&#129302; Run Matching</button>
+            <button class="btn-primary btn-sm" id="btn-goto-select-top" onclick="goToSelect()" disabled
+                    style="display:none;">Next: Select Jobs (0) &#8594;</button>
+          </div>
         </div>
         <div id="match-progress" class="hidden" style="padding:14px 18px 8px;">
           <div class="progress-bar"><div id="match-progress-fill" class="progress-fill" style="width:0%;transition:width 0.4s ease;"></div></div>
@@ -878,15 +885,16 @@ td { padding: 10px 14px; vertical-align: middle; }
         <!-- legacy stats bar kept so nothing else breaks -->
         <div id="match-score-stats" class="hidden"
              style="padding:5px 18px;font-size:0.77rem;color:#64748b;border-bottom:1px solid #21262d;background:#161b22;"></div>
-        <div class="pip-footer">
-          <button class="btn-primary" id="btn-goto-select" onclick="goToSelect()" disabled>Next: Select Jobs &#8594;</button>
-        </div>
       </div>
 
       <!-- Step 4: Select -->
       <div id="wz-4" class="wz-step hidden">
         <div class="panel-hd" style="border-top:none;">
           <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 4 — Select Jobs</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button id="btn-apply-selected" class="btn-sm btn-primary" onclick="applySelectedJobs()">&#9654; Apply Selected <span id="apply-selected-count">(0)</span></button>
+            <button id="btn-apply-all-jobs" class="btn-sm btn-primary" onclick="applyAllJobs()">&#9654; Apply All</button>
+          </div>
         </div>
         <div id="match-filter-bar" class="hidden" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #21262d;background:#161b22;">
           <label style="font-size:0.82rem;font-weight:600;color:#8b949e;">Min Score</label>
@@ -925,13 +933,6 @@ td { padding: 10px 14px; vertical-align: middle; }
               <tbody id="matched-tbody"></tbody>
             </table>
           </div>
-          <div class="pip-footer">
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.83rem;color:#8b949e;">
-              <input type="checkbox" id="select-all-footer" onchange="toggleSelectAll(this)"> Select All
-            </label>
-            <button id="btn-apply-selected" class="btn-sm btn-primary" onclick="applySelectedJobs()">&#9654; Apply Selected <span id="apply-selected-count">(0)</span></button>
-            <button id="btn-apply-all-jobs" class="btn-sm btn-primary" onclick="applyAllJobs()">&#9654; Apply All</button>
-          </div>
         </div>
       </div>
 
@@ -954,18 +955,28 @@ td { padding: 10px 14px; vertical-align: middle; }
               <span style="font-size:0.83rem;font-weight:600;color:#8b949e;">Jobs to Apply</span>
               <span id="apply-cards-count" style="font-size:0.78rem;color:#64748b;"></span>
             </div>
+            <div id="apply-session-summary" style="display:none;"></div>
             <div id="apply-cards-wrap" class="apply-cards-wrap">
               <div class="apply-empty" id="apply-cards-empty">No jobs queued. Go to <strong>Step 4 — Select</strong> and click Apply / Apply All.</div>
             </div>
             <div style="margin-top:16px;">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                <span style="font-size:0.83rem;font-weight:600;color:#8b949e;">Manual Apply Queue</span>
-                <button class="btn-sm" onclick="loadManualQueue()">Refresh</button>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-size:0.83rem;font-weight:600;color:#f59e0b;">&#9888; Manual Apply Queue</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <button class="btn-sm" id="btn-mq-all-sessions" onclick="toggleMqAllSessions()"
+                          style="font-size:0.75rem;">&#128203; Show all sessions</button>
+                  <button class="btn-sm" onclick="loadManualQueue()">Refresh</button>
+                </div>
               </div>
+              <p style="font-size:0.78rem;color:#94a3b8;margin-bottom:8px;">
+                Agent could not complete these applications automatically.
+                Review each one, apply manually then click <strong>&#10003; I Applied</strong>,
+                or click <strong>&#10005; Not Interested</strong> to exclude the job permanently.
+              </p>
               <div id="manual-queue-wrap">
                 <div class="apply-empty" id="manual-queue-empty">No items in the manual queue.</div>
-                <table class="data-table" id="manual-queue-table" style="display:none;">
-                  <thead><tr><th>Company</th><th>Role</th><th>Platform</th><th>Note</th><th>Link</th></tr></thead>
+                <table class="pip-table" id="manual-queue-table" style="display:none;width:100%;">
+                  <thead><tr><th>Company</th><th>Role</th><th>Platform</th><th>Reason</th><th>Link</th><th>Actions</th></tr></thead>
                   <tbody id="manual-queue-tbody"></tbody>
                 </table>
               </div>
@@ -1072,6 +1083,32 @@ td { padding: 10px 14px; vertical-align: middle; }
             <button class="btn-sm btn-primary" onclick="saveConfig()">Save</button>
           </div>
           <div class="config-form">
+
+            <div class="cfg-section">Personal Info</div>
+            <div class="cfg-2col">
+              <div class="cfg-col"><label>First Name</label>
+                <input id="cfg-first_name" type="text" placeholder="Fardin"></div>
+              <div class="cfg-col"><label>Last Name</label>
+                <input id="cfg-last_name" type="text" placeholder="Behboudi"></div>
+            </div>
+            <div class="cfg-2col">
+              <div class="cfg-col"><label>Email</label>
+                <input id="cfg-email" type="email" placeholder="you@email.com"></div>
+              <div class="cfg-col"><label>Phone</label>
+                <input id="cfg-phone" type="text" placeholder="+49..."></div>
+            </div>
+
+            <div class="cfg-section">Online Presence</div>
+            <div class="cfg-row"><label>LinkedIn URL</label>
+              <input id="cfg-linkedin_url" type="url" placeholder="https://linkedin.com/in/yourprofile"></div>
+            <div class="cfg-2col">
+              <div class="cfg-col"><label>GitHub URL</label>
+                <input id="cfg-github_url" type="url" placeholder="https://github.com/yourhandle"></div>
+              <div class="cfg-col"><label>Portfolio / Website</label>
+                <input id="cfg-portfolio_url" type="url" placeholder="https://yoursite.com"></div>
+            </div>
+
+            <div class="cfg-section">Work Preferences</div>
             <div class="cfg-2col">
               <div class="cfg-col">
                 <label>Notice Period</label>
@@ -1085,30 +1122,8 @@ td { padding: 10px 14px; vertical-align: middle; }
                 </select>
               </div>
               <div class="cfg-col">
-                <label>Earliest Start</label>
-                <select id="cfg-earliest_start" class="cfg-select">
-                  <option value="immediately">Immediately</option>
-                  <option value="2 weeks">2 weeks</option>
-                  <option value="1 month">1 month</option>
-                  <option value="2 months">2 months</option>
-                  <option value="3 months">3 months</option>
-                  <option value="6 months">6 months</option>
-                </select>
-              </div>
-            </div>
-            <div class="cfg-2col">
-              <div class="cfg-col">
                 <label>Salary Expectation (gross/year)</label>
                 <input id="cfg-salary_expectation" type="number" min="0" step="1000">
-              </div>
-              <div class="cfg-col">
-                <label>Currency</label>
-                <select id="cfg-salary_currency" class="cfg-select">
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
-                  <option value="CHF">CHF</option>
-                </select>
               </div>
             </div>
             <div class="cfg-2col">
@@ -1142,9 +1157,10 @@ td { padding: 10px 14px; vertical-align: middle; }
               <div id="lang-list" class="lang-list"></div>
               <button class="btn-sm" onclick="addLanguage()" style="margin-top:4px;align-self:flex-start;">+ Add Language</button>
             </div>
+
             <div class="cfg-section">Support Documents</div>
             <div style="font-size:0.78rem;color:#64748b;margin-bottom:8px;line-height:1.4;">
-              Automatically attached to LinkedIn Easy Apply forms when matching upload fields appear.
+              Automatically attached to application forms when matching upload fields appear.
             </div>
             <div id="sdoc-list" class="sdoc-list"></div>
           </div>
@@ -1186,11 +1202,10 @@ td { padding: 10px 14px; vertical-align: middle; }
             </button>
             <span id="li-login-msg" style="font-size:0.79rem;color:#8b949e;"></span>
           </div>
-          <div class="cfg-section">Identity</div>
-          <div class="cfg-row"><label>Full Name</label><input id="cfg-full_name" type="text"></div>
-          <div class="cfg-row"><label>Email Address</label><input id="cfg-hotmail_address" type="text"></div>
-          <div class="cfg-row"><label>Notify Email</label><input id="cfg-notify_email" type="text"></div>
-          <div class="cfg-row"><label>Phone</label><input id="cfg-phone" type="text"></div>
+          <div class="cfg-row"><label>Notification Email</label>
+            <input id="cfg-notify_email" type="email" placeholder="email for pipeline alerts">
+            <div style="font-size:0.75rem;color:#64748b;margin-top:3px;">Used for interview alerts and pipeline notifications.</div>
+          </div>
           <div class="cfg-section">Scoring</div>
           <div class="cfg-2col">
             <div class="cfg-col"><label>Min Match Score</label><input id="cfg-min_match_score" type="number" min="0" max="100"></div>
@@ -1261,6 +1276,28 @@ td { padding: 10px 14px; vertical-align: middle; }
         <button class="btn-sm" onclick="clearLog()">Clear</button>
       </div>
       <div id="log-viewer" class="log-viewer"></div>
+    </div>
+
+    <!-- Debug Apply Panel -->
+    <div id="debug-apply-panel" style="border:2px dashed #f90;border-radius:8px;padding:12px;margin-top:24px;">
+      <div style="color:#f90;font-size:12px;font-weight:bold;margin-bottom:8px;">&#128736; DEBUG — Test Applier Directly</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <input id="debug-job-url" type="text"
+               placeholder="Paste job URL (LinkedIn, Greenhouse, Lever, etc.)"
+               style="flex:1;min-width:260px;padding:5px 8px;border:1px solid #30363d;border-radius:6px;font-size:0.83rem;background:#0d1117;color:#e2e8f0;">
+        <input id="debug-job-title" type="text"
+               placeholder="Title (optional)"
+               style="width:180px;padding:5px 8px;border:1px solid #30363d;border-radius:6px;font-size:0.83rem;background:#0d1117;color:#e2e8f0;">
+        <input id="debug-job-company" type="text"
+               placeholder="Company (optional)"
+               style="width:160px;padding:5px 8px;border:1px solid #30363d;border-radius:6px;font-size:0.83rem;background:#0d1117;color:#e2e8f0;">
+        <button class="btn-sm" onclick="debugApply()"
+                style="background:#b45309;color:#fff;border-color:#92400e;">&#9654; Run Apply</button>
+      </div>
+      <div id="debug-apply-log"
+           style="margin-top:10px;font-family:monospace;font-size:12px;background:#111;color:#eee;
+                  padding:10px;border-radius:6px;min-height:60px;max-height:300px;
+                  overflow-y:auto;white-space:pre-wrap;"></div>
     </div>
 
   </div><!-- /tab-agent -->
@@ -1575,7 +1612,7 @@ function renderTable(tabKey) {
       : '<span>' + esc(j.role || '—') + '</span>';
     return '<tr>'
       + '<td class="td-date">' + esc(j.date_applied || '') + '</td>'
-      + '<td class="td-company">' + esc(j.company || '') + '</td>'
+      + '<td class="td-company">' + esc(j.company || '') + (j.applied_by === 'Agent' ? ' <span style="font-size:0.7rem;background:#1d4ed8;color:#fff;padding:1px 5px;border-radius:9px;vertical-align:middle;">🤖</span>' : '') + '</td>'
       + '<td class="td-role">' + roleCell + '</td>'
       + '<td>' + esc(j.location || '') + '</td>'
       + '<td class="td-score ' + (sc2 != null ? scoreClass(sc2) : 's-na') + '">' + esc(scoreTxt) + '</td>'
@@ -1803,6 +1840,7 @@ async function navigateToStep(n) {
     if (_applyJobs.length > 0 && !_applySessionStarted && !_applyRunning) {
       document.getElementById('btn-apply-start').style.display = '';
     }
+    document.getElementById('apply-log-body').innerHTML = '';
     connectApplyStream();
     loadManualQueue();
   }
@@ -1872,7 +1910,7 @@ let _statusPollTimer = null;
 
 function _setScrapeRunning() {
   const btn = document.getElementById('btn-scrape');
-  btn.className = 'btn-stop';
+  btn.className = 'btn-stop btn-sm';
   btn.innerHTML = '&#9209; Stop Scraping';
   btn.onclick   = stopScraping;
   btn.disabled  = false;
@@ -1885,7 +1923,7 @@ function _setScrapeRunning() {
 
 function _resetScrapeButton() {
   const btn = document.getElementById('btn-scrape');
-  btn.className = 'btn-primary';
+  btn.className = 'btn-primary btn-sm';
   btn.innerHTML = '&#128270; Start Scraping';
   btn.onclick   = startScrape;
   btn.disabled  = false;
@@ -2123,6 +2161,8 @@ async function startMatch() {
   document.getElementById('match-score-stats').classList.add('hidden');
   document.getElementById('match-results-panel').classList.add('hidden');
   document.getElementById('matched-table-wrap').classList.add('hidden');
+  const _topBtnR = document.getElementById('btn-goto-select-top');
+  if (_topBtnR) { _topBtnR.disabled = true; _topBtnR.style.display = 'none'; }
   const fill = document.getElementById('match-progress-fill');
   if (fill) { fill.style.width = '0%'; fill.style.background = ''; }
   document.getElementById('match-msg').textContent = 'Starting AI scoring…';
@@ -2566,6 +2606,12 @@ function _updateStep3Threshold(val) {
   if (aboveEl) aboveEl.textContent = above.length;
   if (belowEl) belowEl.textContent = below.length;
 
+  const btnLabel = `Next: Select Jobs (${above.length}) →`;
+  const btnTop = document.getElementById('btn-goto-select-top');
+  const btnBot = document.getElementById('btn-goto-select');
+  if (btnTop) btnTop.textContent = btnLabel;
+  if (btnBot) btnBot.textContent = btnLabel;
+
   renderStep3Table();
 }
 
@@ -2687,6 +2733,8 @@ async function renderStep3Results() {
 
     document.getElementById('match-results-panel').classList.remove('hidden');
     if (nextBtn) nextBtn.disabled = false;
+    const topBtn = document.getElementById('btn-goto-select-top');
+    if (topBtn) { topBtn.disabled = false; topBtn.style.display = ''; }
     _stepAvail.step3 = true;
     _stepAvail.step4 = true;
     _updateStep3Threshold(savedMin);
@@ -2858,31 +2906,85 @@ function applyLogLine(type, text) {
   body.scrollTop = body.scrollHeight;
 }
 
+function _pipelineLogApply(d) {
+  const box = document.getElementById('log-viewer');
+  if (!box) return;
+  let text = '', color = '';
+  if (d.type === 'apply_start') {
+    text = '[apply] ▶ Starting session — ' + d.total + ' job(s)';
+    color = '#93c5fd';
+  } else if (d.type === 'platform_detected') {
+    text = '[apply] [' + d.platform + '] ' + (d.url||'').split('/').pop();
+  } else if (d.type === 'apply_step') {
+    const step = d.step || '';
+    text = '[apply]   → ' + step;
+    if (step.startsWith('⚠')) color = '#fb923c';
+  } else if (d.type === 'apply_answer') {
+    text = '[apply]   ✎ ' + d.label + ' = ' + d.answer;
+  } else if (d.type === 'apply_result') {
+    if (d.success) { text = '[apply] ✓ Applied: ' + d.company + ' — ' + d.title; color = '#4ade80'; }
+    else if (d.manual) { text = '[apply] ⚠ Manual: ' + d.company + ' — ' + (d.note||''); color = '#fb923c'; }
+    else { text = '[apply] ✗ Failed: ' + d.company + ' — ' + (d.note||''); color = '#f87171'; }
+  } else if (d.type === 'session_done') {
+    text = '[apply] ■ Done — ✓ ' + d.success + '  ⚠ ' + d.manual + '  ✗ ' + d.failed;
+    color = '#93c5fd';
+  }
+  if (!text) return;
+  const div = document.createElement('div');
+  div.className = 'log-line log-default';
+  div.textContent = text;
+  if (color) div.style.color = color;
+  box.appendChild(div);
+  while (box.children.length > 500) box.children[0].remove();
+  if (box.scrollHeight - box.scrollTop - box.clientHeight < 80) box.scrollTop = box.scrollHeight;
+}
+
 function handleApplyEvent(evt) {
   try {
     const d = JSON.parse(evt.data);
     switch (d.type) {
       case 'apply_start':
+        document.getElementById('apply-log-body').innerHTML = '';
+        _applyStats = {total: d.total || 0, success: 0, manual: 0, failed: 0};
+        document.getElementById('asb-total').textContent   = _applyStats.total;
+        document.getElementById('asb-success').textContent = '0';
+        document.getElementById('asb-manual').textContent  = '0';
+        document.getElementById('asb-failed').textContent  = '0';
         applyLogLine('start', '▶ Starting apply session — ' + d.total + ' job(s)');
+        _pipelineLogApply(d);
         break;
       case 'platform_detected':
         applyLogLine('step', '  [' + d.platform + '] ' + (d.url||'').split('/').pop());
         // mark card as running
         const idx = _applyJobs.findIndex(j => j.url === d.url);
         if (idx >= 0) { _applyJobs[idx]._applyStatus = 'running'; renderApplyCards(); }
+        _pipelineLogApply(d);
         break;
-      case 'apply_step':
-        applyLogLine('step', '    → ' + d.step);
+      case 'apply_step': {
+        const step = d.step || '';
+        const body = document.getElementById('apply-log-body');
+        const entry = document.createElement('div');
+        entry.className = 'alog-line alog-step';
+        entry.textContent = '    → ' + step;
+        if (step.startsWith('⚠️')) {
+          entry.style.color = '#e6a817';
+          entry.style.fontWeight = 'bold';
+        }
+        body.appendChild(entry);
+        body.scrollTop = body.scrollHeight;
+        _pipelineLogApply(d);
         break;
+      }
       case 'apply_answer':
         applyLogLine('answer', '    ✎ ' + d.label + ' = ' + d.answer);
+        _pipelineLogApply(d);
         break;
       case 'apply_result': {
         const i = _applyJobs.findIndex(j => j.url === d.url);
         if (d.success) {
           if (i>=0){ _applyJobs[i]._applyStatus='done'; _applyJobs[i]._applyNote=''; }
           _applyStats.success++;
-          applyLogLine('success', '  ✓ Applied: ' + d.company + ' — ' + d.title);
+          applyLogLine('success', '  ✓ Applied: ' + d.company + ' — ' + d.title + (d.apply_type ? ' [' + d.apply_type + ']' : ''));
         } else if (d.manual) {
           if (i>=0){ _applyJobs[i]._applyStatus='manual'; _applyJobs[i]._applyNote=d.note; }
           _applyStats.manual++;
@@ -2894,6 +2996,7 @@ function handleApplyEvent(evt) {
         }
         updateApplySessionBar();
         renderApplyCards();
+        _pipelineLogApply(d);
         break;
       }
       case 'delay':
@@ -2907,9 +3010,26 @@ function handleApplyEvent(evt) {
         const stopBtn  = document.getElementById('btn-apply-stop');
         if (startBtn) startBtn.style.display = '';
         if (stopBtn)  stopBtn.style.display  = 'none';
+        // Show summary banner above the job cards
+        const summaryEl = document.getElementById('apply-session-summary');
+        if (summaryEl) {
+          const allFailed  = d.success === 0 && d.manual === 0 && d.failed > 0;
+          const allSuccess = d.success > 0   && d.manual === 0 && d.failed === 0;
+          let bg = '#0d1f2d', border = '#1d4ed8', color = '#93c5fd'; // mixed — blue
+          if (allSuccess) { bg='#0d2b1a'; border='#16a34a'; color='#4ade80'; }
+          if (allFailed)  { bg='#2b0a0a'; border='#dc2626'; color='#f87171'; }
+          summaryEl.style.cssText = `display:block;margin-bottom:12px;padding:12px 16px;
+            border-radius:8px;background:${bg};border:1px solid ${border};color:${color};font-size:0.9rem;`;
+          const parts = [];
+          if (d.success) parts.push('<strong style="font-size:1rem">✓ ' + d.success + ' applied</strong>');
+          if (d.manual)  parts.push('<strong style="font-size:1rem">⚠ ' + d.manual + ' manual queue</strong>');
+          if (d.failed)  parts.push('<strong style="font-size:1rem">✗ ' + d.failed + ' failed</strong>');
+          summaryEl.innerHTML = 'Session complete — ' + parts.join('  ·  ');
+        }
         if (_applyEvtSrc) { _applyEvtSrc.close(); _applyEvtSrc = null; }
         loadManualQueue();
         fetchDashboard();
+        _pipelineLogApply(d);
         break;
     }
   } catch(_) {}
@@ -2923,8 +3043,32 @@ function updateApplySessionBar() {
 
 async function startApplySession() {
   if (_applyRunning) { showToast('Already running.', 'error'); return; }
-  if (!_applyJobs.length) { showToast('No jobs queued. Go to Step 4 and select jobs.', 'error'); return; }
-  // Use scraped_id from _applyJobs to call start
+  if (!_applyJobs.length) {
+    // Load matched jobs from DB and filter out already-applied
+    showToast('Loading matched jobs from database…', 'info');
+    try {
+      const r = await fetch('/api/pipeline/matched_jobs');
+      const d = await r.json();
+      const allJobs = d.jobs || [];
+      const appliedUrls = new Set();
+      for (const group of ['Applied', 'Interviews', 'Rejected', 'Offer']) {
+        for (const app of ((_dashData || {})[group] || [])) {
+          if (app.job_url) appliedUrls.add(app.job_url);
+        }
+      }
+      const toApply = allJobs.filter(j =>
+        !(j.skip_reason || '').toLowerCase().includes('german level') &&
+        j.url && !appliedUrls.has(j.url)
+      );
+      if (!toApply.length) { showToast('No new matched jobs to apply to.', 'error'); return; }
+      const ids = toApply.map(j => j.scraped_id).filter(Boolean);
+      if (!ids.length) { showToast('Cannot determine job IDs.', 'error'); return; }
+      await _startApplyWithIds(ids);
+    } catch (e) {
+      showToast('Failed to load matched jobs: ' + e.message, 'error');
+    }
+    return;
+  }
   const ids = _applyJobs.map(j => j.scraped_id || j._id).filter(Boolean);
   if (ids.length) {
     await _startApplyWithIds(ids);
@@ -2938,6 +3082,79 @@ async function stopApplySession() {
   applyLogLine('failed', '■ Stop requested…');
 }
 
+async function debugApply() {
+  const url     = document.getElementById('debug-job-url').value.trim();
+  const title   = document.getElementById('debug-job-title').value.trim() || 'Debug Job';
+  const company = document.getElementById('debug-job-company').value.trim() || 'Unknown';
+  const log     = document.getElementById('debug-apply-log');
+  // Clear previous result banner
+  const prev = document.getElementById('debug-result-banner');
+  if (prev) prev.remove();
+  if (!url) { alert('Paste a URL first'); return; }
+  log.textContent = 'Starting apply...\\n';
+
+  try {
+    const res = await fetch('/api/apply/debug', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url, title, company}),
+    });
+    const data = await res.json();
+    log.textContent += JSON.stringify(data, null, 2) + '\\n\\n';
+    if (!res.ok) return;
+  } catch (e) {
+    log.textContent += 'Error: ' + e.message;
+    return;
+  }
+
+  // Connect to SSE stream to show live progress
+  const es = new EventSource('/api/apply/stream');
+  es.onmessage = e => {
+    try {
+      const evt = JSON.parse(e.data);
+      // Pretty-print each event type
+      let line = '';
+      if (evt.type === 'platform_detected') {
+        line = '[platform] ' + evt.platform;
+      } else if (evt.type === 'apply_step') {
+        line = '[step]     ' + (evt.step || '');
+      } else if (evt.type === 'apply_answer') {
+        line = '[answer]   ' + evt.label + ' → ' + evt.answer;
+      } else if (evt.type === 'apply_result') {
+        line = '[result]   ' + (evt.success ? '✓ Applied' : evt.manual ? '⚠ Manual queue' : '✗ Failed') + (evt.note ? ' — ' + evt.note : '');
+      } else if (evt.type === 'delay') {
+        line = '[delay]    ' + evt.seconds + 's';
+      } else if (evt.type === 'session_done') {
+        line = '[done]     Session complete';
+      } else {
+        line = '[' + (evt.type||'?') + '] ' + (evt.step || evt.note || evt.detail || '');
+      }
+      log.textContent += line + '\\n';
+      log.scrollTop = log.scrollHeight;
+
+      // Show result banner when apply_result arrives
+      if (evt.type === 'apply_result') {
+        es.close();
+        const panel = document.getElementById('debug-apply-panel');
+        const banner = document.createElement('div');
+        banner.id = 'debug-result-banner';
+        if (evt.success) {
+          banner.style.cssText = 'margin-top:10px;padding:10px 14px;border-radius:8px;background:#0d2b1a;border:1px solid #16a34a;color:#4ade80;font-weight:600;font-size:0.9rem;';
+          banner.innerHTML = '✓ Application submitted successfully for <strong>' + (company||title) + '</strong>';
+        } else if (evt.manual) {
+          banner.style.cssText = 'margin-top:10px;padding:10px 14px;border-radius:8px;background:#2b1a00;border:1px solid #d97706;color:#fbbf24;font-weight:600;font-size:0.9rem;';
+          banner.innerHTML = '⚠ Added to Manual Apply Queue — <span style="font-weight:400">' + (evt.note||'requires manual action') + '</span>';
+        } else {
+          banner.style.cssText = 'margin-top:10px;padding:10px 14px;border-radius:8px;background:#2b0a0a;border:1px solid #dc2626;color:#f87171;font-weight:600;font-size:0.9rem;';
+          banner.innerHTML = '✗ Apply failed — <span style="font-weight:400">' + (evt.note||'unknown error') + '</span>';
+        }
+        panel.appendChild(banner);
+      }
+    } catch (_) {}
+  };
+  es.onerror = () => es.close();
+}
+
 function connectApplyStream() {
   if (_applyEvtSrc) { _applyEvtSrc.close(); }
   _applyEvtSrc = new EventSource('/api/apply/stream');
@@ -2945,26 +3162,70 @@ function connectApplyStream() {
   _applyEvtSrc.onerror   = () => {};
 }
 
+let _mqAllSessions = false;
+let _mqItems = [];
+
+function toggleMqAllSessions() {
+  _mqAllSessions = !_mqAllSessions;
+  const btn = document.getElementById('btn-mq-all-sessions');
+  if (btn) btn.textContent = _mqAllSessions ? '📋 Current session only' : '📋 Show all sessions';
+  loadManualQueue();
+}
+
 async function loadManualQueue() {
   try {
-    const d = await (await fetch('/api/apply/manual_queue')).json();
-    const items = d.items || [];
+    const url = _mqAllSessions ? '/api/apply/manual_queue?all_sessions=true' : '/api/apply/manual_queue';
+    const d = await (await fetch(url)).json();
+    _mqItems = d.items || [];
     const empty = document.getElementById('manual-queue-empty');
     const table = document.getElementById('manual-queue-table');
     const tbody = document.getElementById('manual-queue-tbody');
-    if (!items.length) {
+    if (!_mqItems.length) {
       empty.style.display = ''; table.style.display = 'none';
       return;
     }
     empty.style.display = 'none'; table.style.display = '';
-    tbody.innerHTML = items.map(item => `<tr>
-      <td>${esc(item.company||'')}</td>
+    tbody.innerHTML = _mqItems.map((item, idx) => `<tr>
+      <td style="font-weight:600;color:#f1f5f9;">${esc(item.company||'')}</td>
       <td>${esc(item.title||'')}</td>
       <td><span class="platform-badge ${_platformBadgeClass(item.platform||'unknown')}">${esc(item.platform||'?')}</span></td>
-      <td style="color:#64748b;font-size:0.78rem;">${esc(item.note||'')}</td>
-      <td>${item.job_url ? `<a href="${esc(item.job_url)}" target="_blank" class="btn-sm">Open</a>` : ''}</td>
+      <td style="color:#94a3b8;font-size:0.78rem;">${esc(item.note||'')}</td>
+      <td>${item.job_url ? `<a href="${esc(item.job_url)}" target="_blank" class="btn-sm">Open</a>` : '—'}</td>
+      <td style="white-space:nowrap;display:flex;gap:4px;">
+        <button class="btn-sm" style="background:#166534;color:#4ade80;border:1px solid #16a34a;cursor:pointer;font-weight:600;" onclick="mqAction(${idx},'applied',this)">&#10003; I Applied</button>
+        <button class="btn-sm" style="background:#450a0a;color:#f87171;border:1px solid #7f1d1d;cursor:pointer;" onclick="mqAction(${idx},'skip',this)">&#10005; Not Interested</button>
+      </td>
     </tr>`).join('');
   } catch(_) {}
+}
+
+async function mqAction(idx, action, btn) {
+  const item = _mqItems[idx];
+  if (!item) return;
+  if (btn) { btn.disabled = true; btn.closest('tr').style.opacity = '0.5'; }
+  try {
+    const r = await fetch('/api/applications/manual', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        id: item.id, job_url: item.job_url, title: item.title,
+        company: item.company, platform: item.platform,
+        action: action,
+      }),
+    });
+    const d = await r.json();
+    if (d.error) {
+      showToast(d.error, 'error');
+      if (btn) { btn.disabled = false; btn.closest('tr').style.opacity = ''; }
+      return;
+    }
+    showToast(action === 'applied' ? 'Marked as Applied ✓' : 'Job excluded — will not appear again');
+    await loadManualQueue();
+    if (action === 'applied') fetchDashboard();
+  } catch (e) {
+    showToast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.closest('tr').style.opacity = ''; }
+  }
 }
 
 // ── Roles panel ───────────────────────────────────────────────────────────────
@@ -3085,11 +3346,16 @@ async function saveRoles() {
 // ── Config editor ─────────────────────────────────────────────────────────────
 let _cfgData = {};
 const _tagLists = {};
-const _TEXT_KEYS   = ['full_name','hotmail_address','notify_email','phone','work_permit','current_location'];
-const _NUM_KEYS    = ['min_match_score','max_applications_per_day','scrape_pool_size','years_of_experience','salary_expectation'];
-const _TOG_KEYS    = ['auto_confirm_recruiter_call','auto_confirm_technical','headless','confirm_before_apply','retry_captcha_as_manual','smart_scrape','willing_to_relocate'];
+const _TEXT_KEYS   = ['notify_email'];
+const _NUM_KEYS    = ['min_match_score','max_applications_per_day','scrape_pool_size'];
+const _TOG_KEYS    = ['auto_confirm_recruiter_call','auto_confirm_technical','headless','confirm_before_apply','retry_captcha_as_manual','smart_scrape'];
 // smart_scrape rendered inline with scrape_pool_size — still in _TOG_KEYS so loadConfig/saveConfig handle it automatically
-const _SELECT_KEYS = ['notice_period','salary_currency','willing_to_travel','earliest_start'];
+const _SELECT_KEYS = ['notice_period','salary_currency','willing_to_travel'];
+// application_profile sub-fields (read/written under d.application_profile)
+const _PROFILE_TEXT_KEYS = ['first_name','last_name','email','phone','linkedin_url','github_url','portfolio_url','work_permit','current_location'];
+const _PROFILE_NUM_KEYS  = ['years_of_experience','salary_expectation'];
+const _PROFILE_TOG_KEYS  = ['willing_to_relocate'];
+const _PROFILE_SEL_KEYS  = ['salary_currency','notice_period','willing_to_travel'];
 const _TAG_KEYS    = ['locations','skip_german_levels'];
 let _languages     = [];
 
@@ -3114,6 +3380,8 @@ async function loadConfig() {
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     _cfgData = d;
+    const p = d.application_profile || {};
+    // Top-level agent settings
     _TEXT_KEYS.forEach(k   => { const el = document.getElementById('cfg-' + k); if (el) el.value = d[k] || ''; });
     _NUM_KEYS.forEach(k    => { const el = document.getElementById('cfg-' + k); if (el) el.value = d[k] ?? ''; });
     _TOG_KEYS.forEach(k    => { const el = document.getElementById('cfg-' + k); if (el) el.checked = !!d[k]; });
@@ -3121,7 +3389,12 @@ async function loadConfig() {
     _TAG_KEYS.forEach(k    => { _tagLists[k] = [...(d[k] || [])]; renderTagList(k); });
     const plEl = document.getElementById('cfg-posted_limit');
     if (plEl && d.posted_limit) plEl.value = d.posted_limit;
-    _languages = (d.languages || []).map(l => ({language: l.language || '', level: l.level || ''}));
+    // Application profile fields
+    _PROFILE_TEXT_KEYS.forEach(k => { const el = document.getElementById('cfg-' + k); if (el) el.value = p[k] || ''; });
+    _PROFILE_NUM_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el) el.value = p[k] ?? ''; });
+    _PROFILE_TOG_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el) el.checked = !!p[k]; });
+    _PROFILE_SEL_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el && p[k] != null) el.value = p[k]; });
+    _languages = (p.languages || d.languages || []).map(l => ({language: l.language || '', level: l.level || ''}));
     renderLanguages();
     updatePoolCostEstimate();
   } catch (err) { showToast('Config load error: ' + err.message, 'error'); }
@@ -3151,6 +3424,7 @@ function addTag(key) {
 function addTagOnEnter(e, key) { if (e.key === 'Enter') { e.preventDefault(); addTag(key); } }
 async function saveConfig() {
   const payload = {..._cfgData};
+  // Top-level agent settings
   _TEXT_KEYS.forEach(k   => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.value; });
   _NUM_KEYS.forEach(k    => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.value !== '' ? Number(el.value) : null; });
   _TOG_KEYS.forEach(k    => { const el = document.getElementById('cfg-' + k); if (el) payload[k] = el.checked; });
@@ -3158,8 +3432,18 @@ async function saveConfig() {
   _TAG_KEYS.forEach(k    => { payload[k] = _tagLists[k] || []; });
   const plEl = document.getElementById('cfg-posted_limit');
   if (plEl) payload.posted_limit = plEl.value;
-  payload.languages = _languages.filter(l => (l.language || '').trim());
+  // Application profile — always write as nested object
+  const prof = payload.application_profile || {};
+  _PROFILE_TEXT_KEYS.forEach(k => { const el = document.getElementById('cfg-' + k); if (el) prof[k] = el.value; });
+  _PROFILE_NUM_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el) prof[k] = el.value !== '' ? Number(el.value) : null; });
+  _PROFILE_TOG_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el) prof[k] = el.checked; });
+  _PROFILE_SEL_KEYS.forEach(k  => { const el = document.getElementById('cfg-' + k); if (el) prof[k] = el.value; });
+  prof.languages = _languages.filter(l => (l.language || '').trim());
+  payload.application_profile = prof;
   delete payload.paths; delete payload.contact;
+  // Remove legacy top-level duplicates that are now only in application_profile
+  delete payload.full_name; delete payload.hotmail_address; delete payload.phone;
+  delete payload.earliest_start; delete payload.languages;
   const btn = document.getElementById('btn-save-config');
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
@@ -3911,7 +4195,18 @@ def api_config_post():
                 existing = yaml.safe_load(f) or {}
         except Exception:
             existing = {}
+        # Deep-merge application_profile so partial saves never wipe existing values
+        incoming_profile = data.pop("application_profile", None)
         existing.update(data)
+        if isinstance(incoming_profile, dict):
+            base = existing.get("application_profile") or {}
+            # Only write fields that have a non-empty value; keep existing otherwise
+            for k, v in incoming_profile.items():
+                if v is not None and v != "" and v != []:
+                    base[k] = v
+                elif k not in base:
+                    base[k] = v
+            existing["application_profile"] = base
         for k in ("paths", "contact"):
             existing.pop(k, None)
         with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -4351,6 +4646,9 @@ def api_pipeline_matched_jobs():
                        m.match_summary, m.skip_reason
                 FROM matched_jobs m
                 JOIN scraped_jobs s ON s.id = m.scraped_job_id
+                WHERE s.url NOT IN (
+                    SELECT url FROM excluded_jobs WHERE url IS NOT NULL AND url != ''
+                )
                 ORDER BY m.match_score DESC
             """).fetchall()
         return jsonify({"jobs": [dict(r) for r in rows]})
@@ -4769,12 +5067,82 @@ def api_apply_status():
     return jsonify({"running": running})
 
 
+@app.route("/api/apply/debug", methods=["POST"])
+def api_apply_debug():
+    global _apply_thread, _apply_stop_flag
+    with _apply_lock:
+        if _apply_thread and _apply_thread.is_alive():
+            return jsonify({"error": "An apply session is already running — stop it first"}), 409
+        data    = request.get_json(force=True) or {}
+        url     = (data.get("url") or "").strip()
+        title   = data.get("title") or "Debug Job"
+        company = data.get("company") or "Unknown"
+        if not url:
+            return jsonify({"error": "url is required"}), 400
+        job = {
+            "id":          -1,
+            "scraped_id":  -1,
+            "url":         url,
+            "title":       title,
+            "company":     company,
+            "description": "",
+            "location":    "",
+        }
+        _apply_stop_flag = threading.Event()
+        _apply_thread = threading.Thread(
+            target=_apply_tab_worker, args=([job],), daemon=True
+        )
+        _apply_thread.start()
+    return jsonify({"ok": True, "message": f"Apply started for {url}"})
+
+
+@app.route("/api/applications/manual", methods=["POST"])
+def api_applications_manual():
+    try:
+        import db as _db
+        _db.init_db()
+        body     = request.get_json(force=True) or {}
+        entry_id = body.get("id")
+        action   = body.get("action", "applied")   # "applied" | "skip"
+        job_url  = body.get("job_url", "")
+        title    = body.get("title", "")
+        company  = body.get("company", "")
+        platform = body.get("platform", "")
+
+        if action == "applied":
+            job = {
+                "url":              job_url,
+                "title":            title,
+                "company":          company,
+                "location":         "",
+                "source":           platform,
+                "match_score":      0,
+                "interview_chance": "",
+            }
+            _db.log_application(job, status="Applied (Manual)", applied_by="User")
+            _db.exclude_job(job_url, company, title, reason="applied_manual")
+        elif action == "skip":
+            _db.exclude_job(job_url, company, title, reason="not_interested")
+
+        if entry_id:
+            _db.update_manual_queue_status(int(entry_id), "applied")
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/apply/manual_queue")
 def api_apply_manual_queue():
     try:
         import db as _db
         _db.init_db()
-        items = _db.get_manual_queue(status="pending")
+        all_sessions = request.args.get("all_sessions", "false").lower() == "true"
+        if all_sessions:
+            items = _db.get_manual_queue(status="pending")
+        else:
+            latest_sid = _db.get_latest_manual_session_id()
+            items = _db.get_manual_queue(status="pending", session_id=latest_sid) if latest_sid \
+                else _db.get_manual_queue(status="pending")
         return jsonify({"items": items})
     except Exception as exc:
         return jsonify({"error": str(exc), "items": []}), 500

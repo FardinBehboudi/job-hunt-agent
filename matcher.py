@@ -241,15 +241,14 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
         log.info("Resume changed — invalidated %d cached scores within window; re-scoring", invalidated)
         _match_stats["resume_changed"] = True
         _match_stats["invalidated"] = invalidated
-        scored_urls: set[str] = set()
+        cached_scores: dict = {}
     else:
-        scored_urls = _db.get_scored_urls_for_hash(current_hash) if current_hash else set()
-
-    # Pre-fetch cached scores for all jobs whose URLs are already in the cache
-    batch_urls = {j.get("url") for j in jobs if j.get("url")}
-    cached_scores = _db.get_cached_scores_by_url(scored_urls & batch_urls) if scored_urls else {}
-    if cached_scores:
-        log.info("Score cache: %d jobs can skip Claude scoring", len(cached_scores))
+        # Build a comprehensive cache keyed by URL AND (company, title) — one DB query
+        cached_scores = _db.build_score_cache(current_hash) if current_hash else {}
+        url_hits = sum(1 for k in cached_scores if isinstance(k, str))
+        ct_hits  = sum(1 for k in cached_scores if isinstance(k, tuple))
+        log.info("Score cache loaded: %d URL keys + %d company+title keys for this resume hash",
+                 url_hits, ct_hits)
 
     # ── Applied company+title dedup ──────────────────────────────────────────
     applied_combos: set[tuple[str, str]] = set()
@@ -295,28 +294,11 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
             skipped_count += 1
             continue
 
-        # ── Cache lookup: URL first, then company+title fallback ────────────
-        c = cached_scores.get(url) if url else None
-        if not c and current_hash:
-            try:
-                with _db._conn() as _fc:
-                    _frow = _fc.execute("""
-                        SELECT match_score, interview_chance, skip_reason, german_level_required
-                        FROM seen_jobs
-                        WHERE resume_hash = ?
-                          AND (
-                            (url IS NOT NULL AND url = ?)
-                            OR (company = ? AND title = ?)
-                          )
-                          AND match_score IS NOT NULL
-                        LIMIT 1
-                    """, (current_hash, url or "", job.get("company", ""), job.get("title", ""))
-                    ).fetchone()
-                if _frow:
-                    c = dict(_frow)
-            except Exception as _fe:
-                log.warning("Cache fallback lookup failed for %s @ %s: %s",
-                            job.get("title"), job.get("company"), _fe)
+        # ── Cache lookup: URL key first, then (company, title) fallback ────────
+        co_key = (job.get("company") or "").lower().strip()
+        ti_key = (job.get("title") or "").lower().strip()
+        c = (cached_scores.get(url) if url else None) or \
+            (cached_scores.get((co_key, ti_key)) if co_key and ti_key else None)
 
         if c:
             # ── Cache hit ──────────────────────────────────────────────────
@@ -411,6 +393,14 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
              cache_count, fresh_count, skipped_count, total)
     log.info("Estimated cost this run: ~$%.4f (saved ~$%.4f from cache)",
              fresh_count * 0.0004, cache_count * 0.0004)
+    cached_count_in_batch = sum(1 for j in jobs if j.get("cache_status") == "cached")
+    if fresh_count > 0 and cached_count_in_batch > 0 and fresh_count >= cached_count_in_batch:
+        log.warning(
+            "WARNING: %d jobs were re-scored despite scraper reporting %d cached jobs. "
+            "Likely cause: seen_jobs rows are missing resume_hash. "
+            "Check that scraper backfills resume_hash when writing to seen_jobs.",
+            fresh_count, cached_count_in_batch,
+        )
     return matched
 
 

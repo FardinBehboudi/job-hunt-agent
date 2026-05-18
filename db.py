@@ -153,6 +153,15 @@ def init_db() -> None:
                 manual_count  INTEGER DEFAULT 0,
                 failed_count  INTEGER DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS excluded_jobs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                url         TEXT UNIQUE,
+                company     TEXT,
+                title       TEXT,
+                reason      TEXT,
+                excluded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
     # Migrate existing tables — add columns if missing
     _migrations = [
@@ -166,6 +175,8 @@ def init_db() -> None:
         # legacy — kept for existing rows; ignored in new code
         ("seen_jobs",             "match_summary",  "TEXT DEFAULT NULL"),
         ("manual_apply_queue",    "screenshot_path","TEXT DEFAULT NULL"),
+        ("manual_apply_queue",    "session_id",     "TEXT DEFAULT NULL"),
+        ("applications", "applied_by", "TEXT DEFAULT ''"),
     ]
     for table, col, definition in _migrations:
         try:
@@ -349,12 +360,25 @@ def get_overview_data() -> dict:
     }
 
 
+def _status_bucket(status: str) -> str:
+    """Map any status string to one of the four canonical display buckets."""
+    sl = (status or "").lower()
+    if "rejected" in sl:
+        return "Rejected"
+    if "offer" in sl:
+        return "Offer"
+    if any(k in sl for k in ("scheduled", "interview", "technical", "final", "call")):
+        return "Interviews"
+    return "Applied"
+
+
 def get_dashboard_data() -> dict:
     with _conn() as db:
         rows = db.execute("""
             SELECT id, company, role, location, date_applied, status,
                    verdict, match_pct, key_gap, strengths, company_size,
-                   language, job_url, source, interview_chance, archive_path
+                   language, job_url, source, interview_chance, archive_path,
+                   COALESCE(applied_by, '') AS applied_by
             FROM applications
             ORDER BY date_applied DESC, created_at DESC
         """).fetchall()
@@ -366,19 +390,19 @@ def get_dashboard_data() -> dict:
     statuses = ["Applied", "Interviews", "Rejected", "Offer"]
     grouped: dict[str, list] = {s: [] for s in statuses}
     for r in all_rows:
-        s = r.get("status") or "Applied"
-        grouped.setdefault(s, []).append(r)
+        bucket = _status_bucket(r.get("status", ""))
+        grouped[bucket].append(r)
 
     overview = {"total": len(all_rows)}
     for s in statuses:
-        overview[s] = len(grouped.get(s, []))
+        overview[s] = len(grouped[s])
 
     return {
         "overview":    overview,
-        "Applied":     grouped.get("Applied", []),
-        "Interviews":  grouped.get("Interviews", []),
-        "Rejected":    grouped.get("Rejected", []),
-        "Offer":       grouped.get("Offer", []),
+        "Applied":     grouped["Applied"],
+        "Interviews":  grouped["Interviews"],
+        "Rejected":    grouped["Rejected"],
+        "Offer":       grouped["Offer"],
         "import_done": import_done is not None,
     }
 
@@ -403,19 +427,36 @@ def is_already_applied(url: str) -> bool:
     return row is not None
 
 
-def log_application(job: dict, archive_path: str = "", status: str = "Applied") -> None:
+def exclude_job(url: str, company: str = "", title: str = "", reason: str = "") -> None:
+    """Permanently exclude a job URL from future scraping/matching runs."""
+    if not url:
+        return
+    with _conn() as db:
+        db.execute("""
+            INSERT INTO excluded_jobs (url, company, title, reason)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(url) DO UPDATE SET
+                reason      = excluded.reason,
+                excluded_at = CURRENT_TIMESTAMP
+        """, (url.strip(), company or "", title or "", reason or ""))
+        # Also mark dismissed in seen_jobs so the cache filter picks it up immediately
+        db.execute("UPDATE seen_jobs SET dismissed=1 WHERE url=?", (url.strip(),))
+
+
+def log_application(job: dict, archive_path: str = "", status: str = "Applied", applied_by: str = "") -> None:
     url = (job.get("url") or "").strip() or None
     with _conn() as db:
         if url:
             db.execute("""
                 INSERT INTO applications
                 (company, role, location, date_applied, status, match_pct,
-                 job_url, source, interview_chance, archive_path, language)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                 job_url, source, interview_chance, archive_path, language, applied_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(job_url) DO UPDATE SET
                     status       = excluded.status,
                     archive_path = excluded.archive_path,
-                    date_applied = excluded.date_applied
+                    date_applied = excluded.date_applied,
+                    applied_by   = excluded.applied_by
             """, (
                 job.get("company", ""),
                 job.get("title",   ""),
@@ -428,13 +469,14 @@ def log_application(job: dict, archive_path: str = "", status: str = "Applied") 
                 job.get("interview_chance", ""),
                 str(archive_path) if archive_path else "",
                 job.get("german_level_required", ""),
+                applied_by or "",
             ))
         else:
             db.execute("""
                 INSERT INTO applications
                 (company, role, location, date_applied, status, match_pct,
-                 source, interview_chance, archive_path, language)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                 source, interview_chance, archive_path, language, applied_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 job.get("company", ""),
                 job.get("title",   ""),
@@ -446,6 +488,7 @@ def log_application(job: dict, archive_path: str = "", status: str = "Applied") 
                 job.get("interview_chance", ""),
                 str(archive_path) if archive_path else "",
                 job.get("german_level_required", ""),
+                applied_by or "",
             ))
 
 
@@ -547,6 +590,10 @@ def get_relevant_cached_jobs(cfg) -> list[dict]:
               AND url NOT IN (
                   SELECT job_url FROM applications
                   WHERE job_url IS NOT NULL AND job_url != ''
+              )
+              AND url NOT IN (
+                  SELECT url FROM excluded_jobs
+                  WHERE url IS NOT NULL AND url != ''
               )
             ORDER BY posted_date DESC, COALESCE(first_scraped_at, first_seen_at) DESC
         """, (cutoff,)).fetchall()
@@ -709,6 +756,35 @@ def get_cached_scores_by_url(urls) -> dict:
             list(urls),
         ).fetchall()
         return {r["url"]: dict(r) for r in rows}
+
+
+def build_score_cache(resume_hash: str) -> dict:
+    """Build a comprehensive score cache keyed by URL and (company, title) tuple.
+
+    Returns a dict where both url strings and (company_lower, title_lower) tuples
+    map to a scores dict — enabling fast O(1) cache lookup without per-job DB queries.
+    """
+    if not resume_hash:
+        return {}
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT url, company, title, match_score, interview_chance,
+                   skip_reason, german_level_required, match_summary
+            FROM seen_jobs
+            WHERE resume_hash = ?
+              AND match_score IS NOT NULL
+              AND dismissed = 0
+        """, (resume_hash,)).fetchall()
+    cache: dict = {}
+    for row in rows:
+        d = dict(row)
+        if d.get("url"):
+            cache[d["url"]] = d
+        co = (d.get("company") or "").lower().strip()
+        ti = (d.get("title") or "").lower().strip()
+        if co and ti:
+            cache[(co, ti)] = d
+    return cache
 
 
 def get_unmatched_scraped_jobs() -> list[dict]:
@@ -938,23 +1014,39 @@ def delete_task_manual(task_id: int) -> None:
 # ── Manual apply queue ────────────────────────────────────────────────────────
 
 def log_manual_apply(job_url: str, title: str, company: str, platform: str,
-                     note: str, screenshot_path: str = "") -> int:
+                     note: str, screenshot_path: str = "", session_id: str = "") -> int:
     with _conn() as db:
         cur = db.execute("""
             INSERT INTO manual_apply_queue
-            (job_url, title, company, platform, note, screenshot_path)
-            VALUES (?,?,?,?,?,?)
+            (job_url, title, company, platform, note, screenshot_path, session_id)
+            VALUES (?,?,?,?,?,?,?)
         """, (job_url or "", title or "", company or "", platform or "",
-              note or "", screenshot_path or ""))
+              note or "", screenshot_path or "", session_id or ""))
         return cur.lastrowid
 
 
-def get_manual_queue(status: str = "pending") -> list[dict]:
+def get_latest_manual_session_id() -> str | None:
     with _conn() as db:
-        rows = db.execute(
-            "SELECT * FROM manual_apply_queue WHERE status=? ORDER BY created_at DESC",
-            (status,),
-        ).fetchall()
+        row = db.execute(
+            "SELECT session_id FROM manual_apply_queue "
+            "WHERE session_id IS NOT NULL AND session_id != '' "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return row[0] if row else None
+
+
+def get_manual_queue(status: str = "pending", session_id: str | None = None) -> list[dict]:
+    with _conn() as db:
+        if session_id:
+            rows = db.execute(
+                "SELECT * FROM manual_apply_queue WHERE status=? AND session_id=? ORDER BY created_at DESC",
+                (status, session_id),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT * FROM manual_apply_queue WHERE status=? ORDER BY created_at DESC",
+                (status,),
+            ).fetchall()
     return [dict(r) for r in rows]
 
 

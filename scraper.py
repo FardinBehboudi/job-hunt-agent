@@ -301,6 +301,24 @@ def run(cfg: dict | None = None) -> list[dict]:
     # Upsert all fresh unique jobs into the persistent seen_jobs cache
     _db_cache.upsert_seen_jobs(jobs)
 
+    # Backfill resume_hash for any seen_jobs rows missing it so the matcher
+    # cache lookup never misses a previously-scored job due to a NULL hash
+    try:
+        current_resume_hash = _db_cache.get_resume_hash(cfg)
+        if current_resume_hash:
+            import sqlite3 as _sq
+            _dbp = Path(__file__).parent / "uploads" / "jobhunt.db"
+            _dbc = _sq.connect(str(_dbp), timeout=10)
+            _dbc.execute("PRAGMA journal_mode=WAL")
+            _dbc.execute(
+                "UPDATE seen_jobs SET resume_hash = ? WHERE resume_hash IS NULL AND dismissed = 0",
+                (current_resume_hash,),
+            )
+            _dbc.commit()
+            _dbc.close()
+    except Exception as _rhe:
+        log.warning("resume_hash backfill failed: %s", _rhe)
+
     # ── Stage 2: Title relevance filter (free, no API) ───────────────────────
     scraped_total = len(jobs)
     if smart_scrape:
