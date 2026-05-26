@@ -1929,6 +1929,8 @@ async def fill_easy_apply(
     _prev_page_labels: list[str] = []
     _stuck_count = 0
     step_n = 0
+    prior_answers: list[dict] = []
+    prior_answers: list[dict] = []
     for step_n in range(12):
         # Refresh wizard scope on every step — modal changes between pages
         try:

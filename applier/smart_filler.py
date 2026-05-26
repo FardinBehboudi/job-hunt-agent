@@ -317,6 +317,11 @@ async def _find_and_click_submit(page) -> bool:
         page.locator("button:has-text('Complete application')"),
         page.locator("button:has-text('Jetzt bewerben')"),
         page.locator("button:has-text('Bewerbung absenden')"),
+        page.locator("button:has-text('Bewerben')"),
+        page.locator("button:has-text('Ja, das passt zu mir')"),
+        page.locator("button:has-text('Bewerbung senden')"),
+        page.locator("a:has-text('Bewerben')"),
+        page.locator("a:has-text('Apply now')"),
         page.locator("[data-test-submit-button]"),
         page.locator("[class*=submit]"),
     ]
@@ -329,10 +334,44 @@ async def _find_and_click_submit(page) -> bool:
                 return True
         except Exception:
             pass
+
+    # Claude vision fallback — ask Claude which button to click
+    try:
+        import base64
+        import json as _json
+        client = _get_client()
+        if client:
+            b64 = base64.b64encode(await page.screenshot()).decode()
+            resp = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=100,
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/png", "data": b64}},
+                    {"type": "text", "text":
+                        "Find the apply or submit button on this page. "
+                        "Return JSON only with the exact button text: "
+                        '{"text": "button text here"} or {} if none found.'}
+                ]}]
+            )
+            raw = resp.content[0].text.strip()
+            s, e = raw.find("{"), raw.rfind("}") + 1
+            if s >= 0 and e > s:
+                data = _json.loads(raw[s:e])
+                btn_text = data.get("text", "")
+                if btn_text:
+                    loc = page.locator(
+                        f"button:has-text('{btn_text}'), "
+                        f"a:has-text('{btn_text}')"
+                    )
+                    if await loc.count() and await loc.first.is_visible():
+                        await loc.first.scroll_into_view_if_needed()
+                        await asyncio.sleep(0.3)
+                        await loc.first.click()
+                        return True
+    except Exception:
+        pass
     return False
-
-
-# ── Public API ────────────────────────────────────────────────────────────────
 
 async def smart_fill_form(page, profile: dict, resume_text: str,
                            job_desc: str, cfg: dict,
@@ -388,14 +427,11 @@ async def smart_fill_form(page, profile: dict, resume_text: str,
     submitted = await _find_and_click_submit(page)
     if submitted:
         await asyncio.sleep(2)
-        # Check for success page
+        # Use smart multi-signal verifier
         try:
-            page_text = (await page.content()).lower()
-            if any(kw in page_text for kw in [
-                "thank you", "application received", "successfully submitted",
-                "application submitted", "we\'ll be in touch",
-                "bewerbung eingegangen", "vielen dank", "erfolgreich",
-            ]):
+            from applier.external_applier import _verify_submission as _verify_ext
+            _confirmed = await _verify_ext(page)
+            if _confirmed:
                 _emit("apply_step", {"url": url, "step": "  ✅ Smart apply: submission confirmed"})
                 try:
                     from applier.memory import get_memory

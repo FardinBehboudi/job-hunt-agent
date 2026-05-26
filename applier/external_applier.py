@@ -123,19 +123,118 @@ def _detect_platform_by_url(url: str) -> str:
 # ── Submission helpers ────────────────────────────────────────────────────────
 
 async def _verify_submission(page: Page) -> bool:
+    """
+    Multi-signal submission verifier. Returns True only when confident
+    the application was actually submitted (not just a redirect).
+    """
     await page.wait_for_timeout(2000)
+    score = 0
+
+    # Signal 1: URL pattern
     try:
-        text = (await page.content()).lower()
-        for phrase in [
-            "thank you", "application received", "successfully submitted",
-            "application submitted", "we'll be in touch", "your application",
-            "bewerbung eingegangen", "vielen dank", "erfolgreich",
-        ]:
-            if phrase in text:
-                return True
+        url = page.url.lower()
+        _confirm_url_patterns = [
+            "thank", "thanks", "danke", "success", "erfolgreich",
+            "confirm", "bestatig", "submitted", "bewerbung-eingegangen",
+            "application-sent", "applied", "complete", "finished",
+        ]
+        if any(p in url for p in _confirm_url_patterns):
+            score += 3
+            log.info("Submission signal: confirmation URL (%s)", url[:80])
     except Exception:
         pass
-    return False
+
+    # Signal 2: Visible text confirmation
+    try:
+        text = (await page.inner_text("body")).lower()
+        _confirm_phrases = [
+            "thank you", "thanks for applying", "application received",
+            "successfully submitted", "application submitted",
+            "we'll be in touch", "we will be in touch",
+            "your application has been", "bewerbung eingegangen",
+            "vielen dank", "danke für", "erfolgreich", "bewerbung erhalten",
+            "we have received", "wir haben deine bewerbung",
+            "application complete", "you have applied",
+        ]
+        _negative_phrases = [
+            "please fill", "required field", "pflichtfeld",
+            "bitte ausfüllen", "error", "fehler",
+        ]
+        matches = [p for p in _confirm_phrases if p in text]
+        if matches:
+            score += 3
+            log.info("Submission signal: confirmation text (%s)", matches[0])
+        neg = [p for p in _negative_phrases if p in text]
+        if neg:
+            score -= 3
+            log.info("Submission negative signal: error text (%s)", neg[0])
+    except Exception:
+        pass
+
+    # Signal 3: Form-gone check (no empty required fields = likely submitted)
+    try:
+        required_empty = await page.evaluate("""() => {
+            const fields = document.querySelectorAll(
+                'input[required]:not([type=hidden]), textarea[required], select[required]'
+            );
+            let empty = 0;
+            fields.forEach(f => {
+                if (f.offsetParent && !f.value.trim()) empty++;
+            });
+            return empty;
+        }""")
+        if required_empty == 0:
+            score += 1
+        elif required_empty > 2:
+            score -= 2
+            log.info("Submission negative signal: %d empty required fields", required_empty)
+    except Exception:
+        pass
+
+    # If already confident, skip vision call
+    if score >= 3:
+        log.info("Submission confirmed (score=%d, no vision needed)", score)
+        return True
+    if score <= -3:
+        log.info("Submission rejected (score=%d)", score)
+        return False
+
+    # Signal 4: Claude vision (only when uncertain)
+    try:
+        import base64, json as _json, os
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if api_key:
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            screenshot = await page.screenshot()
+            b64 = base64.b64encode(screenshot).decode()
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=60,
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/png", "data": b64}},
+                    {"type": "text", "text":
+                        "Is this a job application CONFIRMATION page (showing the app was submitted)? "
+                        'Reply with JSON only: {"confirmed": true} or {"confirmed": false}'}
+                ]}]
+            )
+            raw = resp.content[0].text.strip()
+            s, e = raw.find("{"), raw.rfind("}") + 1
+            if s >= 0 and e > s:
+                data = _json.loads(raw[s:e])
+                if data.get("confirmed"):
+                    score += 4
+                    log.info("Submission signal: Claude vision confirmed")
+                else:
+                    score -= 2
+                    log.info("Submission negative signal: Claude vision not confirmed")
+    except Exception as _ve:
+        log.debug("Vision verify failed: %s", _ve)
+
+    confirmed = score >= 3
+    log.info("Submission verification score=%d → %s", score, "CONFIRMED" if confirmed else "REJECTED")
+    return confirmed
 
 
 async def _get_form_snapshot(page: Page) -> str:

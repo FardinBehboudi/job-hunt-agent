@@ -290,10 +290,20 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
         _exc_type = type(exc).__name__.lower()
         if any(x in _exc_str or x in _exc_type for x in
                ["targetclosed", "target page", "context destroyed", "target closed"]):
-            _emit("apply_step", {"url": job.get("url", ""), "step":
-                "✓ Page closed after submit — application likely submitted"})
-            return {"success": True, "manual": False,
-                    "note": "Submitted (page closed)", "apply_type": "Easy Apply"}
+            # Page closed — only valid success signal for Easy Apply modal
+            # For external apply this would be a false positive
+            _apply_url = job.get("url", "")
+            _is_easy_apply = "linkedin.com" in _apply_url
+            if _is_easy_apply:
+                _emit("apply_step", {"url": _apply_url,
+                    "step": "✓ Page closed after submit — application likely submitted"})
+                return {"success": True, "manual": False,
+                        "note": "Submitted (page closed)", "apply_type": "Easy Apply"}
+            else:
+                _emit("apply_step", {"url": _apply_url,
+                    "step": "⚠️ External page closed — sending to manual queue"})
+                return {"success": False, "manual": True,
+                        "note": "External page closed before confirmation"}
         log.error("_apply_linkedin error: %s\n%s", exc, traceback.format_exc())
         return {"success": False, "manual": False, "note": str(exc)}
 
