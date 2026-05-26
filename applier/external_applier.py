@@ -182,9 +182,19 @@ async def _ai_decide_form_actions(
         if not api_key:
             return []
         client = anthropic.Anthropic(api_key=api_key)
+        # Upgrade to Sonnet for better form understanding
+        _model = "claude-sonnet-4-20250514"
+        # Inject memory context into system prompt
+        _mem_context = ""
+        try:
+            from applier.memory import get_memory
+            _mem_context = get_memory().build_prompt_context()
+        except Exception:
+            pass
         system = (
             "You are filling a job application form on behalf of the candidate. "
-            "Analyse the form fields and return a JSON array of actions to take. "
+            + (_mem_context + "\n\n" if _mem_context else "")
+            + "Analyse the form fields and return a JSON array of actions to take. "
             "Each action is one of:\n"
             '  {"action":"fill", "idx":N, "value":"..."}\n'
             '  {"action":"select", "idx":N, "value":"..."}\n'
@@ -200,7 +210,7 @@ async def _ai_decide_form_actions(
             f"\nResume (first 800 chars):\n{resume_text[:800]}"
         )
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=_model,
             max_tokens=800,
             system=system,
             messages=[{"role": "user", "content":
@@ -562,8 +572,16 @@ async def _apply_generic_browser_use(
     resume_text: str, profile: dict
 ) -> dict:
     if not _BROWSER_USE_OK:
-        return {"success": False, "manual": True,
-                "note": "browser-use not installed — pip install browser-use"}
+        # Fall back to Claude vision filler (no extra deps needed)
+        _emit("apply_step", {"url": job.get("url",""),
+              "step": "🧠 browser-use unavailable — using Claude vision filler"})
+        try:
+            from applier.smart_filler import smart_apply_page
+            return await smart_apply_page(page, job, profile, resume_text, cfg)
+        except Exception as _sf_e:
+            log.warning("smart_apply_page failed: %s", _sf_e)
+            return {"success": False, "manual": True,
+                    "note": f"Smart apply failed: {_sf_e}"}
 
     url = page.url or job.get("url", "")
     p = profile
@@ -619,7 +637,7 @@ RULES:
         if browser is None:
             browser = _BUBrowser(config=_BUBrowserConfig(headless=cfg.get("headless", False)))
 
-        llm = _BUChatAnthropic(model="claude-haiku-4-5-20251001")
+        llm = _BUChatAnthropic(model="claude-sonnet-4-20250514")
         agent = _BUAgent(task=task, llm=llm, browser=browser)
         result = await agent.run(max_steps=40)
 
@@ -630,6 +648,11 @@ RULES:
         ])
         if success:
             _emit("apply_step", {"url": url, "step": "  ✓ browser-use: application submitted"})
+            try:
+                from applier.memory import get_memory
+                get_memory().save_application_result(url, platform, True, [])
+            except Exception:
+                pass
             return {"success": True, "manual": False,
                     "note": result.final_result() or "", "apply_type": "External (browser-use)"}
         _emit("apply_step", {"url": url,
@@ -717,10 +740,20 @@ async def _route_to_handler(
         new_url = page.url
         log.info("Routing to %s handler (URL: %s)", platform, new_url)
         return await handler(page, dict(job, url=new_url), cfg, resume_text, profile)
+    # Unknown platform — try Claude vision smart apply before giving up
+    _emit("apply_step", {"url": job.get("url",""),
+          "step": f"🧠 Unknown platform ({platform}) — trying smart apply"})
+    try:
+        from applier.smart_filler import smart_apply_page
+        _smart = await smart_apply_page(page, job, profile, resume_text, cfg)
+        if _smart.get('success'):
+            return _smart
+    except Exception as _se:
+        log.warning("smart_apply_page error: %s", _se)
     log.warning("DEBUG pre-manual: URL=%s", page.url)
-    log.warning("DEBUG pre-manual: Page title=%s", await page.title())
     log.warning("DEBUG pre-manual: Reason=External apply, unknown platform: %s", platform)
-    _emit("apply_step", {"url": job.get("url", ""), "step": f"⚠️ Going to manual: External apply — unknown platform: {platform}"})
+    _emit("apply_step", {"url": job.get("url", ""),
+          "step": f"⚠️ Going to manual: External apply — unknown platform: {platform}"})
     return {"success": False, "manual": True, "note": f"External apply — unknown platform: {platform}"}
 
 
@@ -741,7 +774,11 @@ async def follow_external_apply(
     _cur_url = page.url
     log.info("After Apply click — URL: %s", _cur_url)
 
-    # New tab opened
+    # New tab opened — wait a bit longer for it to appear
+    for _tab_wait in range(5):
+        if len(page.context.pages) > 1:
+            break
+        await asyncio.sleep(0.8)
     if len(page.context.pages) > 1:
         _new_page = page.context.pages[-1]
         try:

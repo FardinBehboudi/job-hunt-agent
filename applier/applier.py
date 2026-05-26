@@ -633,6 +633,14 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     await browser.close()
                     _db.update_apply_session(session_id, datetime.utcnow().isoformat(),
                                              0, 0, len(jobs))
+                    try:
+                        from applier.memory import get_memory
+                        get_memory().save_application_result(
+                            job.get('url',''), 'linkedin', False, [],
+                            failure_note=str(_warmup_exc if '_warmup_exc' in dir() else 'crash')
+                        )
+                    except Exception:
+                        pass
                     _emit("session_done", {"success": 0, "manual": 0, "failed": len(jobs)})
                     return
                 log.info("Session verified — ready to apply")
