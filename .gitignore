@@ -4,3 +4,9 @@ dedup.db
 uploads/linkedin_session.json
 __pycache__/
 *.pyc
+
+*.pyo
+.venv/
+*.log
+.idea/
+data/linkedin_session.json
