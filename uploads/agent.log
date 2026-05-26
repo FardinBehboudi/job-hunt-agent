@@ -61928,3 +61928,1030 @@ Call log:
 2026-05-26 22:01:50,274  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:01:50] "GET /api/interviews/upcoming HTTP/1.1" 200 -
 2026-05-26 22:01:50,285  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:01:50] "GET /api/overview HTTP/1.1" 200 -
 2026-05-26 22:01:50,304  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:01:50] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:05:27,230  INFO      core.main — === Scrape-only stage starting ===
+2026-05-26 22:05:27,277  INFO      scraper.scraper — Applied dedup: 35 URLs, 137 company+title combos
+2026-05-26 22:05:27,278  INFO      scraper.scraper — Cache: 213 known URLs, 35 already applied
+2026-05-26 22:05:27,283  INFO      scraper.scraper — Cleared scraped_jobs and matched_jobs for fresh run
+2026-05-26 22:05:27,361  INFO      scraper.scraper — LinkedIn scrape: Backend Java Engineer @ Berlin
+2026-05-26 22:05:27,361  INFO      scraper.scraper — Apify run_input: {'jobTitles': ['Backend Java Engineer'], 'locations': ['Berlin'], 'maxItems': 3, 'postedLimit': 'month', 'employmentType': ['full-time'], 'experienceLevel': ['entry', 'associate', 'mid-senior', 'director', 'executive'], 'sortBy': 'relevance'}
+2026-05-26 22:05:27,825  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:27] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:05:28,824  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:28] "GET /api/agent/status HTTP/1.1" 200 -
+2026-05-26 22:05:28,826  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:28] "GET /api/pipeline/scrape_progress HTTP/1.1" 200 -
+2026-05-26 22:05:29,863  INFO      scraper.scraper — [Apify] Run started: iQfxZIIAaFFgLOztL
+2026-05-26 22:05:30,473  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:29.526Z ACTOR: Pulling container image of build tnrfnB42BjTtTGtpT from registry.
+2026-05-26 22:05:30,473  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:29.528Z ACTOR: Creating container.
+2026-05-26 22:05:30,473  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:29.720Z ACTOR: Starting container.
+2026-05-26 22:05:30,818  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:30] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:05:30,818  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:30] "GET /api/agent/status HTTP/1.1" 200 -
+2026-05-26 22:05:30,820  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:30] "GET /api/pipeline/scrape_progress HTTP/1.1" 200 -
+2026-05-26 22:05:32,153  INFO      httpx — HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+2026-05-26 22:05:32,176  INFO      scraper.scraper — Extracted roles from resume: ['Backend Java Engineer', 'Java Developer', 'Spring Boot Developer', 'Microservices Engineer', 'Cloud Native Engineer', 'Software Engineer']
+2026-05-26 22:05:32,176  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:32] "GET /api/roles HTTP/1.1" 200 -
+2026-05-26 22:05:32,833  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:32] "GET /api/agent/status HTTP/1.1" 200 -
+2026-05-26 22:05:32,835  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:32] "GET /api/pipeline/scrape_progress HTTP/1.1" 200 -
+2026-05-26 22:05:33,834  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:33] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:05:34,829  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:34] "GET /api/agent/status HTTP/1.1" 200 -
+2026-05-26 22:05:34,830  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:34] "GET /api/pipeline/scrape_progress HTTP/1.1" 200 -
+2026-05-26 22:05:36,407  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:30.627Z
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:30.629Z > @harvestapi/job-search-scraper@0.0.1 start:prod /home/apify
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:30.630Z > node dist/main.js --silent
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:30.632Z
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:31.400Z INFO  System info {"apifyVersion":"3.4.0","apifyClientVersion":"2.12.3","crawleeVersion":"3.13.2","osType":"Linux","nodeVersion":"v20.20.1"}
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:31.667Z Scraping jobs for query {"search":"Backend Java Engineer","sortBy":"relevance","employmentType":["full-time"],"experienceLevel":["entry","associate","mid-senior","director","executive"],"postedLimit":"month","location":"Berlin"}...
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:31.669Z [2026-05-26T20:05:31.668Z] Scraping page 1 of jobs...
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:32.616Z [2026-05-26T20:05:32.616Z] Total pages: 6. Total items: 127. Scraping up to page 6 or until 3 items are scraped.
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:33.427Z Scraped job 4417788660
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:33.601Z Scraped job 4406536441
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:33.913Z Scraped job 4413932311
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:33.916Z [2026-05-26T20:05:33.916Z] Max items limit of 3 reached. Stopping scraping.
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:33.969Z [2026-05-26T20:05:33.968Z] Max items limit of 3 reached. Stopping scraping.
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:33.976Z [2026-05-26T20:05:33.975Z] Finished scraping jobs. Scraped pages: 1. Scraped items: 3. Total requests: 26.
+2026-05-26 22:05:36,408  INFO      scraper.scraper — [Apify] 2026-05-26T20:05:33.977Z [2026-05-26T20:05:33.975Z] Max items limit reached: 3
+2026-05-26 22:05:36,822  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:36] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:05:36,823  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:36] "GET /api/agent/status HTTP/1.1" 200 -
+2026-05-26 22:05:36,825  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:36] "GET /api/pipeline/scrape_progress HTTP/1.1" 200 -
+2026-05-26 22:05:36,924  INFO      scraper.scraper — [Apify] Run finished with status: SUCCEEDED
+2026-05-26 22:05:37,812  INFO      scraper.scraper —   → 3 raw items from Apify dataset
+2026-05-26 22:05:37,812  INFO      scraper.scraper —   Raw item keys: ['id', 'title', 'linkedinUrl', 'jobState', 'postedDate', 'headerCaptionText', 'descriptionText', 'descriptionHtml', 'location', 'employmentType', 'workplaceType', 'workRemoteAllowed', 'easyApplyUrl', 'applyMethod', 'applicants', 'hiringTeam', 'company', 'salary', 'jobFunctions', 'industries', 'experienceLevel', 'benefits', 'benefitsDataSource', 'views', 'expireAt', 'new', 'closedAt', 'contentSource', 'jobApplicationLimitReached', 'applicantTrackingSystem', 'query', '_meta']
+2026-05-26 22:05:37,812  INFO      scraper.scraper —   Sample linkedinUrls (first 3): ['https://www.linkedin.com/jobs/view/4417788660/', 'https://www.linkedin.com/jobs/view/4406536441/', 'https://www.linkedin.com/jobs/view/4413932311/']
+2026-05-26 22:05:37,812  INFO      scraper.scraper —   → 3 mapped items; jobs with no URL: 0
+2026-05-26 22:05:37,812  INFO      scraper.scraper —   Sample mapped URLs (first 3): ['https://www.linkedin.com/jobs/view/4417788660/', 'https://www.linkedin.com/jobs/view/4406536441/', 'https://www.linkedin.com/jobs/view/4413932311/']
+2026-05-26 22:05:37,812  INFO      scraper.scraper —   LinkedIn query field from result: {'search': 'Backend Java Engineer', 'sortBy': 'relevance', 'employmentType': ['full-time'], 'experienceLevel': ['entry', 'associate', 'mid-senior', 'director', 'executive'], 'postedLimit': 'month', 'location': 'Berlin'}
+2026-05-26 22:05:37,812  INFO      scraper.scraper — Stage 1 — scraped: 3 jobs across all role/location combos
+2026-05-26 22:05:37,812  INFO      scraper.scraper — Deduplication: 3 → 3 unique jobs
+2026-05-26 22:05:37,823  INFO      scraper.scraper — Smart scrape: 3 scraped → 3 passed title filter → ready for Claude matching (saved 0 API calls)
+2026-05-26 22:05:37,840  INFO      scraper.scraper — Cache: 100 jobs loaded from cache (posted within last month) | 0 new jobs scraped from LinkedIn | 0 jobs in cache but outside time window (ignored) | 100 total to process
+2026-05-26 22:05:37,847  INFO      scraper.scraper — Saved 100 scraped jobs to DB
+2026-05-26 22:05:37,859  INFO      core.main — Inserted 0 new scraped jobs into DB
+2026-05-26 22:05:37,866  INFO      core.main — Scrape-only complete: 100 jobs
+2026-05-26 22:05:38,826  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:38] "GET /api/agent/status HTTP/1.1" 200 -
+2026-05-26 22:05:38,827  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:38] "GET /api/pipeline/scrape_progress HTTP/1.1" 200 -
+2026-05-26 22:05:39,825  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:39] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:05:40,197  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:40] "GET /api/pipeline/step_availability HTTP/1.1" 200 -
+2026-05-26 22:05:40,627  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:40] "GET /api/pipeline/scraped_jobs HTTP/1.1" 200 -
+2026-05-26 22:05:40,648  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:05:40] "GET /api/cache/stats HTTP/1.1" 200 -
+2026-05-26 22:06:10,031  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:10] "POST /api/pipeline/match HTTP/1.1" 200 -
+2026-05-26 22:06:10,074  INFO      core.main — === Match-only stage starting: 100 jobs ===
+2026-05-26 22:06:10,422  INFO      matcher.matcher — Scoring model: claude-haiku-4-5-20251001
+2026-05-26 22:06:10,422  INFO      matcher.matcher — Loaded resume: 5597 chars
+2026-05-26 22:06:10,890  INFO      matcher.matcher — Resume hash: 34ab6ea681a7831dbe8cf502370e2bb7 — cache will skip jobs already scored with this hash
+2026-05-26 22:06:10,905  INFO      matcher.matcher — Score cache loaded: 171 URL keys + 165 company+title keys for this resume hash
+2026-05-26 22:06:10,908  INFO      matcher.matcher — Applied company+title dedup: 137 combos loaded
+2026-05-26 22:06:10,908  INFO      matcher.matcher — Processing 1/100: 'Java-Entwickler:in' @ 'VISION Consulting GmbH'
+2026-05-26 22:06:10,909  INFO      matcher.matcher — Cache HIT:  'Java-Entwickler:in' @ 'VISION Consulting GmbH' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:10,915  INFO      matcher.matcher — Skip (German level C2 required): Java-Entwickler:in @ VISION Consulting GmbH
+2026-05-26 22:06:10,915  INFO      matcher.matcher — Processing 2/100: 'Softwareentwickler Java CMS (all genders) in Berlin' @ ']init[ - Services for the eSociety'
+2026-05-26 22:06:10,915  INFO      matcher.matcher — Cache HIT:  'Softwareentwickler Java CMS (all genders) in Berlin' @ ']init[ - Services for the eSociety' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:10,921  INFO      matcher.matcher — Match 72% (medium) — Softwareentwickler Java CMS (all genders) in Berlin @ ]init[ - Services for the eSociety
+2026-05-26 22:06:10,921  INFO      matcher.matcher — Processing 3/100: 'Java-Entwickler:in' @ 'COMRAMO AG'
+2026-05-26 22:06:10,921  INFO      matcher.matcher — Cache HIT:  'Java-Entwickler:in' @ 'COMRAMO AG' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:10,927  INFO      matcher.matcher — Skip (German level C1 required): Java-Entwickler:in @ COMRAMO AG
+2026-05-26 22:06:10,927  INFO      matcher.matcher — Processing 4/100: 'Software Developer' @ 'FetchJobs.co'
+2026-05-26 22:06:10,927  INFO      matcher.matcher — Cache HIT:  'Software Developer' @ 'FetchJobs.co' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:10,933  INFO      matcher.matcher — Match 52% (low) — Software Developer @ FetchJobs.co
+2026-05-26 22:06:10,933  INFO      matcher.matcher — Processing 5/100: 'Senior Software-Entwickler*in (Backend, Java) (m/w/d)' @ 'GVL - Gesellschaft zur Verwertung von Leistungsschutzrechten mbH'
+2026-05-26 22:06:10,933  INFO      matcher.matcher — Cache MISS: 'Senior Software-Entwickler*in (Backend, Java) (m/w/d)' @ 'GVL - Gesellschaft zur Verwertung von Leistungsschutzrechten mbH' (hash=34ab6ea6...) — will score fresh
+2026-05-26 22:06:12,873  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:12] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:13,823  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:13] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:14,878  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:14] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:15,924  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:06:16,283  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:06:16,295  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:06:16,324  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:06:16,349  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:16] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:16,394  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:16] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:18,874  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:18] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:19,827  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:19] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:20,865  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:20] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:22,019  INFO      httpx — HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+2026-05-26 22:06:22,022  INFO      matcher.matcher — Raw Claude response for Senior Software-Entwickler*in (Backend, Java) (m/w/d): ```json
+{
+  "match_score": 92,
+  "interview_chance": "high",
+  "german_level_required": "B2",
+  "skip_reason": null,
+  "match_summary": "Felix is an excellent match for this Senior Backend Java Engineer role. He has 5+ years of directly relevant microservices and Spring Boot experience, strong expertise in the core tech stack (Java, Spring Boot, Docker, Kubernetes, AWS, PostgreSQL, MongoDB), and experience with many 'nice to have' technologies including RabbitMQ, Elasticsearch, CI/CD, and agile workflows. German citizenship and Berlin location are additional perfect fits.",
+  "detailed_reasoning": [
+    {
+      "requirement": "5+ years Berufserfahrung in Web-/Anwendungssoftware im Microservice-Umfeld",
+      "met": true,
+      "note": "Felix has 5+ years as Backend/Software Engineer with explicit microservices experience at Propora, Promos, CGI, and Sportradar. Resume clearly documents microservices architecture work."
+    },
+    {
+      "requirement": "Fundierte Kenntnisse in Java und SpringBoot",
+      "met": true,
+      "note": "Java is primary language; Spring Boot is core skill. Demonstrated across all recent roles with REST APIs, business logic implementation, and system design."
+    },
+    {
+      "requirement": "Erfahrung in Testautomatisierung sowie CI/CD",
+      "met": true,
+      "note": "Resume lists JUnit, Mockito, Cucumber, Integration Testing, and CI/CD tools (GitHub Actions, Jenkins). Contributes to CI/CD pipelines and deployment processes."
+    },
+    {
+      "requirement": "Erfahrung mit relationalen und NoSQL-Datenbanken",
+      "met": true,
+      "note": "Explicitly lists PostgreSQL, MySQL, MongoDB, JPA, Hibernate, Data Modeling, and Query Optimization."
+    },
+    {
+      "requirement": "Schnelles Verstehen und Erklären fachlicher und technischer Konzepte",
+      "met": true,
+      "note": "Demonstrated through lead consultant role at CGI, system design expertise, and cross-functional collaboration across multiple projects."
+    },
+    {
+      "requirement": "Deutschkenntnisse mindestens B2-Niveau",
+      "met": true,
+      "note": "German citizen based in Berlin with demonstrated professional work in Germany. Resume written in English but all professional context suggests B2+ fluency."
+    },
+    {
+      "requirement": "Docker, Kubernetes, Helm (Nice to Have)",
+      "met": true,
+      "note": "Strong expertise: Docker, Kubernetes, OpenShift explicitly listed. Helm not mentioned but Kubernetes mastery covers this domain."
+    },
+    {
+      "requirement": "OpenAPI (Nice to Have)",
+      "met": false,
+      "note": "Not explicitly mentioned, but REST API design expertise suggests likely familiarity. Minor gap in nice-to-have."
+    },
+    {
+      "requirement": "Microservice-Architekturen (Nice to Have)",
+      "met": true,
+      "note": "Core expertise across all roles; explicitly mentioned in summary and skills."
+    },
+    {
+      "requirement": "AWS, Postgres, MongoDB, S3 (Nice to Have)",
+      "met": true,
+      "note": "AWS, PostgreSQL, and MongoDB explicitly listed. S3 not mentioned but AWS expertise suggests cloud storage familiarity."
+    },
+    {
+      "requirement": "Elasticsearch (Nice to Have)",
+      "met": true,
+      "note": "Explicitly listed: Elasticsearch, Elastic Stack, Log Aggregation."
+    },
+    {
+      "requirement": "CI/CD mit GitLab (Nice to Have)",
+      "met": false,
+      "note": "GitLab not mentioned; experience is with GitHub Actions and Jenkins. GitLab is a minor variant in CI/CD tooling."
+    },
+    {
+      "requirement": "Agile Arbeitsmethoden (Nice to Have)",
+      "met": true,
+      "note": "Explicitly lists Agile, Scrum, Jira, Confluence, and demonstrates cross-functional collaboration in startup and consulting environments
+2026-05-26 22:06:22,022  WARNING   matcher.matcher — JSON parse failed for Senior Software-Entwickler*in (Backend, Java) (m/w/d) @ GVL - Gesellschaft zur Verwertung von Leistungsschutzrechten mbH — full response: {
+  "match_score": 92,
+  "interview_chance": "high",
+  "german_level_required": "B2",
+  "skip_reason": null,
+  "match_summary": "Felix is an excellent match for this Senior Backend Java Engineer role. He has 5+ years of directly relevant microservices and Spring Boot experience, strong expertise in the core tech stack (Java, Spring Boot, Docker, Kubernetes, AWS, PostgreSQL, MongoDB), and experience with many 'nice to have' technologies including RabbitMQ, Elasticsearch, CI/CD, and agile workflows. German citizenship and Berlin location are additional perfect fits.",
+  "detailed_reasoning": [
+    {
+      "requirement": "5+ years Berufserfahrung in Web-/Anwendungssoftware im Microservice-Umfeld",
+      "met": true,
+      "note": "Felix has 5+ years as Backend/Software Engineer with explicit microservices experience at Propora, Promos, CGI, and Sportradar. Resume clearly documents microservices architecture work."
+    },
+    {
+      "requirement": "Fundierte Kenntnisse in Java und SpringBoot",
+      "met": true,
+      "note": "Java is primary language; Spring Boot is core skill. Demonstrated across all recent roles with REST APIs, business logic implementation, and system design."
+    },
+    {
+      "requirement": "Erfahrung in Testautomatisierung sowie CI/CD",
+      "met": true,
+      "note": "Resume lists JUnit, Mockito, Cucumber, Integration Testing, and CI/CD tools (GitHub Actions, Jenkins). Contributes to CI/CD pipelines and deployment processes."
+    },
+    {
+      "requirement": "Erfahrung mit relationalen und NoSQL-Datenbanken",
+      "met": true,
+      "note": "Explicitly lists PostgreSQL, MySQL, MongoDB, JPA, Hibernate, Data Modeling, and Query Optimization."
+    },
+    {
+      "requirement": "Schnelles Verstehen und Erklären fachlicher und technischer Konzepte",
+      "met": true,
+      "note": "Demonstrated through lead consultant role at CGI, system design expertise, and cross-functional collaboration across multiple projects."
+    },
+    {
+      "requirement": "Deutschkenntnisse mindestens B2-Niveau",
+      "met": true,
+      "note": "German citizen based in Berlin with demonstrated professional work in Germany. Resume written in English but all professional context suggests B2+ fluency."
+    },
+    {
+      "requirement": "Docker, Kubernetes, Helm (Nice to Have)",
+      "met": true,
+      "note": "Strong expertise: Docker, Kubernetes, OpenShift explicitly listed. Helm not mentioned but Kubernetes mastery covers this domain."
+    },
+    {
+      "requirement": "OpenAPI (Nice to Have)",
+      "met": false,
+      "note": "Not explicitly mentioned, but REST API design expertise suggests likely familiarity. Minor gap in nice-to-have."
+    },
+    {
+      "requirement": "Microservice-Architekturen (Nice to Have)",
+      "met": true,
+      "note": "Core expertise across all roles; explicitly mentioned in summary and skills."
+    },
+    {
+      "requirement": "AWS, Postgres, MongoDB, S3 (Nice to Have)",
+      "met": true,
+      "note": "AWS, PostgreSQL, and MongoDB explicitly listed. S3 not mentioned but AWS expertise suggests cloud storage familiarity."
+    },
+    {
+      "requirement": "Elasticsearch (Nice to Have)",
+      "met": true,
+      "note": "Explicitly listed: Elasticsearch, Elastic Stack, Log Aggregation."
+    },
+    {
+      "requirement": "CI/CD mit GitLab (Nice to Have)",
+      "met": false,
+      "note": "GitLab not mentioned; experience is with GitHub Actions and Jenkins. GitLab is a minor variant in CI/CD tooling."
+    },
+    {
+      "requirement": "Agile Arbeitsmethoden (Nice to Have)",
+      "met": true,
+      "note": "Explicitly lists Agile, Scrum, Jira, Confluence, and demonstrates cross-functional collaboration in startup and consulting environments
+2026-05-26 22:06:22,023  WARNING   matcher.matcher — Skip (scoring returned None): Senior Software-Entwickler*in (Backend, Java) (m/w/d) @ GVL - Gesellschaft zur Verwertung von Leistungsschutzrechten mbH
+2026-05-26 22:06:22,023  INFO      matcher.matcher — Processing 6/100: 'TYPO3 Entwicklung - Projektron GmbH' @ 'Jobs via eFinancialCareers'
+2026-05-26 22:06:22,023  INFO      matcher.matcher — Cache HIT:  'TYPO3 Entwicklung - Projektron GmbH' @ 'Jobs via eFinancialCareers' (score=35, hash=34ab6ea6...)
+2026-05-26 22:06:22,035  INFO      matcher.matcher — Skip (Primary stack mismatch: Job requires TYPO3/TypoScript/PHP-based CMS development; candidate is Java/Backend specialist with no demonstrated TYPO3, PHP, or CMS experience.): TYPO3 Entwicklung - Projektron GmbH @ Jobs via eFinancialCareers
+2026-05-26 22:06:22,035  INFO      matcher.matcher — Processing 7/100: 'Forward Deployed Engineer - AI Solutions Engineering' @ 'Aircall'
+2026-05-26 22:06:22,035  INFO      matcher.matcher — Cache HIT:  'Forward Deployed Engineer - AI Solutions Engineering' @ 'Aircall' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:22,042  INFO      matcher.matcher — Skip (Significant domain and role mismatch. Candidate is a backend Java engineer; this is a solutions engineering / consulting / GTM hybrid role requiring low-code integration platforms, CRM automation, and revenue-driving capabilities. Core skill sets are fundamentally misaligned.): Forward Deployed Engineer - AI Solutions Engineering @ Aircall
+2026-05-26 22:06:22,043  INFO      matcher.matcher — Processing 8/100: 'Research Engineer (Agentic Models)' @ 'JetBrains'
+2026-05-26 22:06:22,043  INFO      matcher.matcher — Cache HIT:  'Research Engineer (Agentic Models)' @ 'JetBrains' (score=28, hash=34ab6ea6...)
+2026-05-26 22:06:22,049  INFO      matcher.matcher — Skip (Primary stack mismatch. Job requires extensive LLM training expertise (SFT, RL, pre-training, fine-tuning) with PyTorch and specialized LLM stacks. Candidate is a backend Java/Spring Boot engineer with no demonstrated ML, deep learning, or LLM training experience.): Research Engineer (Agentic Models) @ JetBrains
+2026-05-26 22:06:22,050  INFO      matcher.matcher — Processing 9/100: 'Senior Java Engineer (AI-First)' @ 'RemoteStar'
+2026-05-26 22:06:22,050  INFO      matcher.matcher — Cache HIT:  'Senior Java Engineer (AI-First)' @ 'RemoteStar' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:22,057  INFO      matcher.matcher — Match 52% (medium) — Senior Java Engineer (AI-First) @ RemoteStar
+2026-05-26 22:06:22,057  INFO      matcher.matcher — Processing 10/100: 'Principal software engineer' @ 'Playson'
+2026-05-26 22:06:22,057  INFO      matcher.matcher — Cache MISS: 'Principal software engineer' @ 'Playson' (hash=34ab6ea6...) — will score fresh
+2026-05-26 22:06:22,819  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:22] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:22,862  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:22] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:24,870  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:24] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:25,827  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:25] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:26,864  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:26] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:28,833  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:28] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:28,872  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:28] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:30,872  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:30] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:31,830  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:31] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:32,865  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:32] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:34,173  INFO      httpx — HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+2026-05-26 22:06:34,820  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:34] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:34,868  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:34] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:35,161  INFO      matcher.matcher — Raw Claude response for Principal software engineer: ```json
+{
+  "match_score": 82,
+  "interview_chance": "high",
+  "german_level_required": "none",
+  "skip_reason": null,
+  "match_summary": "Strong backend engineer with 5+ years of hands-on Java/Spring Boot experience in microservices, distributed systems, and production-critical environments. Core technical stack aligns well with the role's requirements. Primary gap is Node.js/TypeScript expertise (listed as 'highly preferred' but not required), which is offset by solid OOP language experience and demonstrated mastery of event-driven architecture, Kafka, and observability—all critical for this gaming platform role.",
+  "detailed_reasoning": [
+    {
+      "requirement": "Strong hands-on backend engineering with daily production code",
+      "met": true,
+      "note": "5+ years of proven backend development across multiple companies, consistently shipping production code with Java/Spring Boot"
+    },
+    {
+      "requirement": "Node.js and TypeScript highly preferred",
+      "met": false,
+      "note": "Primary gap: no Node.js/TypeScript listed. Has Java, Python, TypeScript (secondary), and C#. TypeScript is listed but context suggests minimal depth. This is a 'highly preferred' not 'required,' and candidate has strong OOP alternatives"
+    },
+    {
+      "requirement": "Strong OOP languages (Java, Python, C++, C#, Go)",
+      "met": true,
+      "note": "Expert-level Java (primary), also has Python and C# in skill set. Meets the 'or other OOP languages' category"
+    },
+    {
+      "requirement": "Asynchronous programming and event-driven architecture",
+      "met": true,
+      "note": "Explicitly listed in skills; demonstrated via Kafka, RabbitMQ integration, and microservices experience"
+    },
+    {
+      "requirement": "Distributed systems and messaging (Kafka, gRPC)",
+      "met": true,
+      "note": "Strong Kafka experience documented; RabbitMQ also listed. gRPC not explicitly mentioned but distributed systems expertise is clear"
+    },
+    {
+      "requirement": "Relational databases (MySQL, PostgreSQL)",
+      "met": true,
+      "note": "PostgreSQL and MySQL both listed with query optimization and data modeling experience"
+    },
+    {
+      "requirement": "Columnar/NoSQL databases (ClickHouse, DynamoDB, MongoDB)",
+      "met": true,
+      "note": "MongoDB and Elasticsearch (related columnar/search use case) listed. ClickHouse and DynamoDB not mentioned but not disqualifying"
+    },
+    {
+      "requirement": "Production-ready backend services design, build, test, deploy",
+      "met": true,
+      "note": "Extensive microservices development, CI/CD, containerization (Docker, Kubernetes), testing frameworks (JUnit, Mockito, Cucumber)"
+    },
+    {
+      "requirement": "Unit, integration, and end-to-end testing",
+      "met": true,
+      "note": "JUnit, Mockito, Cucumber, and integration testing explicitly listed and applied in projects"
+    },
+    {
+      "requirement": "High-load, scalable, business-critical systems",
+      "met": true,
+      "note": "Telecommunications systems at CGI (high-volume requests), virtual sports at Sportradar, and consistent focus on performance optimization and incident reduction"
+    },
+    {
+      "requirement": "Debugging, problem-solving, performance optimization",
+      "met": true,
+      "note": "Documented ~30% reduction in production incidents at Promos via enhanced observability; ~20-30% incident reduction at CGI"
+    },
+    {
+      "requirement": "Independent technical decision-making and responsibility",
+      "met": true,
+      "note": "Lead Consultant Engineer role and consistent architectural contributions across roles"
+    },
+    {
+      "requirement": "Code quality, maintainability, reliability mindset",
+      "met": true,
+      "note": "Clean code and design patterns listed; consistent focus on system stability and observability"
+    },
+    {
+      "requirement": "Growth toward technical leadership while hands-on",
+      "met": true,
+      "note": "Lead Consultant role demonstrates leadership trajectory; all
+2026-05-26 22:06:35,162  WARNING   matcher.matcher — JSON parse failed for Principal software engineer @ Playson — full response: {
+  "match_score": 82,
+  "interview_chance": "high",
+  "german_level_required": "none",
+  "skip_reason": null,
+  "match_summary": "Strong backend engineer with 5+ years of hands-on Java/Spring Boot experience in microservices, distributed systems, and production-critical environments. Core technical stack aligns well with the role's requirements. Primary gap is Node.js/TypeScript expertise (listed as 'highly preferred' but not required), which is offset by solid OOP language experience and demonstrated mastery of event-driven architecture, Kafka, and observability—all critical for this gaming platform role.",
+  "detailed_reasoning": [
+    {
+      "requirement": "Strong hands-on backend engineering with daily production code",
+      "met": true,
+      "note": "5+ years of proven backend development across multiple companies, consistently shipping production code with Java/Spring Boot"
+    },
+    {
+      "requirement": "Node.js and TypeScript highly preferred",
+      "met": false,
+      "note": "Primary gap: no Node.js/TypeScript listed. Has Java, Python, TypeScript (secondary), and C#. TypeScript is listed but context suggests minimal depth. This is a 'highly preferred' not 'required,' and candidate has strong OOP alternatives"
+    },
+    {
+      "requirement": "Strong OOP languages (Java, Python, C++, C#, Go)",
+      "met": true,
+      "note": "Expert-level Java (primary), also has Python and C# in skill set. Meets the 'or other OOP languages' category"
+    },
+    {
+      "requirement": "Asynchronous programming and event-driven architecture",
+      "met": true,
+      "note": "Explicitly listed in skills; demonstrated via Kafka, RabbitMQ integration, and microservices experience"
+    },
+    {
+      "requirement": "Distributed systems and messaging (Kafka, gRPC)",
+      "met": true,
+      "note": "Strong Kafka experience documented; RabbitMQ also listed. gRPC not explicitly mentioned but distributed systems expertise is clear"
+    },
+    {
+      "requirement": "Relational databases (MySQL, PostgreSQL)",
+      "met": true,
+      "note": "PostgreSQL and MySQL both listed with query optimization and data modeling experience"
+    },
+    {
+      "requirement": "Columnar/NoSQL databases (ClickHouse, DynamoDB, MongoDB)",
+      "met": true,
+      "note": "MongoDB and Elasticsearch (related columnar/search use case) listed. ClickHouse and DynamoDB not mentioned but not disqualifying"
+    },
+    {
+      "requirement": "Production-ready backend services design, build, test, deploy",
+      "met": true,
+      "note": "Extensive microservices development, CI/CD, containerization (Docker, Kubernetes), testing frameworks (JUnit, Mockito, Cucumber)"
+    },
+    {
+      "requirement": "Unit, integration, and end-to-end testing",
+      "met": true,
+      "note": "JUnit, Mockito, Cucumber, and integration testing explicitly listed and applied in projects"
+    },
+    {
+      "requirement": "High-load, scalable, business-critical systems",
+      "met": true,
+      "note": "Telecommunications systems at CGI (high-volume requests), virtual sports at Sportradar, and consistent focus on performance optimization and incident reduction"
+    },
+    {
+      "requirement": "Debugging, problem-solving, performance optimization",
+      "met": true,
+      "note": "Documented ~30% reduction in production incidents at Promos via enhanced observability; ~20-30% incident reduction at CGI"
+    },
+    {
+      "requirement": "Independent technical decision-making and responsibility",
+      "met": true,
+      "note": "Lead Consultant Engineer role and consistent architectural contributions across roles"
+    },
+    {
+      "requirement": "Code quality, maintainability, reliability mindset",
+      "met": true,
+      "note": "Clean code and design patterns listed; consistent focus on system stability and observability"
+    },
+    {
+      "requirement": "Growth toward technical leadership while hands-on",
+      "met": true,
+      "note": "Lead Consultant role demonstrates leadership trajectory; all
+2026-05-26 22:06:35,162  WARNING   matcher.matcher — Skip (scoring returned None): Principal software engineer @ Playson
+2026-05-26 22:06:35,162  INFO      matcher.matcher — Processing 11/100: 'Java Developer' @ 'Tenth Revolution Group'
+2026-05-26 22:06:35,162  INFO      matcher.matcher — Cache HIT:  'Java Developer' @ 'Tenth Revolution Group' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:35,169  INFO      matcher.matcher — Skip (German level C1 required): Java Developer @ Tenth Revolution Group
+2026-05-26 22:06:35,169  INFO      matcher.matcher — Processing 12/100: 'Mobile Engineer - Android (m/w/d)' @ 'PAYBACK'
+2026-05-26 22:06:35,169  INFO      matcher.matcher — Cache HIT:  'Mobile Engineer - Android (m/w/d)' @ 'PAYBACK' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,175  INFO      matcher.matcher — Skip (Primary stack mismatch: Role requires Android/Kotlin mobile development; candidate is backend Java engineer with no mobile development experience.): Mobile Engineer - Android (m/w/d) @ PAYBACK
+2026-05-26 22:06:35,175  INFO      matcher.matcher — Processing 13/100: 'Senior Backend Engineer (f/m/x) - remote' @ 'refurbed'
+2026-05-26 22:06:35,175  INFO      matcher.matcher — Cache HIT:  'Senior Backend Engineer (f/m/x) - remote' @ 'refurbed' (score=68, hash=34ab6ea6...)
+2026-05-26 22:06:35,182  INFO      matcher.matcher — Match 68% (medium) — Senior Backend Engineer (f/m/x) - remote @ refurbed
+2026-05-26 22:06:35,182  INFO      matcher.matcher — Processing 14/100: 'Full Stack Developer' @ 'DataAnnotation'
+2026-05-26 22:06:35,182  INFO      matcher.matcher — Cache HIT:  'Full Stack Developer' @ 'DataAnnotation' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,188  INFO      matcher.matcher — Match 72% (medium) — Full Stack Developer @ DataAnnotation
+2026-05-26 22:06:35,189  INFO      matcher.matcher — Processing 15/100: 'Java Softwareentwickler (Cloud / Kubernetes) (m/w/d)' @ 'Materna'
+2026-05-26 22:06:35,189  INFO      matcher.matcher — Cache HIT:  'Java Softwareentwickler (Cloud / Kubernetes) (m/w/d)' @ 'Materna' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:35,196  INFO      matcher.matcher — Skip (German level C1 required): Java Softwareentwickler (Cloud / Kubernetes) (m/w/d) @ Materna
+2026-05-26 22:06:35,196  INFO      matcher.matcher — Processing 16/100: 'Softwarearchitekt:in' @ 'PERM4 | Permanent Recruiting GmbH'
+2026-05-26 22:06:35,196  INFO      matcher.matcher — Cache HIT:  'Softwarearchitekt:in' @ 'PERM4 | Permanent Recruiting GmbH' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:35,203  INFO      matcher.matcher — Skip (German level C1 required): Softwarearchitekt:in @ PERM4 | Permanent Recruiting GmbH
+2026-05-26 22:06:35,203  INFO      matcher.matcher — Processing 17/100: 'AI Engineer' @ 'Crypto Banter'
+2026-05-26 22:06:35,203  INFO      matcher.matcher — Cache HIT:  'AI Engineer' @ 'Crypto Banter' (score=48, hash=34ab6ea6...)
+2026-05-26 22:06:35,210  INFO      matcher.matcher — Skip (Primary language mismatch: Role requires Python-first AI/ML engineering; candidate is Java-backend focused with no demonstrated ML/AI experience.): AI Engineer @ Crypto Banter
+2026-05-26 22:06:35,210  INFO      matcher.matcher — Processing 18/100: 'Senior/Principal Robotics Software Engineer' @ 'Stax - Deep Tech Talent'
+2026-05-26 22:06:35,210  INFO      matcher.matcher — Cache HIT:  'Senior/Principal Robotics Software Engineer' @ 'Stax - Deep Tech Talent' (score=35, hash=34ab6ea6...)
+2026-05-26 22:06:35,219  INFO      matcher.matcher — Skip (Primary stack mismatch: Role requires Python + ROS2 + robotics fundamentals; candidate's expertise is Java/Spring Boot backend with no demonstrated robotics, motion planning, perception, or ROS2 experience.): Senior/Principal Robotics Software Engineer @ Stax - Deep Tech Talent
+2026-05-26 22:06:35,219  INFO      matcher.matcher — Processing 19/100: 'Senior Android Engineer' @ 'Tandem - Language Exchange'
+2026-05-26 22:06:35,219  INFO      matcher.matcher — Cache HIT:  'Senior Android Engineer' @ 'Tandem - Language Exchange' (score=28, hash=34ab6ea6...)
+2026-05-26 22:06:35,228  INFO      matcher.matcher — Skip (Primary stack mismatch: Role requires Senior Android Engineer with 5+ years Kotlin/native app development. Candidate is a Backend Java Engineer with no demonstrated Android, Kotlin, or mobile app development experience.): Senior Android Engineer @ Tandem - Language Exchange
+2026-05-26 22:06:35,228  INFO      matcher.matcher — Processing 20/100: 'Middle Full-Stack Engineer' @ 'Ruby Labs'
+2026-05-26 22:06:35,228  INFO      matcher.matcher — Cache HIT:  'Middle Full-Stack Engineer' @ 'Ruby Labs' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,236  INFO      matcher.matcher — Skip (Primary stack mismatch. Role requires React/Next.js full-stack web development; candidate is a backend Java engineer with no demonstrated frontend experience. This is a front-end heavy role.): Middle Full-Stack Engineer @ Ruby Labs
+2026-05-26 22:06:35,236  INFO      matcher.matcher — Processing 21/100: 'Game Engine Developer - iGaming' @ 'IT Recruitment Solutions'
+2026-05-26 22:06:35,236  INFO      matcher.matcher — Cache HIT:  'Game Engine Developer - iGaming' @ 'IT Recruitment Solutions' (score=58, hash=34ab6ea6...)
+2026-05-26 22:06:35,243  INFO      matcher.matcher — Match 58% (medium) — Game Engine Developer - iGaming @ IT Recruitment Solutions
+2026-05-26 22:06:35,244  INFO      matcher.matcher — Processing 22/100: 'INTERIM Java Fullstack Entwickler (gn)' @ 'Michael Page'
+2026-05-26 22:06:35,244  INFO      matcher.matcher — Cache HIT:  'INTERIM Java Fullstack Entwickler (gn)' @ 'Michael Page' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:35,250  INFO      matcher.matcher — Skip (German level C2 required): INTERIM Java Fullstack Entwickler (gn) @ Michael Page
+2026-05-26 22:06:35,251  INFO      matcher.matcher — Processing 23/100: 'DevOps Engineer' @ 'Clayton Black'
+2026-05-26 22:06:35,251  INFO      matcher.matcher — Cache HIT:  'DevOps Engineer' @ 'Clayton Black' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:35,258  INFO      matcher.matcher — Match 62% (medium) — DevOps Engineer @ Clayton Black
+2026-05-26 22:06:35,259  INFO      matcher.matcher — Processing 24/100: 'Java EE-Entwickler:in' @ 'Syben Consulting'
+2026-05-26 22:06:35,259  INFO      matcher.matcher — Cache HIT:  'Java EE-Entwickler:in' @ 'Syben Consulting' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,267  INFO      matcher.matcher — Match 72% (medium) — Java EE-Entwickler:in @ Syben Consulting
+2026-05-26 22:06:35,267  INFO      matcher.matcher — Processing 25/100: 'T24 Software Engineer' @ 'UST'
+2026-05-26 22:06:35,267  INFO      matcher.matcher — Cache HIT:  'T24 Software Engineer' @ 'UST' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,274  INFO      matcher.matcher — Skip (Primary technology stack mismatch. Role requires deep Temenos T24 expertise (InfoBasic, TAFJ, OFS processing, T24 customization) which is banking-domain-specific legacy platform expertise. Candidate has zero T24 experience and no banking system background. While candidate has strong Java/backend skills, T24 requires fundamentally different technical knowledge in a proprietary banking platform that cannot be easily transferred from general Java microservices experience.): T24 Software Engineer @ UST
+2026-05-26 22:06:35,274  INFO      matcher.matcher — Processing 26/100: 'Actico Platform & Java Developer | Hybrid Madrid' @ 'UST España & Latam'
+2026-05-26 22:06:35,274  INFO      matcher.matcher — Cache HIT:  'Actico Platform & Java Developer | Hybrid Madrid' @ 'UST España & Latam' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,282  INFO      matcher.matcher — Match 72% (medium) — Actico Platform & Java Developer | Hybrid Madrid @ UST España & Latam
+2026-05-26 22:06:35,283  INFO      matcher.matcher — Processing 27/100: 'Rust Developer - Remote' @ 'YO IT Consulting'
+2026-05-26 22:06:35,283  INFO      matcher.matcher — Cache HIT:  'Rust Developer - Remote' @ 'YO IT Consulting' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,291  INFO      matcher.matcher — Skip (Primary stack mismatch: Job requires Rust as primary language; candidate has zero Rust experience with Java/JVM as primary stack.): Rust Developer - Remote @ YO IT Consulting
+2026-05-26 22:06:35,291  INFO      matcher.matcher — Processing 28/100: 'Software Developer (m/w/d)' @ 'Fujitsu'
+2026-05-26 22:06:35,291  INFO      matcher.matcher — Cache HIT:  'Software Developer (m/w/d)' @ 'Fujitsu' (score=58, hash=34ab6ea6...)
+2026-05-26 22:06:35,299  INFO      matcher.matcher — Match 58% (medium) — Software Developer (m/w/d) @ Fujitsu
+2026-05-26 22:06:35,300  INFO      matcher.matcher — Processing 29/100: 'Linux Software Engineer - Ubuntu for Next-Gen Silicon (multiple roles and seniority levels)' @ 'Canonical'
+2026-05-26 22:06:35,300  INFO      matcher.matcher — Cache HIT:  'Linux Software Engineer - Ubuntu for Next-Gen Silicon (multiple roles and seniority levels)' @ 'Canonical' (score=48, hash=34ab6ea6...)
+2026-05-26 22:06:35,308  INFO      matcher.matcher — Skip (Primary technology stack mismatch. Role requires deep Linux systems expertise (C, C++, kernel-level work, distribution packaging, hardware enablement) while candidate is a Java/Spring Boot backend microservices engineer with no demonstrated Linux systems, kernel, or hardware enablement experience.): Linux Software Engineer - Ubuntu for Next-Gen Silicon (multiple roles and seniority levels) @ Canonical
+2026-05-26 22:06:35,308  INFO      matcher.matcher — Processing 30/100: 'Software Developer (m/w/d)' @ 'Fujitsu'
+2026-05-26 22:06:35,308  INFO      matcher.matcher — Cache HIT:  'Software Developer (m/w/d)' @ 'Fujitsu' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:35,316  INFO      matcher.matcher — Match 52% (medium) — Software Developer (m/w/d) @ Fujitsu
+2026-05-26 22:06:35,316  INFO      matcher.matcher — Processing 31/100: 'Backend Software Engineer' @ 'Wayflyer'
+2026-05-26 22:06:35,316  INFO      matcher.matcher — Cache HIT:  'Backend Software Engineer' @ 'Wayflyer' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,324  INFO      matcher.matcher — Match 72% (medium) — Backend Software Engineer @ Wayflyer
+2026-05-26 22:06:35,324  INFO      matcher.matcher — Processing 32/100: 'Software Engineer - EVM - Blockchain Platform' @ 'Kraken'
+2026-05-26 22:06:35,324  INFO      matcher.matcher — Cache HIT:  'Software Engineer - EVM - Blockchain Platform' @ 'Kraken' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,332  INFO      matcher.matcher — Match 72% (medium) — Software Engineer - EVM - Blockchain Platform @ Kraken
+2026-05-26 22:06:35,332  INFO      matcher.matcher — Processing 33/100: 'Frontend Developer - Remote' @ 'YO IT Consulting'
+2026-05-26 22:06:35,332  INFO      matcher.matcher — Cache HIT:  'Frontend Developer - Remote' @ 'YO IT Consulting' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,339  INFO      matcher.matcher — Skip (Primary stack mismatch: Job requires expert-level JavaScript/TypeScript frontend expertise; candidate is a backend Java engineer with no demonstrated frontend framework experience.): Frontend Developer - Remote @ YO IT Consulting
+2026-05-26 22:06:35,339  INFO      matcher.matcher — Processing 34/100: 'Senior React/React Native Engineer' @ 'Trading 212'
+2026-05-26 22:06:35,339  INFO      matcher.matcher — Cache HIT:  'Senior React/React Native Engineer' @ 'Trading 212' (score=18, hash=34ab6ea6...)
+2026-05-26 22:06:35,347  INFO      matcher.matcher — Skip (Role requires React Native / React / Next.js as primary frontend stack; candidate is a backend Java engineer with no meaningful frontend JavaScript/TypeScript framework experience.): Senior React/React Native Engineer @ Trading 212
+2026-05-26 22:06:35,347  INFO      matcher.matcher — Processing 35/100: 'Fully Remote C++ Developer' @ 'Oho Group'
+2026-05-26 22:06:35,347  INFO      matcher.matcher — Cache HIT:  'Fully Remote C++ Developer' @ 'Oho Group' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,354  INFO      matcher.matcher — Skip (Primary language mismatch: Job requires 3+ years C++ (systems-level engineering), candidate is Java/Backend specialist with no demonstrated C++ experience. C++ is core to the role, not interchangeable.): Fully Remote C++ Developer @ Oho Group
+2026-05-26 22:06:35,354  INFO      matcher.matcher — Processing 36/100: 'Senior Full Stack Software Engineer' @ 'Miaplaza, Inc.'
+2026-05-26 22:06:35,354  INFO      matcher.matcher — Cache HIT:  'Senior Full Stack Software Engineer' @ 'Miaplaza, Inc.' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,362  INFO      matcher.matcher — Match 42% (low) — Senior Full Stack Software Engineer @ Miaplaza, Inc.
+2026-05-26 22:06:35,362  INFO      matcher.matcher — Processing 37/100: 'Full Stack Engineer' @ 'Trust In SODA'
+2026-05-26 22:06:35,362  INFO      matcher.matcher — Cache HIT:  'Full Stack Engineer' @ 'Trust In SODA' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:35,369  INFO      matcher.matcher — Match 62% (medium) — Full Stack Engineer @ Trust In SODA
+2026-05-26 22:06:35,369  INFO      matcher.matcher — Processing 38/100: 'Blockchain Developer' @ 'Plexus Resource Solutions'
+2026-05-26 22:06:35,369  INFO      matcher.matcher — Cache HIT:  'Blockchain Developer' @ 'Plexus Resource Solutions' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,376  INFO      matcher.matcher — Skip (Primary technology stack mismatch. Role requires Solidity/blockchain expertise; candidate's entire background is Java/JVM backend engineering with no smart contract, Solidity, EVM, or blockchain experience.): Blockchain Developer @ Plexus Resource Solutions
+2026-05-26 22:06:35,376  INFO      matcher.matcher — Processing 39/100: 'AI Engineer(Backend)' @ 'Deel'
+2026-05-26 22:06:35,376  INFO      matcher.matcher — Cache HIT:  'AI Engineer(Backend)' @ 'Deel' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:35,383  INFO      matcher.matcher — Match 62% (medium) — AI Engineer(Backend) @ Deel
+2026-05-26 22:06:35,383  INFO      matcher.matcher — Processing 40/100: 'Software Engineer (macOS platform)' @ 'Hornetsecurity'
+2026-05-26 22:06:35,383  INFO      matcher.matcher — Cache HIT:  'Software Engineer (macOS platform)' @ 'Hornetsecurity' (score=22, hash=34ab6ea6...)
+2026-05-26 22:06:35,390  INFO      matcher.matcher — Skip (Primary stack is C#/.NET Core for macOS desktop applications — a fundamentally different domain (native desktop/endpoint security) from candidate's Java/Spring Boot backend microservices background. The job title and entire description confirm C#/.NET Core macOS desktop development as the core requirement, which Java does not substitute.): Software Engineer (macOS platform) @ Hornetsecurity
+2026-05-26 22:06:35,390  INFO      matcher.matcher — Processing 41/100: 'Senior Software Engineer' @ ''
+2026-05-26 22:06:35,390  INFO      matcher.matcher — Cache HIT:  'Senior Software Engineer' @ '' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:35,397  INFO      matcher.matcher — Match 52% (low) — Senior Software Engineer @ 
+2026-05-26 22:06:35,397  INFO      matcher.matcher — Processing 42/100: 'Software Engineer' @ 'Cavendish Professionals'
+2026-05-26 22:06:35,397  INFO      matcher.matcher — Cache HIT:  'Software Engineer' @ 'Cavendish Professionals' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,403  INFO      matcher.matcher — Match 72% (high) — Software Engineer @ Cavendish Professionals
+2026-05-26 22:06:35,403  INFO      matcher.matcher — Processing 43/100: 'Mid & Senior Backend Engineers (Go) | Drug discovery Platform | Fully Remote, EU | Base Salary Up to 110,000 EUR, plus early equity + benefits' @ 'Owen Thomas | B Corp™'
+2026-05-26 22:06:35,403  INFO      matcher.matcher — Cache HIT:  'Mid & Senior Backend Engineers (Go) | Drug discovery Platform | Fully Remote, EU | Base Salary Up to 110,000 EUR, plus early equity + benefits' @ 'Owen Thomas | B Corp™' (score=68, hash=34ab6ea6...)
+2026-05-26 22:06:35,410  INFO      matcher.matcher — Match 68% (medium) — Mid & Senior Backend Engineers (Go) | Drug discovery Platform | Fully Remote, EU | Base Salary Up to 110,000 EUR, plus early equity + benefits @ Owen Thomas | B Corp™
+2026-05-26 22:06:35,410  INFO      matcher.matcher — Processing 44/100: 'Staff Software Engineer for Identity Management (Go/Golang)' @ 'Canonical'
+2026-05-26 22:06:35,410  INFO      matcher.matcher — Cache HIT:  'Staff Software Engineer for Identity Management (Go/Golang)' @ 'Canonical' (score=34, hash=34ab6ea6...)
+2026-05-26 22:06:35,417  INFO      matcher.matcher — Match 34% (low) — Staff Software Engineer for Identity Management (Go/Golang) @ Canonical
+2026-05-26 22:06:35,417  INFO      matcher.matcher — Processing 45/100: 'Softwareentwickler Java, Python oder Ruby (w|m|d)' @ 'zeb consulting'
+2026-05-26 22:06:35,417  INFO      matcher.matcher — Cache HIT:  'Softwareentwickler Java, Python oder Ruby (w|m|d)' @ 'zeb consulting' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:35,426  INFO      matcher.matcher — Skip (German level C1 required): Softwareentwickler Java, Python oder Ruby (w|m|d) @ zeb consulting
+2026-05-26 22:06:35,427  INFO      matcher.matcher — Processing 46/100: 'Software Engineer - Rust Blockchain Platform' @ 'Kraken'
+2026-05-26 22:06:35,427  INFO      matcher.matcher — Cache HIT:  'Software Engineer - Rust Blockchain Platform' @ 'Kraken' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,434  INFO      matcher.matcher — Match 72% (medium) — Software Engineer - Rust Blockchain Platform @ Kraken
+2026-05-26 22:06:35,435  INFO      matcher.matcher — Processing 47/100: 'Junior Process Automation Developer Golang (m/f/d)' @ 'Flink'
+2026-05-26 22:06:35,435  INFO      matcher.matcher — Cache HIT:  'Junior Process Automation Developer Golang (m/f/d)' @ 'Flink' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:35,444  INFO      matcher.matcher — Match 62% (medium) — Junior Process Automation Developer Golang (m/f/d) @ Flink
+2026-05-26 22:06:35,444  INFO      matcher.matcher — Processing 48/100: 'Android Engineer - Design System' @ 'SumUp'
+2026-05-26 22:06:35,444  INFO      matcher.matcher — Cache HIT:  'Android Engineer - Design System' @ 'SumUp' (score=22, hash=34ab6ea6...)
+2026-05-26 22:06:35,453  INFO      matcher.matcher — Skip (Primary stack mismatch: Role requires Android/Kotlin/Jetpack Compose expertise; candidate is a backend Java engineer with no Android development experience.): Android Engineer - Design System @ SumUp
+2026-05-26 22:06:35,453  INFO      matcher.matcher — Processing 49/100: 'Java Coremedia/Magnolia Developer (all genders)' @ ']init[ - Services for the eSociety'
+2026-05-26 22:06:35,453  INFO      matcher.matcher — Cache HIT:  'Java Coremedia/Magnolia Developer (all genders)' @ ']init[ - Services for the eSociety' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,462  INFO      matcher.matcher — Match 72% (medium) — Java Coremedia/Magnolia Developer (all genders) @ ]init[ - Services for the eSociety
+2026-05-26 22:06:35,463  INFO      matcher.matcher — Processing 50/100: 'Softwareentwickler Java CMS (all genders)' @ ']init[ - Services for the eSociety'
+2026-05-26 22:06:35,463  INFO      matcher.matcher — Cache HIT:  'Softwareentwickler Java CMS (all genders)' @ ']init[ - Services for the eSociety' (score=58, hash=34ab6ea6...)
+2026-05-26 22:06:35,472  INFO      matcher.matcher — Match 58% (medium) — Softwareentwickler Java CMS (all genders) @ ]init[ - Services for the eSociety
+2026-05-26 22:06:35,472  INFO      matcher.matcher — Processing 51/100: '💥 If You Hate Patriarchy Read This 👉🏻 Not Your Babe seeks Business Co-Founder 👈🏻' @ 'Not Your Babe'
+2026-05-26 22:06:35,472  INFO      matcher.matcher — Cache HIT:  '💥 If You Hate Patriarchy Read This 👉🏻 Not Your Babe seeks Business Co-Founder 👈🏻' @ 'Not Your Babe' (score=25, hash=34ab6ea6...)
+2026-05-26 22:06:35,480  INFO      matcher.matcher — Skip (Fundamental role mismatch. Candidate is a Backend Java Engineer; position requires Business Co-Founder with business strategy, legal, funding, and operations expertise. No technical backend engineering work is the core ask.): 💥 If You Hate Patriarchy Read This 👉🏻 Not Your Babe seeks Business Co-Founder 👈🏻 @ Not Your Babe
+2026-05-26 22:06:35,480  INFO      matcher.matcher — Processing 52/100: 'Senior Manager – Application Security' @ 'Miro'
+2026-05-26 22:06:35,480  INFO      matcher.matcher — Cache HIT:  'Senior Manager – Application Security' @ 'Miro' (score=22, hash=34ab6ea6...)
+2026-05-26 22:06:35,488  INFO      matcher.matcher — Skip (Fundamental role mismatch: Candidate is a Backend Java Engineer; role requires Senior Manager of Application Security with 10+ years security experience and 3+ years security management. This is a director-level security leadership position, not an engineering role.): Senior Manager – Application Security @ Miro
+2026-05-26 22:06:35,488  INFO      matcher.matcher — Processing 53/100: 'Senior Website Developer' @ 'Dash0'
+2026-05-26 22:06:35,489  INFO      matcher.matcher — Cache HIT:  'Senior Website Developer' @ 'Dash0' (score=28, hash=34ab6ea6...)
+2026-05-26 22:06:35,497  INFO      matcher.matcher — Skip (Fundamental stack mismatch: Role requires Senior Website Developer with primary focus on front-end (HTML, CSS, JavaScript/TypeScript, Next.js/Astro). Candidate is a Backend Java Engineer with no demonstrated front-end, web development, or modern JavaScript framework experience.): Senior Website Developer @ Dash0
+2026-05-26 22:06:35,497  INFO      matcher.matcher — Processing 54/100: 'Staff Backend Engineer' @ 'Mesh'
+2026-05-26 22:06:35,497  INFO      matcher.matcher — Cache HIT:  'Staff Backend Engineer' @ 'Mesh' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,506  INFO      matcher.matcher — Match 72% (medium) — Staff Backend Engineer @ Mesh
+2026-05-26 22:06:35,506  INFO      matcher.matcher — Processing 55/100: 'Founder's Associate (all genders)' @ 'mammaly | B Corp'
+2026-05-26 22:06:35,506  INFO      matcher.matcher — Cache HIT:  'Founder's Associate (all genders)' @ 'mammaly | B Corp' (score=28, hash=34ab6ea6...)
+2026-05-26 22:06:35,515  INFO      matcher.matcher — Skip (Fundamental role mismatch: Backend Java Engineer applying for Founder Associate / Business Operations role. Candidate has zero relevant experience in strategy, business analysis, consulting, project management, or startup operations. The role requires analytical, strategic, and operational business skills; candidate's expertise is purely technical engineering.): Founder's Associate (all genders) @ mammaly | B Corp
+2026-05-26 22:06:35,515  INFO      matcher.matcher — Processing 56/100: 'Senior QA Engineer (m/w/d)' @ 'Autohaus Royal GmbH'
+2026-05-26 22:06:35,515  INFO      matcher.matcher — Cache HIT:  'Senior QA Engineer (m/w/d)' @ 'Autohaus Royal GmbH' (score=45, hash=34ab6ea6...)
+2026-05-26 22:06:35,524  INFO      matcher.matcher — Skip (Primary stack mismatch: Job requires TypeScript/JavaScript frontend testing expertise (Playwright, Jest, Vitest) as core requirement. Candidate is Java/Backend specialist with no demonstrated frontend testing experience.): Senior QA Engineer (m/w/d) @ Autohaus Royal GmbH
+2026-05-26 22:06:35,524  INFO      matcher.matcher — Processing 57/100: '(Senior) Software Engineer (m/f/d) - Network Security' @ 'secunet Security Networks AG'
+2026-05-26 22:06:35,524  INFO      matcher.matcher — Cache HIT:  '(Senior) Software Engineer (m/f/d) - Network Security' @ 'secunet Security Networks AG' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,533  INFO      matcher.matcher — Skip (Primary tech stack mismatch. Job requires Rust/NixOS/Linux systems programming; candidate is Java/Spring Boot backend engineer with no demonstrated systems-level, OS-level, or network security expertise.): (Senior) Software Engineer (m/f/d) - Network Security @ secunet Security Networks AG
+2026-05-26 22:06:35,533  INFO      matcher.matcher — Processing 58/100: 'Performance QA Engineer (JCP Core)' @ 'JetBrains'
+2026-05-26 22:06:35,533  INFO      matcher.matcher — Cache HIT:  'Performance QA Engineer (JCP Core)' @ 'JetBrains' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,541  INFO      matcher.matcher — Match 72% (medium) — Performance QA Engineer (JCP Core) @ JetBrains
+2026-05-26 22:06:35,542  INFO      matcher.matcher — Processing 59/100: 'Head of Carbon' @ 'InPlanet'
+2026-05-26 22:06:35,542  INFO      matcher.matcher — Cache HIT:  'Head of Carbon' @ 'InPlanet' (score=22, hash=34ab6ea6...)
+2026-05-26 22:06:35,549  INFO      matcher.matcher — Skip (Fundamental role mismatch. Candidate is a Backend Java Engineer; role requires Head of Carbon (senior leadership, carbon science, project management). No overlap in core competencies.): Head of Carbon @ InPlanet
+2026-05-26 22:06:35,549  INFO      matcher.matcher — Processing 60/100: 'Senior GTM Engineer (RevOps) (f/m/x)' @ 'Personio'
+2026-05-26 22:06:35,549  INFO      matcher.matcher — Cache HIT:  'Senior GTM Engineer (RevOps) (f/m/x)' @ 'Personio' (score=35, hash=34ab6ea6...)
+2026-05-26 22:06:35,557  INFO      matcher.matcher — Skip (Fundamental domain and stack mismatch. Candidate is a backend Java microservices engineer with no GTM Operations, RevOps, or sales/marketing automation experience. Role requires GTM domain expertise and proficiency with RevOps-specific tools (Salesforce, Clay, Gong, Workato, LLMs in GTM context). Candidate's experience is in telecommunications, PropTech, and general backend systems—not revenue operations or go-to-market functions.): Senior GTM Engineer (RevOps) (f/m/x) @ Personio
+2026-05-26 22:06:35,558  INFO      matcher.matcher — Processing 61/100: 'Software Engineer' @ 'FetchJobs.co'
+2026-05-26 22:06:35,558  INFO      matcher.matcher — Cache HIT:  'Software Engineer' @ 'FetchJobs.co' (score=25, hash=34ab6ea6...)
+2026-05-26 22:06:35,566  INFO      matcher.matcher — Skip (Candidate is vastly overqualified and pursuing wrong career path. Senior Backend Engineer (5+ years, production systems) applying for dual study program (entry-level bachelor's degree) creates fundamental role mismatch.): Software Engineer @ FetchJobs.co
+2026-05-26 22:06:35,566  INFO      matcher.matcher — Processing 62/100: 'Backend Engineer' @ 'FetchJobs.co'
+2026-05-26 22:06:35,566  INFO      matcher.matcher — Cache HIT:  'Backend Engineer' @ 'FetchJobs.co' (score=35, hash=34ab6ea6...)
+2026-05-26 22:06:35,574  INFO      matcher.matcher — Skip (Fundamental role mismatch: candidate is a Backend Java Engineer; position requires Banking Foundations Specialist with compliance/risk management focus, not software engineering): Backend Engineer @ FetchJobs.co
+2026-05-26 22:06:35,575  INFO      matcher.matcher — Processing 63/100: 'Cobol Entwickler (m/w/d)' @ 'Empion'
+2026-05-26 22:06:35,575  INFO      matcher.matcher — Cache HIT:  'Cobol Entwickler (m/w/d)' @ 'Empion' (score=35, hash=34ab6ea6...)
+2026-05-26 22:06:35,584  INFO      matcher.matcher — Skip (Primary technology stack mismatch. Job requires COBOL as primary skill with Mainframe experience (CICS, JCL, DB2/IMS). Candidate is a Java/Spring Boot backend engineer with no COBOL or Mainframe experience. This is a fundamental domain shift, not a skill gap that can be bridged.): Cobol Entwickler (m/w/d) @ Empion
+2026-05-26 22:06:35,584  INFO      matcher.matcher — Processing 64/100: 'Software Engineer, Infrastructure Platform' @ 'Docker, Inc'
+2026-05-26 22:06:35,584  INFO      matcher.matcher — Cache HIT:  'Software Engineer, Infrastructure Platform' @ 'Docker, Inc' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:35,592  INFO      matcher.matcher — Match 62% (medium) — Software Engineer, Infrastructure Platform @ Docker, Inc
+2026-05-26 22:06:35,592  INFO      matcher.matcher — Processing 65/100: 'Webentwickler (m/w/d) mit WordPress-Fokus in Vollzeit oder Teilzeit, 100% Remote' @ 'LANGER Digital GmbH'
+2026-05-26 22:06:35,592  INFO      matcher.matcher — Cache HIT:  'Webentwickler (m/w/d) mit WordPress-Fokus in Vollzeit oder Teilzeit, 100% Remote' @ 'LANGER Digital GmbH' (score=35, hash=34ab6ea6...)
+2026-05-26 22:06:35,600  INFO      matcher.matcher — Skip (Primary stack mismatch: Job requires PHP/WordPress frontend development; candidate is Java backend specialist with no WordPress, PHP, or frontend web development experience.): Webentwickler (m/w/d) mit WordPress-Fokus in Vollzeit oder Teilzeit, 100% Remote @ LANGER Digital GmbH
+2026-05-26 22:06:35,601  INFO      matcher.matcher — Processing 66/100: 'Entwicklungsingenieur (m/w/d) für vibroakustische Produkte – Windenergie' @ 'Wölfel Group'
+2026-05-26 22:06:35,601  INFO      matcher.matcher — Cache HIT:  'Entwicklungsingenieur (m/w/d) für vibroakustische Produkte – Windenergie' @ 'Wölfel Group' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,609  INFO      matcher.matcher — Skip (Primary technology stack mismatch. Role requires vibroakustical/embedded systems engineering (C, TwinCAT, Python, Matlab, vibration/mechatronics domain); candidate is a Java backend microservices engineer with no domain experience in vibration systems, acoustics, or hardware/mechatronics.): Entwicklungsingenieur (m/w/d) für vibroakustische Produkte – Windenergie @ Wölfel Group
+2026-05-26 22:06:35,609  INFO      matcher.matcher — Processing 67/100: 'Founding Engineer at a confidential company - AI Logistics Startup' @ 'Jack & Jill'
+2026-05-26 22:06:35,609  INFO      matcher.matcher — Cache HIT:  'Founding Engineer at a confidential company - AI Logistics Startup' @ 'Jack & Jill' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:35,618  INFO      matcher.matcher — Match 52% (medium) — Founding Engineer at a confidential company - AI Logistics Startup @ Jack & Jill
+2026-05-26 22:06:35,619  INFO      matcher.matcher — Processing 68/100: 'Fullstack Engineer (m/f/d)' @ 'Eye Security'
+2026-05-26 22:06:35,619  INFO      matcher.matcher — Cache HIT:  'Fullstack Engineer (m/f/d)' @ 'Eye Security' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:35,627  INFO      matcher.matcher — Match 62% (medium) — Fullstack Engineer (m/f/d) @ Eye Security
+2026-05-26 22:06:35,627  INFO      matcher.matcher — Processing 69/100: 'Data Labeler, LearnWith.AI (Remote) - $30,000/year USD' @ 'Crossover'
+2026-05-26 22:06:35,627  INFO      matcher.matcher — Cache HIT:  'Data Labeler, LearnWith.AI (Remote) - $30,000/year USD' @ 'Crossover' (score=28, hash=34ab6ea6...)
+2026-05-26 22:06:35,636  INFO      matcher.matcher — Skip (Fundamental role mismatch. Candidate is a senior backend engineer with 5+ years building distributed systems; this role requires data annotation work with no engineering component. The candidate's expertise, skill level, and career trajectory are misaligned with the position's core responsibilities.): Data Labeler, LearnWith.AI (Remote) - $30,000/year USD @ Crossover
+2026-05-26 22:06:35,636  INFO      matcher.matcher — Processing 70/100: 'Technical Lead, LearnWith.AI (Remote) - $200,000/year USD' @ 'Crossover'
+2026-05-26 22:06:35,636  INFO      matcher.matcher — Cache HIT:  'Technical Lead, LearnWith.AI (Remote) - $200,000/year USD' @ 'Crossover' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:35,645  INFO      matcher.matcher — Match 62% (medium) — Technical Lead, LearnWith.AI (Remote) - $200,000/year USD @ Crossover
+2026-05-26 22:06:35,646  INFO      matcher.matcher — Processing 71/100: 'Lead Software Engineer' @ 'Oak Tree Software'
+2026-05-26 22:06:35,646  INFO      matcher.matcher — Cache HIT:  'Lead Software Engineer' @ 'Oak Tree Software' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:35,654  INFO      matcher.matcher — Match 52% (low) — Lead Software Engineer @ Oak Tree Software
+2026-05-26 22:06:35,654  INFO      matcher.matcher — Processing 72/100: 'Backend Developer' @ 'AgileGrid Solutions'
+2026-05-26 22:06:35,654  INFO      matcher.matcher — Cache HIT:  'Backend Developer' @ 'AgileGrid Solutions' (score=68, hash=34ab6ea6...)
+2026-05-26 22:06:35,664  INFO      matcher.matcher — Match 68% (medium) — Backend Developer @ AgileGrid Solutions
+2026-05-26 22:06:35,664  INFO      matcher.matcher — Processing 73/100: 'Full Stack Software Engineer' @ 'AgileGrid Solutions'
+2026-05-26 22:06:35,664  INFO      matcher.matcher — Cache HIT:  'Full Stack Software Engineer' @ 'AgileGrid Solutions' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,671  INFO      matcher.matcher — Match 72% (medium) — Full Stack Software Engineer @ AgileGrid Solutions
+2026-05-26 22:06:35,672  INFO      matcher.matcher — Processing 74/100: 'Back End Developer' @ 'Gaming Corps'
+2026-05-26 22:06:35,672  INFO      matcher.matcher — Cache HIT:  'Back End Developer' @ 'Gaming Corps' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,680  INFO      matcher.matcher — Match 72% (medium) — Back End Developer @ Gaming Corps
+2026-05-26 22:06:35,681  INFO      matcher.matcher — Processing 75/100: 'Senior Backend Drupal Developer' @ 'JobRack'
+2026-05-26 22:06:35,681  INFO      matcher.matcher — Cache HIT:  'Senior Backend Drupal Developer' @ 'JobRack' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:35,688  INFO      matcher.matcher — Match 52% (low) — Senior Backend Drupal Developer @ JobRack
+2026-05-26 22:06:35,689  INFO      matcher.matcher — Processing 76/100: 'Senior Back End Developer' @ 'Payfuture'
+2026-05-26 22:06:35,689  INFO      matcher.matcher — Cache HIT:  'Senior Back End Developer' @ 'Payfuture' (score=68, hash=34ab6ea6...)
+2026-05-26 22:06:35,697  INFO      matcher.matcher — Match 68% (medium) — Senior Back End Developer @ Payfuture
+2026-05-26 22:06:35,698  INFO      matcher.matcher — Processing 77/100: 'Mobile Game Developer' @ 'micro1'
+2026-05-26 22:06:35,698  INFO      matcher.matcher — Cache HIT:  'Mobile Game Developer' @ 'micro1' (score=28, hash=34ab6ea6...)
+2026-05-26 22:06:35,706  INFO      matcher.matcher — Skip (Primary stack mismatch: Job requires expert-level Unity and C# game development; candidate is a backend Java engineer with no demonstrated mobile game development experience, shipped game titles, or game design portfolio.): Mobile Game Developer @ micro1
+2026-05-26 22:06:35,706  INFO      matcher.matcher — Processing 78/100: 'Frontend Developer' @ 'micro1'
+2026-05-26 22:06:35,706  INFO      matcher.matcher — Cache HIT:  'Frontend Developer' @ 'micro1' (score=35, hash=34ab6ea6...)
+2026-05-26 22:06:35,714  INFO      matcher.matcher — Skip (Primary stack mismatch. Job requires Vue.js + React frontend expertise; candidate is a backend Java engineer with no demonstrated Vue.js, React, or frontend-focused experience.): Frontend Developer @ micro1
+2026-05-26 22:06:35,715  INFO      matcher.matcher — Processing 79/100: 'DevOps Engineer' @ 'micro1'
+2026-05-26 22:06:35,715  INFO      matcher.matcher — Cache HIT:  'DevOps Engineer' @ 'micro1' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,721  INFO      matcher.matcher — Match 72% (medium) — DevOps Engineer @ micro1
+2026-05-26 22:06:35,722  INFO      matcher.matcher — Processing 80/100: 'Frontend Developer - Remote' @ 'YO IT Consulting'
+2026-05-26 22:06:35,722  INFO      matcher.matcher — Cache HIT:  'Frontend Developer - Remote' @ 'YO IT Consulting' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:35,729  INFO      matcher.matcher — Skip (Primary stack mismatch: Job requires expert-level JavaScript/TypeScript frontend expertise; candidate is a backend Java engineer with no demonstrated frontend framework experience.): Frontend Developer - Remote @ YO IT Consulting
+2026-05-26 22:06:35,730  INFO      matcher.matcher — Processing 81/100: 'Business Development Specialist' @ 'Ultima Markets'
+2026-05-26 22:06:35,730  INFO      matcher.matcher — Cache HIT:  'Business Development Specialist' @ 'Ultima Markets' (score=15, hash=34ab6ea6...)
+2026-05-26 22:06:35,736  INFO      matcher.matcher — Skip (Fundamental role mismatch. Candidate is a Backend Java Engineer; position requires Business Development/Sales professional with fintech/forex industry experience. Core competencies are entirely different.): Business Development Specialist @ Ultima Markets
+2026-05-26 22:06:35,736  INFO      matcher.matcher — Processing 82/100: 'Senior Software Engineer' @ 'Unleash'
+2026-05-26 22:06:35,736  INFO      matcher.matcher — Cache HIT:  'Senior Software Engineer' @ 'Unleash' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,744  INFO      matcher.matcher — Match 72% (high) — Senior Software Engineer @ Unleash
+2026-05-26 22:06:35,744  INFO      matcher.matcher — Processing 83/100: 'Software Engineer' @ 'Unleash'
+2026-05-26 22:06:35,744  INFO      matcher.matcher — Cache HIT:  'Software Engineer' @ 'Unleash' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,752  INFO      matcher.matcher — Match 72% (high) — Software Engineer @ Unleash
+2026-05-26 22:06:35,752  INFO      matcher.matcher — Processing 84/100: 'Fullstack Developer (m/w/d) - Konstanz, Berlin oder remote' @ 'SEITENBAU GmbH'
+2026-05-26 22:06:35,752  INFO      matcher.matcher — Cache HIT:  'Fullstack Developer (m/w/d) - Konstanz, Berlin oder remote' @ 'SEITENBAU GmbH' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:35,759  INFO      matcher.matcher — Skip (German level C1 required): Fullstack Developer (m/w/d) - Konstanz, Berlin oder remote @ SEITENBAU GmbH
+2026-05-26 22:06:35,759  INFO      matcher.matcher — Processing 85/100: 'Embedded Software Engineer (m/f/d)' @ 'Novanta Inc.'
+2026-05-26 22:06:35,759  INFO      matcher.matcher — Cache HIT:  'Embedded Software Engineer (m/f/d)' @ 'Novanta Inc.' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:35,765  INFO      matcher.matcher — Skip (German level C1 required): Embedded Software Engineer (m/f/d) @ Novanta Inc.
+2026-05-26 22:06:35,765  INFO      matcher.matcher — Processing 86/100: 'Senior Backend Engineer  - Product (Remote)' @ 'Finom'
+2026-05-26 22:06:35,766  INFO      matcher.matcher — Cache HIT:  'Senior Backend Engineer  - Product (Remote)' @ 'Finom' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:35,772  INFO      matcher.matcher — Match 72% (medium) — Senior Backend Engineer  - Product (Remote) @ Finom
+2026-05-26 22:06:35,772  INFO      matcher.matcher — Processing 87/100: 'Technical Consultant' @ 'Centric Software'
+2026-05-26 22:06:35,772  INFO      matcher.matcher — Cache HIT:  'Technical Consultant' @ 'Centric Software' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:35,779  INFO      matcher.matcher — Match 62% (medium) — Technical Consultant @ Centric Software
+2026-05-26 22:06:35,780  INFO      matcher.matcher — Processing 88/100: 'Software Engineer (Backend)' @ 'Coverflex'
+2026-05-26 22:06:35,780  INFO      matcher.matcher — Cache HIT:  'Software Engineer (Backend)' @ 'Coverflex' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:35,787  INFO      matcher.matcher — Match 52% (low) — Software Engineer (Backend) @ Coverflex
+2026-05-26 22:06:35,788  INFO      matcher.matcher — Processing 89/100: 'Staff Engineer - React and Node.js - Accounting – 100% - Remote' @ 'Hostaway'
+2026-05-26 22:06:35,788  INFO      matcher.matcher — Cache HIT:  'Staff Engineer - React and Node.js - Accounting – 100% - Remote' @ 'Hostaway' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:35,794  INFO      matcher.matcher — Match 52% (medium) — Staff Engineer - React and Node.js - Accounting – 100% - Remote @ Hostaway
+2026-05-26 22:06:35,794  INFO      matcher.matcher — Processing 90/100: 'Principal Forward Deployment Engineer - QuantumBlack, AI by McKinsey' @ 'QuantumBlack, AI by McKinsey'
+2026-05-26 22:06:35,795  INFO      matcher.matcher — Cache HIT:  'Principal Forward Deployment Engineer - QuantumBlack, AI by McKinsey' @ 'QuantumBlack, AI by McKinsey' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:35,801  INFO      matcher.matcher — Match 62% (medium) — Principal Forward Deployment Engineer - QuantumBlack, AI by McKinsey @ QuantumBlack, AI by McKinsey
+2026-05-26 22:06:35,801  INFO      matcher.matcher — Processing 91/100: 'Senior Plattform Developer (m/w/d)' @ 'MEDIFOX DAN'
+2026-05-26 22:06:35,801  INFO      matcher.matcher — Cache MISS: 'Senior Plattform Developer (m/w/d)' @ 'MEDIFOX DAN' (hash=34ab6ea6...) — will score fresh
+2026-05-26 22:06:36,886  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:36] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:37,832  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:37] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:38,934  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:38] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:40,837  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:40] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:40,951  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:40] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:42,890  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:42] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:43,847  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:43] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:44,904  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:44] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:45,522  INFO      httpx — HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+2026-05-26 22:06:45,523  INFO      matcher.matcher — Raw Claude response for Senior Plattform Developer (m/w/d): ```json
+{
+  "match_score": 72,
+  "interview_chance": "high",
+  "german_level_required": "B2",
+  "skip_reason": null,
+  "match_summary": "Felix is a strong backend engineer with 5+ years of experience and solid cloud-native expertise, but is primarily a Java/Spring Boot specialist rather than a C#/.NET developer. However, his deep microservices, Kubernetes, AWS, observability, and architecture knowledge align well with the platform engineering role. The language stack mismatch (Java vs C#/.NET as primary) is a notable but not blocking gap given his relevant technical breadth.",
+  "detailed_reasoning": [
+    {
+      "requirement": "6+ years software development experience",
+      "met": true,
+      "note": "Felix has 5+ years documented (Sportradar 2019-2021, CGI 2021-2023, Promos 2024-2025, Propora 2025). Meets the threshold."
+    },
+    {
+      "requirement": "C#/.NET or comparable backend experience",
+      "met": false,
+      "note": "Primary stack is Java/Spring Boot, not C#/.NET. Lists C# in skills but no demonstrated professional C# experience in resume. This is the primary language mismatch."
+    },
+    {
+      "requirement": "5+ years AWS experience",
+      "met": true,
+      "note": "Multiple AWS deployments mentioned (CGI microservices on AWS, Promos work). Demonstrates solid AWS cloud experience."
+    },
+    {
+      "requirement": "Networking & Security knowledge",
+      "met": false,
+      "note": "No explicit networking or security engineering mentioned. No OAuth2/OIDC, IAM, or security-focused work documented."
+    },
+    {
+      "requirement": "Kubernetes and/or Serverless architectures",
+      "met": true,
+      "note": "Strong Kubernetes experience documented (Promos, CGI). OpenShift (Kubernetes-based) also mentioned. No serverless mentioned but Kubernetes requirement is solidly met."
+    },
+    {
+      "requirement": "Infrastructure as Code (Terraform or CDK)",
+      "met": false,
+      "note": "No IaC experience mentioned in resume. This is a notable gap for a platform engineer role."
+    },
+    {
+      "requirement": "CI/CD pipelines and Observability",
+      "met": true,
+      "note": "Strong match: GitHub Actions, Jenkins mentioned; OpenTelemetry, Jaeger, Grafana, logging/monitoring expertise documented. ~30% incident reduction through observability improvements."
+    },
+    {
+      "requirement": "Database experience (PostgreSQL, DynamoDB, DocumentDB)",
+      "met": true,
+      "note": "PostgreSQL and MySQL confirmed. MongoDB also listed. No DynamoDB or DocumentDB specifically, but PostgreSQL experience is strong."
+    },
+    {
+      "requirement": "Event-Driven Architecture / Messaging",
+      "met": true,
+      "note": "RabbitMQ and Kafka experience documented. Event-driven architecture listed in skills."
+    },
+    {
+      "requirement": "Linux experience",
+      "met": true,
+      "note": "Docker, Kubernetes, OpenShift, and cloud deployments implicitly require Linux familiarity. Reasonably inferred."
+    },
+    {
+      "requirement": "Clean Code, Testing (Unit, Integration, Contract)",
+      "met": true,
+      "note": "JUnit, Mockito, Cucumber, integration testing, and code reviews all documented. Clean code principles evident."
+    },
+    {
+      "requirement": "Very good German and English",
+      "met": true,
+      "note": "German citizen, Berlin-based. English demonstrated through resume quality. German level likely C1 or native."
+    },
+    {
+      "requirement": "On-Call participation readiness",
+      "met": true,
+      "note": "Experience with production issue resolution and monitoring suggests comfort with operational responsibilities."
+    },
+    {
+      "requirement": "Product and Enablement mindset",
+      "met": true,
+      "note": "Demonstrated through cross-functional collaboration, feature delivery, iterative improvements, and platform stabilization work."
+    },
+    {
+      "requirement": "Nice-
+2026-05-26 22:06:45,524  WARNING   matcher.matcher — JSON parse failed for Senior Plattform Developer (m/w/d) @ MEDIFOX DAN — full response: {
+  "match_score": 72,
+  "interview_chance": "high",
+  "german_level_required": "B2",
+  "skip_reason": null,
+  "match_summary": "Felix is a strong backend engineer with 5+ years of experience and solid cloud-native expertise, but is primarily a Java/Spring Boot specialist rather than a C#/.NET developer. However, his deep microservices, Kubernetes, AWS, observability, and architecture knowledge align well with the platform engineering role. The language stack mismatch (Java vs C#/.NET as primary) is a notable but not blocking gap given his relevant technical breadth.",
+  "detailed_reasoning": [
+    {
+      "requirement": "6+ years software development experience",
+      "met": true,
+      "note": "Felix has 5+ years documented (Sportradar 2019-2021, CGI 2021-2023, Promos 2024-2025, Propora 2025). Meets the threshold."
+    },
+    {
+      "requirement": "C#/.NET or comparable backend experience",
+      "met": false,
+      "note": "Primary stack is Java/Spring Boot, not C#/.NET. Lists C# in skills but no demonstrated professional C# experience in resume. This is the primary language mismatch."
+    },
+    {
+      "requirement": "5+ years AWS experience",
+      "met": true,
+      "note": "Multiple AWS deployments mentioned (CGI microservices on AWS, Promos work). Demonstrates solid AWS cloud experience."
+    },
+    {
+      "requirement": "Networking & Security knowledge",
+      "met": false,
+      "note": "No explicit networking or security engineering mentioned. No OAuth2/OIDC, IAM, or security-focused work documented."
+    },
+    {
+      "requirement": "Kubernetes and/or Serverless architectures",
+      "met": true,
+      "note": "Strong Kubernetes experience documented (Promos, CGI). OpenShift (Kubernetes-based) also mentioned. No serverless mentioned but Kubernetes requirement is solidly met."
+    },
+    {
+      "requirement": "Infrastructure as Code (Terraform or CDK)",
+      "met": false,
+      "note": "No IaC experience mentioned in resume. This is a notable gap for a platform engineer role."
+    },
+    {
+      "requirement": "CI/CD pipelines and Observability",
+      "met": true,
+      "note": "Strong match: GitHub Actions, Jenkins mentioned; OpenTelemetry, Jaeger, Grafana, logging/monitoring expertise documented. ~30% incident reduction through observability improvements."
+    },
+    {
+      "requirement": "Database experience (PostgreSQL, DynamoDB, DocumentDB)",
+      "met": true,
+      "note": "PostgreSQL and MySQL confirmed. MongoDB also listed. No DynamoDB or DocumentDB specifically, but PostgreSQL experience is strong."
+    },
+    {
+      "requirement": "Event-Driven Architecture / Messaging",
+      "met": true,
+      "note": "RabbitMQ and Kafka experience documented. Event-driven architecture listed in skills."
+    },
+    {
+      "requirement": "Linux experience",
+      "met": true,
+      "note": "Docker, Kubernetes, OpenShift, and cloud deployments implicitly require Linux familiarity. Reasonably inferred."
+    },
+    {
+      "requirement": "Clean Code, Testing (Unit, Integration, Contract)",
+      "met": true,
+      "note": "JUnit, Mockito, Cucumber, integration testing, and code reviews all documented. Clean code principles evident."
+    },
+    {
+      "requirement": "Very good German and English",
+      "met": true,
+      "note": "German citizen, Berlin-based. English demonstrated through resume quality. German level likely C1 or native."
+    },
+    {
+      "requirement": "On-Call participation readiness",
+      "met": true,
+      "note": "Experience with production issue resolution and monitoring suggests comfort with operational responsibilities."
+    },
+    {
+      "requirement": "Product and Enablement mindset",
+      "met": true,
+      "note": "Demonstrated through cross-functional collaboration, feature delivery, iterative improvements, and platform stabilization work."
+    },
+    {
+      "requirement": "Nice-
+2026-05-26 22:06:45,524  WARNING   matcher.matcher — Skip (scoring returned None): Senior Plattform Developer (m/w/d) @ MEDIFOX DAN
+2026-05-26 22:06:45,524  INFO      matcher.matcher — Processing 92/100: 'Vice President of Software Engineering' @ 'Insignia Search'
+2026-05-26 22:06:45,524  INFO      matcher.matcher — Cache HIT:  'Vice President of Software Engineering' @ 'Insignia Search' (score=42, hash=34ab6ea6...)
+2026-05-26 22:06:45,531  INFO      matcher.matcher — Skip (Fundamental role mismatch: candidate is a backend Java engineer with no demonstrated leadership experience, team building, or management track record. VP of Engineering is an executive leadership role requiring proven experience leading engineering teams and building organizations from the ground up. Candidate has only individual contributor and hands-on engineer experience.): Vice President of Software Engineering @ Insignia Search
+2026-05-26 22:06:45,532  INFO      matcher.matcher — Processing 93/100: 'Infrastructure Engineer III - AWS, Terraform (f/m/x)' @ 'Eye Security'
+2026-05-26 22:06:45,532  INFO      matcher.matcher — Cache HIT:  'Infrastructure Engineer III - AWS, Terraform (f/m/x)' @ 'Eye Security' (score=58, hash=34ab6ea6...)
+2026-05-26 22:06:45,539  INFO      matcher.matcher — Match 58% (medium) — Infrastructure Engineer III - AWS, Terraform (f/m/x) @ Eye Security
+2026-05-26 22:06:45,539  INFO      matcher.matcher — Processing 94/100: 'Guidance Engineer - GNSS (All genders)' @ 'STARK'
+2026-05-26 22:06:45,539  INFO      matcher.matcher — Cache HIT:  'Guidance Engineer - GNSS (All genders)' @ 'STARK' (score=28, hash=34ab6ea6...)
+2026-05-26 22:06:45,545  INFO      matcher.matcher — Skip (Primary tech stack mismatch. Role requires C++ as primary language for embedded autonomy systems; candidate's expertise is Java/Spring Boot backend microservices. GNSS-denied navigation, control algorithms, ROS 2, and real-time embedded systems are fundamentally different from web backend development.): Guidance Engineer - GNSS (All genders) @ STARK
+2026-05-26 22:06:45,546  INFO      matcher.matcher — Processing 95/100: 'Embedded Software Engineer' @ 'STARK'
+2026-05-26 22:06:45,546  INFO      matcher.matcher — Cache HIT:  'Embedded Software Engineer' @ 'STARK' (score=28, hash=34ab6ea6...)
+2026-05-26 22:06:45,552  INFO      matcher.matcher — Skip (Primary stack mismatch. Role requires C/C++ embedded systems and RTOS development; candidate is a Java backend engineer with no demonstrated embedded systems, real-time, or robotics experience.): Embedded Software Engineer @ STARK
+2026-05-26 22:06:45,553  INFO      matcher.matcher — Processing 96/100: 'Mathe-Nachhilfelehrer (m/w/d) gesucht – flexibel & online | Quereinstieg möglich' @ 'Nachhilfeunterricht'
+2026-05-26 22:06:45,553  INFO      matcher.matcher — Cache HIT:  'Mathe-Nachhilfelehrer (m/w/d) gesucht – flexibel & online | Quereinstieg möglich' @ 'Nachhilfeunterricht' (score=15, hash=34ab6ea6...)
+2026-05-26 22:06:45,559  INFO      matcher.matcher — Skip (Fundamental role mismatch. Candidate is a senior backend engineer (5+ years) applying for a math tutoring position. This is a complete career pivot from software engineering to education with no teaching experience or math background mentioned.): Mathe-Nachhilfelehrer (m/w/d) gesucht – flexibel & online | Quereinstieg möglich @ Nachhilfeunterricht
+2026-05-26 22:06:45,559  INFO      matcher.matcher — Processing 97/100: 'Senior Full Stack Engineer' @ 'Hawk'
+2026-05-26 22:06:45,559  INFO      matcher.matcher — Cache HIT:  'Senior Full Stack Engineer' @ 'Hawk' (score=62, hash=34ab6ea6...)
+2026-05-26 22:06:45,566  INFO      matcher.matcher — Match 62% (medium) — Senior Full Stack Engineer @ Hawk
+2026-05-26 22:06:45,566  INFO      matcher.matcher — Processing 98/100: 'Staff Software Engineer - Grafana Cloud k6 | Germany | Remote' @ 'Grafana Labs'
+2026-05-26 22:06:45,566  INFO      matcher.matcher — Cache HIT:  'Staff Software Engineer - Grafana Cloud k6 | Germany | Remote' @ 'Grafana Labs' (score=72, hash=34ab6ea6...)
+2026-05-26 22:06:45,573  INFO      matcher.matcher — Match 72% (medium) — Staff Software Engineer - Grafana Cloud k6 | Germany | Remote @ Grafana Labs
+2026-05-26 22:06:45,574  INFO      matcher.matcher — Processing 99/100: 'Full Stack Webentwickler (w/m/x)' @ 'opta data'
+2026-05-26 22:06:45,574  INFO      matcher.matcher — Cache HIT:  'Full Stack Webentwickler (w/m/x)' @ 'opta data' (score=0, hash=34ab6ea6...)
+2026-05-26 22:06:45,581  INFO      matcher.matcher — Skip (German level C1 required): Full Stack Webentwickler (w/m/x) @ opta data
+2026-05-26 22:06:45,581  INFO      matcher.matcher — Processing 100/100: 'Software Engineer - Autonomous Air Systems' @ 'Helsing'
+2026-05-26 22:06:45,581  INFO      matcher.matcher — Cache HIT:  'Software Engineer - Autonomous Air Systems' @ 'Helsing' (score=52, hash=34ab6ea6...)
+2026-05-26 22:06:45,588  INFO      matcher.matcher — Match 52% (medium) — Software Engineer - Autonomous Air Systems @ Helsing
+2026-05-26 22:06:45,588  INFO      matcher.matcher — Matcher done: 48 matched / 100 jobs (0 fresh, 97 from cache, 3 skipped)
+2026-05-26 22:06:45,588  INFO      matcher.matcher — Cache stats — 97 hits / 0 fresh scored / 3 skipped / 100 total
+2026-05-26 22:06:45,588  INFO      matcher.matcher — Estimated cost this run: ~$0.0000 (saved ~$0.0388 from cache)
+2026-05-26 22:06:45,592  INFO      core.main — Match-only complete: 48 jobs matched
+2026-05-26 22:06:46,380  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:46] "GET /api/pipeline/status HTTP/1.1" 200 -
+2026-05-26 22:06:46,429  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:46] "GET /api/pipeline/match_progress HTTP/1.1" 200 -
+2026-05-26 22:06:46,710  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:46] "GET /api/config HTTP/1.1" 200 -
+2026-05-26 22:06:46,849  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:06:46] "GET /api/matcher/results HTTP/1.1" 200 -
+2026-05-26 22:07:02,419  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:02] "POST /api/apply/start HTTP/1.1" 200 -
+2026-05-26 22:07:03,112  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:03] "GET /api/apply/stream HTTP/1.1" 200 -
+2026-05-26 22:07:03,161  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:03] "GET /api/pipeline/step_availability HTTP/1.1" 200 -
+2026-05-26 22:07:04,227  INFO      applier.applier — LinkedIn session loaded (14 cookies)
+2026-05-26 22:07:15,865  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:07:16,219  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:07:16,239  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:07:16,269  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:07:19,679  INFO      applier.applier — Session verified — ready to apply
+2026-05-26 22:07:19,679  INFO      applier.applier — Apply [linkedin/EN] Softwareentwickler Java CMS (all genders) in Berlin @ ]init[ - Services for the eSociety
+2026-05-26 22:07:23,623  INFO      applier.applier — 📸 Debug screenshot saved: C:\Users\f_beh\Projects\claude\job-hunt-agent\uploads\debug_pw_view_11128.png
+2026-05-26 22:07:27,718  INFO      applier.linkedin_clicker — 🗑️ Dismissed 1 close/dismiss buttons via JS
+2026-05-26 22:07:36,509  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:36] "GET /api/apply/manual_queue?all_sessions=true HTTP/1.1" 200 -
+2026-05-26 22:07:40,567  INFO      applier.applier — click_apply_button result: external
+2026-05-26 22:07:41,020  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:41] "POST /api/applications/manual HTTP/1.1" 200 -
+2026-05-26 22:07:41,028  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:41] "POST /api/applications/manual HTTP/1.1" 200 -
+2026-05-26 22:07:41,048  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:41] "POST /api/applications/manual HTTP/1.1" 200 -
+2026-05-26 22:07:42,151  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:42] "GET /api/apply/manual_queue HTTP/1.1" 200 -
+2026-05-26 22:07:42,790  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:07:42] "GET /api/apply/manual_queue?all_sessions=true HTTP/1.1" 200 -
+2026-05-26 22:07:42,831  INFO      applier.external_applier — After Apply click — URL: https://www.linkedin.com/jobs/view/4406536441/
+2026-05-26 22:08:02,348  WARNING   applier.external_applier — DEBUG pre-manual: URL=https://www.linkedin.com/jobs-tracker/?stage=clicked_apply
+2026-05-26 22:08:02,353  WARNING   applier.external_applier — DEBUG pre-manual: Page title=Job tracker | LinkedIn
+2026-05-26 22:08:02,353  WARNING   applier.external_applier — DEBUG pre-manual: Reason=External apply, unknown platform: linkedin
+2026-05-26 22:08:13,622  INFO      applier.applier — 📸 Debug screenshot saved: C:\Users\f_beh\Projects\claude\job-hunt-agent\uploads\debug_pw_view_11128.png
+2026-05-26 22:08:15,878  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:08:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:08:16,265  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:08:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:08:16,276  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:08:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:08:16,337  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:08:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:08:17,710  INFO      applier.linkedin_clicker — 🗑️ Dismissed 1 close/dismiss buttons via JS
+2026-05-26 22:08:33,217  INFO      applier.applier — click_apply_button result: external
+2026-05-26 22:08:37,685  INFO      applier.external_applier — After Apply click — URL: https://www.linkedin.com/jobs/view/4406536441/
+2026-05-26 22:08:39,318  INFO      applier.external_applier — External apply new tab: https://www.init.de/karriere/job/softwareentwickler-java-cms-all-genders-berlin?_pc=917763
+2026-05-26 22:08:39,320  WARNING   applier.external_applier — DEBUG pre-manual: URL=https://www.init.de/karriere/job/softwareentwickler-java-cms-all-genders-berlin?_pc=917763
+2026-05-26 22:08:39,328  WARNING   applier.external_applier — DEBUG pre-manual: Page title=Softwareentwickler Java CMS (all genders) | ]init[ AG
+2026-05-26 22:08:39,328  WARNING   applier.external_applier — DEBUG pre-manual: Reason=External apply, unknown platform: unknown
+2026-05-26 22:08:39,357  INFO      applier.applier — Manual queue: Softwareentwickler Java CMS (all genders) in Berlin @ ]init[ - Services for the eSociety — External apply — unknown platform: unknown
+2026-05-26 22:08:40,595  INFO      applier.applier — Apply [linkedin/EN] Full Stack Developer @ DataAnnotation
+2026-05-26 22:08:43,075  INFO      applier.applier — 📸 Debug screenshot saved: C:\Users\f_beh\Projects\claude\job-hunt-agent\uploads\debug_pw_view_11140.png
+2026-05-26 22:08:47,361  INFO      applier.linkedin_clicker — 🗑️ Dismissed 1 close/dismiss buttons via JS
+2026-05-26 22:09:03,582  INFO      applier.applier — click_apply_button result: external
+2026-05-26 22:09:09,949  INFO      applier.external_applier — After Apply click — URL: https://www.linkedin.com/jobs/view/4408515309/
+2026-05-26 22:09:13,183  INFO      applier.external_applier — External apply new tab: https://app.dataannotation.tech/worker_signup?projects=PROG_SA&worker_src=L&utm_source=linkedin&utm_medium=listing&utm_campaign=coder_swe&utm_adgroup=full_stack_developer&utm_content=germany&jt=Full%20Stack%20Developer
+2026-05-26 22:09:13,184  WARNING   applier.external_applier — DEBUG pre-manual: URL=https://app.dataannotation.tech/worker_signup?projects=PROG_SA&worker_src=L&utm_source=linkedin&utm_medium=listing&utm_campaign=coder_swe&utm_adgroup=full_stack_developer&utm_content=germany&jt=Full%20Stack%20Developer
+2026-05-26 22:09:13,208  WARNING   applier.external_applier — DEBUG pre-manual: Page title=DataAnnotation
+2026-05-26 22:09:13,208  WARNING   applier.external_applier — DEBUG pre-manual: Reason=External apply, unknown platform: unknown
+2026-05-26 22:09:15,934  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:09:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:09:16,357  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:09:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:09:16,431  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:09:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:09:16,434  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:09:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:09:30,659  INFO      applier.applier — 📸 Debug screenshot saved: C:\Users\f_beh\Projects\claude\job-hunt-agent\uploads\debug_pw_view_11140.png
+2026-05-26 22:09:34,942  INFO      applier.linkedin_clicker — 🗑️ Dismissed 1 close/dismiss buttons via JS
+2026-05-26 22:09:50,795  INFO      applier.applier — click_apply_button result: external
+2026-05-26 22:09:53,860  INFO      applier.external_applier — After Apply click — URL: https://www.linkedin.com/jobs/view/4408515309/
+2026-05-26 22:09:53,984  INFO      applier.external_applier — External apply new tab: https://app.dataannotation.tech/worker_signup?projects=PROG_SA&worker_src=L&utm_source=linkedin&utm_medium=listing&utm_campaign=coder_swe&utm_adgroup=full_stack_developer&utm_content=germany&jt=Full%20Stack%20Developer
+2026-05-26 22:09:53,984  WARNING   applier.external_applier — DEBUG pre-manual: URL=https://app.dataannotation.tech/worker_signup?projects=PROG_SA&worker_src=L&utm_source=linkedin&utm_medium=listing&utm_campaign=coder_swe&utm_adgroup=full_stack_developer&utm_content=germany&jt=Full%20Stack%20Developer
+2026-05-26 22:09:53,992  WARNING   applier.external_applier — DEBUG pre-manual: Page title=DataAnnotation
+2026-05-26 22:09:53,992  WARNING   applier.external_applier — DEBUG pre-manual: Reason=External apply, unknown platform: unknown
+2026-05-26 22:09:54,021  INFO      applier.applier — Manual queue: Full Stack Developer @ DataAnnotation — External apply — unknown platform: unknown
+2026-05-26 22:09:56,474  INFO      applier.applier — Apply [linkedin/EN] Java EE-Entwickler:in @ Syben Consulting
+2026-05-26 22:10:00,878  INFO      applier.applier — 📸 Debug screenshot saved: C:\Users\f_beh\Projects\claude\job-hunt-agent\uploads\debug_pw_view_11150.png
+2026-05-26 22:10:05,021  INFO      applier.linkedin_clicker — 🗑️ Dismissed 1 close/dismiss buttons via JS
+2026-05-26 22:10:15,877  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:10:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:10:16,245  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:10:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:10:16,289  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:10:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:10:16,320  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:10:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:10:33,801  INFO      applier.applier — click_apply_button result: easy_apply
+2026-05-26 22:10:36,523  INFO      applier.linkedin_applier — Wizard scope: full-page | full_page=False
+2026-05-26 22:10:52,771  WARNING   applier.linkedin_applier — Wizard stuck at step 2 — buttons: ['Skip to main content', 'Home', 'Me', 'For Business', 'AI-powered search is in beta', 'Messaging\n              \n              \n                You are on the messaging overlay. Press enter to open the list of conversations.', 'Compose message', 'You are on the messaging overlay. Press enter to open the list of conversations.']
+2026-05-26 22:10:54,514  WARNING   applier.linkedin_applier — Wizard debug screenshot: uploads\debug_wizard_11150_step1.png
+2026-05-26 22:10:54,514  WARNING   applier.linkedin_applier — DEBUG pre-manual: URL=https://www.linkedin.com/jobs/search-results/?keywords=Java%C2%A0EE-Entwickler%3Ain&origin=JOB_DETAILS_SIMILAR_JOBS_CARD&start=25&geoId=101282230&f_SAL=f_SA_id_225001%3A272001
+2026-05-26 22:10:54,519  WARNING   applier.linkedin_applier — DEBUG pre-manual: Page title=Senior Java Engineer (m/f/d) | Redcare Pharmacy | LinkedIn
+2026-05-26 22:10:54,519  WARNING   applier.linkedin_applier — DEBUG pre-manual: Reason=Could not complete Easy Apply form (step 2)
+2026-05-26 22:10:54,644  WARNING   applier.linkedin_applier — DEBUG pre-manual: Step=2, Visible buttons=['Skip to main content', 'Home', 'Me', 'For Business', 'AI-powered search is in beta', 'Messaging\n              \n              \n                You are on the messaging overlay. Press enter to open the list of conversations.', 'Compose message', 'You are on the messaging overlay. Press enter to open the list of conversations.']
+2026-05-26 22:11:08,802  INFO      applier.applier — 📸 Debug screenshot saved: C:\Users\f_beh\Projects\claude\job-hunt-agent\uploads\debug_pw_view_11150.png
+2026-05-26 22:11:12,972  INFO      applier.linkedin_clicker — 🗑️ Dismissed 1 close/dismiss buttons via JS
+2026-05-26 22:11:15,871  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:11:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:11:16,275  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:11:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:11:16,290  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:11:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:11:16,320  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:11:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:11:41,847  INFO      applier.applier — click_apply_button result: easy_apply
+2026-05-26 22:11:43,409  INFO      applier.linkedin_applier — Wizard scope: full-page | full_page=False
+2026-05-26 22:11:58,551  WARNING   applier.linkedin_applier — Wizard stuck at step 2 — buttons: ['Skip to main content', 'Home', 'Me', 'For Business', 'AI-powered search is in beta', 'Messaging\n              \n              \n                You are on the messaging overlay. Press enter to open the list of conversations.', 'Compose message', 'You are on the messaging overlay. Press enter to open the list of conversations.']
+2026-05-26 22:12:00,247  WARNING   applier.linkedin_applier — Wizard debug screenshot: uploads\debug_wizard_11150_step1.png
+2026-05-26 22:12:00,247  WARNING   applier.linkedin_applier — DEBUG pre-manual: URL=https://www.linkedin.com/jobs/search-results/?currentJobId=4417491899&keywords=Java%C2%A0EE-Entwickler%3Ain&origin=JOB_DETAILS_SIMILAR_JOBS_CARD&start=25&geoId=101282230&f_SAL=f_SA_id_225001%3A272001
+2026-05-26 22:12:00,257  WARNING   applier.linkedin_applier — DEBUG pre-manual: Page title=Jobs | LinkedIn
+2026-05-26 22:12:00,257  WARNING   applier.linkedin_applier — DEBUG pre-manual: Reason=Could not complete Easy Apply form (step 2)
+2026-05-26 22:12:00,950  WARNING   applier.linkedin_applier — DEBUG pre-manual: Step=2, Visible buttons=['Skip to main content', 'Home', 'Me', 'For Business', 'AI-powered search is in beta', 'Previous', '1', '2', '3', 'Next', 'Messaging\n              \n              \n                You are on the messaging overlay. Press enter to open the list of conversations.', 'Compose message', 'You are on the messaging overlay. Press enter to open the list of conversations.']
+2026-05-26 22:12:00,956  INFO      applier.applier — Manual queue: Java EE-Entwickler:in @ Syben Consulting — Could not complete LinkedIn form
+2026-05-26 22:12:03,985  INFO      applier.applier — Apply [linkedin/EN] Backend Software Engineer @ Wayflyer
+2026-05-26 22:12:08,474  INFO      applier.applier — 📸 Debug screenshot saved: C:\Users\f_beh\Projects\claude\job-hunt-agent\uploads\debug_pw_view_11157.png
+2026-05-26 22:12:12,656  INFO      applier.linkedin_clicker — 🗑️ Dismissed 1 close/dismiss buttons via JS
+2026-05-26 22:12:17,132  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:12:17] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:12:17,505  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:12:17] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:12:17,516  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:12:17] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:12:17,566  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:12:17] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:12:28,888  INFO      applier.applier — click_apply_button result: external
+2026-05-26 22:12:33,066  INFO      applier.external_applier — After Apply click — URL: https://www.linkedin.com/jobs/view/4377820449/
+2026-05-26 22:12:33,732  INFO      applier.external_applier — External apply new tab: https://jobs.ashbyhq.com/wayflyer/8b4052a5-9e11-4acd-babc-963e5f5111ba/application?utm_source=linkedin
+2026-05-26 22:12:33,733  INFO      applier.external_applier — Routing to ashby handler (URL: https://jobs.ashbyhq.com/wayflyer/8b4052a5-9e11-4acd-babc-963e5f5111ba/application?utm_source=linkedin)
+2026-05-26 22:12:33,733  INFO      applier.external_applier — 🎯 Platform detected: ashby @ https://jobs.ashbyhq.com/wayflyer/8b4052a5-9e11-4acd-babc-963e5f5111ba/applicati
+2026-05-26 22:12:50,244  INFO      applier.applier — 📸 Debug screenshot saved: C:\Users\f_beh\Projects\claude\job-hunt-agent\uploads\debug_pw_view_11157.png
+2026-05-26 22:12:56,326  INFO      applier.linkedin_clicker — 🗑️ Dismissed 1 close/dismiss buttons via JS
+2026-05-26 22:13:11,971  INFO      applier.applier — click_apply_button result: external
+2026-05-26 22:13:15,138  INFO      applier.external_applier — After Apply click — URL: https://www.linkedin.com/jobs/view/4377820449/
+2026-05-26 22:13:15,144  INFO      applier.external_applier — External apply new tab: https://jobs.ashbyhq.com/wayflyer/8b4052a5-9e11-4acd-babc-963e5f5111ba/application?utm_source=linkedin
+2026-05-26 22:13:15,144  INFO      applier.external_applier — Routing to ashby handler (URL: https://jobs.ashbyhq.com/wayflyer/8b4052a5-9e11-4acd-babc-963e5f5111ba/application?utm_source=linkedin)
+2026-05-26 22:13:15,145  INFO      applier.external_applier — 🎯 Platform detected: ashby @ https://jobs.ashbyhq.com/wayflyer/8b4052a5-9e11-4acd-babc-963e5f5111ba/applicati
+2026-05-26 22:13:15,249  INFO      applier.applier — Manual queue: Backend Software Engineer @ Wayflyer — Ashby: submit not confirmed
+2026-05-26 22:13:15,351  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:13:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:13:15,732  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:13:15] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:13:15,756  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:13:15] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:13:15,801  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:13:15] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:13:16,485  INFO      applier.applier — Apply [linkedin/EN] Software Engineer - EVM - Blockchain Platform @ Kraken
+2026-05-26 22:13:21,072  INFO      applier.applier — 📸 Debug screenshot saved: C:\Users\f_beh\Projects\claude\job-hunt-agent\uploads\debug_pw_view_11158.png
+2026-05-26 22:13:25,562  INFO      applier.linkedin_clicker — 🗑️ Dismissed 1 close/dismiss buttons via JS
+2026-05-26 22:13:39,771  INFO      applier.applier — click_apply_button result: not_found
+2026-05-26 22:13:39,781  INFO      applier.applier — Job expired (no apply button + expired text): https://www.linkedin.com/jobs/view/4397512242/
+2026-05-26 22:13:40,619  ERROR     applier.applier — _run_apply crashed: 'manual'
+Traceback (most recent call last):
+  File "C:\Users\f_beh\Projects\claude\job-hunt-agent\applier\applier.py", line 729, in run
+    asyncio.run(_run_apply(jobs, cfg, stop_flag))
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\f_beh\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Users\f_beh\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\f_beh\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\f_beh\Projects\claude\job-hunt-agent\applier\applier.py", line 660, in _run_apply
+    if result["manual"] and result.get("note") in ("CAPTCHA", "LinkedIn session expired"):
+       ~~~~~~^^^^^^^^^^
+KeyError: 'manual'
+2026-05-26 22:13:40,972  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:13:40] "GET /api/apply/manual_queue?all_sessions=true HTTP/1.1" 200 -
+2026-05-26 22:13:41,040  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:13:41] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:13:41,428  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:13:41] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:13:41,440  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:13:41] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:13:41,490  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:13:41] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:14:15,886  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:14:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:14:16,243  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:14:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:14:16,269  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:14:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:14:16,323  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:14:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:15:15,858  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:15:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:15:16,211  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:15:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:15:16,214  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:15:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:15:16,249  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:15:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:16:15,854  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:16:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:16:16,217  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:16:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:16:16,221  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:16:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:16:16,264  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:16:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:17:15,867  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:17:15] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:17:16,214  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:17:16] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:17:16,232  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:17:16] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:17:16,260  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:17:16] "GET /api/overview HTTP/1.1" 200 -
+2026-05-26 22:18:21,881  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:18:21] "GET /api/dashboard HTTP/1.1" 200 -
+2026-05-26 22:18:22,225  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:18:22] "GET /api/interviews/upcoming HTTP/1.1" 200 -
+2026-05-26 22:18:22,259  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:18:22] "GET /api/tasks HTTP/1.1" 200 -
+2026-05-26 22:18:22,272  INFO      werkzeug — 127.0.0.1 - - [26/May/2026 22:18:22] "GET /api/overview HTTP/1.1" 200 -

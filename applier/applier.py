@@ -146,6 +146,11 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
             page_text = (await page.inner_text("body")).lower()
             _expired_phrases = [
                 "no longer accepting applications",
+                "unable to load the page",
+                "job id provided may not be valid",
+                "job posting has been removed",
+                "page not found",
+                "this job is no longer",
                 "this job is no longer available",
                 "job is closed",
                 "position has been filled",
@@ -221,6 +226,11 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
                 _page_text = (await page.inner_text("body")).lower()
                 _expired_phrases = [
                     "no longer accepting applications",
+                "unable to load the page",
+                "job id provided may not be valid",
+                "job posting has been removed",
+                "page not found",
+                "this job is no longer",
                     "this job is no longer available",
                     "job is closed", "position has been filled",
                     "this posting has expired", "no longer available",
@@ -249,7 +259,29 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
         if outcome == "external":
             return await follow_external_apply(page, job, profile, resume_text, cfg)
 
-        return await fill_easy_apply(page, job, profile, resume_text, cfg)
+        _easy_result = await fill_easy_apply(page, job, profile, resume_text, cfg)
+        # If form filling failed, check if job is actually expired
+        if _easy_result.get("manual"):
+            try:
+                _page_text2 = (await page.inner_text("body")).lower()
+                _exp2 = [
+                    "no longer accepting applications",
+                    "unable to load the page",
+                    "job posting has been removed",
+                    "this job is no longer available",
+                    "no longer available",
+                    "job has expired",
+                ]
+                if any(p in _page_text2 for p in _exp2):
+                    log.info("Job expired (form failed + expired text): %s", job.get("url"))
+                    _emit("job_expired", {"url": job.get("url", ""),
+                                          "title": job.get("title", ""),
+                                          "reason": "No longer accepting applications"})
+                    return {"success": False, "expired": True,
+                            "note": "No longer accepting applications"}
+            except Exception:
+                pass
+        return _easy_result
 
     except PWTimeout:
         return {"success": False, "manual": False, "note": "Timeout"}
