@@ -1,0 +1,317 @@
+[
+  {
+    "key": [
+      "mark job as a top choice",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "Yes"
+  },
+  {
+    "key": [
+      "briefly describe why this job is your top choice and why you’re a good fit.",
+      "textarea",
+      []
+    ],
+    "answer": "I'm drawn to this role because it aligns perfectly with my 5+ years of experience building and operating scalable microservices in production environments. My expertise in Java, Spring Boot, and cloud-native technologies like Kubernetes and AWS directly matches your technical requirements, and I'm particularly passionate about system reliability and performance optimization—areas where I've consistently delivered measurable improvements. As a Berlin-based German citizen with immediate availability and a track record of collaborating effectively in cross-functional agile teams, I'm ready to make an immediate impact and contribute to your backend infrastructure goals."
+  },
+  {
+    "key": [
+      "how many years of work experience do you have with iso 27001?",
+      "number",
+      []
+    ],
+    "answer": "1"
+  },
+  {
+    "key": [
+      "how did you hear about this job?",
+      "text",
+      []
+    ],
+    "answer": "I discovered this opportunity through a combination of professional networking and job search channels that align with my backend engineering focus. I'm actively seeking roles that leverage my 5+ years of experience with Java microservices and cloud-native systems, and this position matches my technical expertise and career goals perfectly."
+  },
+  {
+    "key": [
+      "how do you use ai tools (e.g., copilot, chatgpt, cursor) in your daily engineering work? give a concrete example.",
+      "textarea",
+      []
+    ],
+    "answer": "I regularly integrate AI tools into my development workflow to accelerate coding and problem-solving. For instance, when designing a complex Spring Boot microservice with event-driven architecture, I use ChatGPT to quickly generate boilerplate code for Kafka consumers and producers, which I then refine based on our specific requirements. I also leverage Copilot for code completion when working with unfamiliar libraries or APIs, and I use it to help draft unit tests and documentation—this speeds up the initial scaffolding significantly while I focus my attention on the business logic and system design aspects that require deeper thinking."
+  },
+  {
+    "key": [
+      "give an example of a production issue or performance problem (e.g., sql, system bottleneck). how did you diagnose and fix it?",
+      "textarea",
+      []
+    ],
+    "answer": "During my work on a microservices platform, we experienced significant latency issues in one of our core services that was handling thousands of requests per second. I started by analyzing application metrics and logs through our observability stack, which quickly revealed that database queries were taking 10-15 seconds instead of the expected milliseconds. After examining the slow query logs in PostgreSQL, I identified an unindexed JOIN on a high-cardinality column that was causing full table scans. I added a composite index on the join columns and optimized the query to use early filtering, which reduced query time to under 50ms. This single fix reduced our P99 latency from 8 seconds to under 2 seconds and eliminated the cascading timeout failures that were affecting downstream services."
+  },
+  {
+    "key": [
+      "describe your experience with event-driven systems (e.g., kafka, sqs). what problem did it solve, and what challenges did you handle (failures, retries, scaling)?",
+      "textarea",
+      []
+    ],
+    "answer": "I've built event-driven systems using Kafka and RabbitMQ in microservices architectures where the primary problem was decoupling services and handling asynchronous communication at scale. For example, I implemented message-driven workflows that reduced direct service dependencies and improved system resilience by allowing services to process events independently. On the operational side, I've handled critical challenges including implementing retry logic with exponential backoff, managing dead-letter queues for failed messages, ensuring idempotent message processing to prevent duplicates, and monitoring consumer lag to detect processing bottlenecks. Scaling presented complexities around partition management and rebalancing, which I addressed through careful configuration of consumer groups and monitoring with observability tools to track throughput and latency in real-time."
+  },
+  {
+    "key": [
+      "describe a backend system you’ve built or owned using java (spring boot). what was the system, your contribution, and the main technical challenges?",
+      "textarea",
+      []
+    ],
+    "answer": "I built and owned a microservices platform for order processing using Spring Boot that handled thousands of concurrent requests across multiple services including order validation, payment processing, and inventory management. My contribution spanned the full lifecycle—designing the REST API contracts, implementing core business logic with Spring Data JPA, setting up PostgreSQL with optimized queries, and establishing observability through structured logging and metrics. The main technical challenges were managing distributed transactions across services without a traditional ACID guarantee, which I solved by implementing the Saga pattern with event-driven coordination using RabbitMQ, and handling latency spikes during peak traffic that required careful connection pooling optimization and database query tuning to reduce P95 response times from 800ms to under 200ms."
+  },
+  {
+    "key": [
+      "have you ever been employed by, applied to, or are you currently employed by navan or any of its affiliated or group companies (reed & mackay)?\n      \n\n        \n          required",
+      "radio",
+      [
+        "false",
+        "true"
+      ]
+    ],
+    "answer": "false"
+  },
+  {
+    "key": [
+      "yes",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "Yes"
+  },
+  {
+    "key": [
+      "headline",
+      "text",
+      []
+    ],
+    "answer": "Experienced Backend Java Engineer Ready to Scale Microservices at Hack The Box"
+  },
+  {
+    "key": [
+      "it’s important to us to create an accessible and inclusive interview experience. in the space provided, please let us know if there are any accommodations we can make to support you during the recruiting process. if you're selected for an interview, we will be in contact to discuss your request.",
+      "text",
+      []
+    ],
+    "answer": "I don't require any specific accommodations for the recruiting process. I'm comfortable with standard interview formats and can communicate effectively in English or German. I'm flexible with scheduling and available to participate in interviews at your convenience."
+  },
+  {
+    "key": [
+      "summary",
+      "textarea",
+      []
+    ],
+    "answer": "As a Backend Java Engineer with 5+ years of experience designing and operating scalable microservices in production, I'm excited to bring my expertise to Hack The Box's mission of raising cyber resilience. I specialize in building distributed systems with Spring Boot and cloud-native technologies like Kubernetes and AWS, with a proven track record of improving system stability and reducing production incidents. My experience implementing event-driven architectures, designing domain-driven solutions, and optimizing complex backend systems aligns directly with the technical challenges of this role. I'm ready to contribute immediately from Berlin and help establish the microservices foundation that will transform how your organization builds and ships software securely."
+  },
+  {
+    "key": [
+      "do you have a hack the box account?",
+      "radio",
+      [
+        "332899",
+        "332900"
+      ]
+    ],
+    "answer": "332899"
+  },
+  {
+    "key": [
+      "wie viele jahre erfahrung haben sie mit: angular?",
+      "number",
+      []
+    ],
+    "answer": "1"
+  },
+  {
+    "key": [
+      "wie viele jahre erfahrung haben sie mit: spring framework?",
+      "number",
+      []
+    ],
+    "answer": "5"
+  },
+  {
+    "key": [
+      "wieviele jahre berufserfahrung (außerhalb studium oder ausbildung) haben sie in der softwareentwicklung?",
+      "text",
+      []
+    ],
+    "answer": "5"
+  },
+  {
+    "key": [
+      "benötigen sie jetzt oder in zukunft eine bürgschaft für ein arbeitsvisum?\n      \n\n        \n          required",
+      "radio",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "No"
+  },
+  {
+    "key": [
+      "please type in a language that you speak",
+      "text",
+      []
+    ],
+    "answer": "English"
+  },
+  {
+    "key": [
+      "select your level",
+      "select",
+      [
+        "advanced",
+        "beginner",
+        "fluent",
+        "intermediate",
+        "native"
+      ]
+    ],
+    "answer": "Fluent"
+  },
+  {
+    "key": [
+      "what is your preferred starting date?",
+      "text",
+      []
+    ],
+    "answer": "Immediately"
+  },
+  {
+    "key": [
+      "other, please specify",
+      "text",
+      []
+    ],
+    "answer": "I am a Backend Java Engineer with 5+ years of production experience building scalable microservices and REST APIs, with particular strength in Spring Boot, system reliability, and cloud-native deployments. My background combines deep technical expertise in distributed systems architecture with a proven track record of improving system stability and delivering maintainable solutions in cross-functional agile teams, which aligns well with the ownership and innovation focus of this Senior Java Engineer role."
+  },
+  {
+    "key": [
+      "she/her",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "No"
+  },
+  {
+    "key": [
+      "he/him",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "Yes"
+  },
+  {
+    "key": [
+      "they/them",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "No"
+  },
+  {
+    "key": [
+      "prefer not to say",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "No"
+  },
+  {
+    "key": [
+      "other (please specify below)",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "Yes"
+  },
+  {
+    "key": [
+      "wie gut sind ihre deutschkenntnisse?",
+      "radio",
+      [
+        "fließend",
+        "grundkenntnisse",
+        "gute kenntnisse",
+        "keine (kenntnisse)",
+        "muttersprache oder zweisprachig",
+        "verhandlungssicher"
+      ]
+    ],
+    "answer": "Gute Kenntnisse"
+  },
+  {
+    "key": [
+      "stimmst du den agbs von join zu und hast die datenschutzbestimmungen zur kenntnis genommen?\n      \n\n        \n          required",
+      "radio",
+      [
+        "true"
+      ]
+    ],
+    "answer": "TRUE"
+  },
+  {
+    "key": [
+      "country",
+      "text",
+      []
+    ],
+    "answer": "Germany"
+  },
+  {
+    "key": [
+      "mm/dd/yyyy",
+      "text",
+      []
+    ],
+    "answer": "I need to provide a date in mm/dd/yyyy format, but no specific date has been requested in the context provided. Could you clarify what date this field is asking for (e.g., date of birth, start date, application date, etc.)? Once I know which date is needed, I'll provide it in the correct format."
+  },
+  {
+    "key": [
+      "ja",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "Yes"
+  },
+  {
+    "key": [
+      "nein",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "No"
+  }
+]

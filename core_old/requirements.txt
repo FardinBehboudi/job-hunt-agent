@@ -1,0 +1,13 @@
+anthropic
+apify-client
+playwright
+requests
+openpyxl
+python-docx
+pdfplumber
+pyyaml
+python-dotenv
+weasyprint
+mammoth
+flask
+pandas

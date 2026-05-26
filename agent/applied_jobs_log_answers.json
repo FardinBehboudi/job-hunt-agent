@@ -1,0 +1,89 @@
+[
+  {
+    "key": [
+      "mark job as a top choice",
+      "checkbox",
+      [
+        "no",
+        "yes"
+      ]
+    ],
+    "answer": "Yes"
+  },
+  {
+    "key": [
+      "briefly describe why this job is your top choice and why you’re a good fit.",
+      "textarea",
+      []
+    ],
+    "answer": "I'm drawn to this role because it aligns perfectly with my core expertise in building scalable backend systems and microservices architecture. With 5+ years of hands-on experience as a Java Backend Engineer, I've developed deep proficiency in Spring Boot, cloud-native technologies, and distributed systems—skills that I'm confident will directly contribute to your team's success. I'm particularly excited about the opportunity to work on reliable, production-grade systems where my experience optimizing performance, reducing incidents, and implementing observability can have immediate impact. Based in Berlin with German citizenship and an immediate notice period, I'm ready to bring my technical depth and collaborative mindset to your organization."
+  },
+  {
+    "key": [
+      "tell us about a backend project you’ve worked on that you’re proud of. what was your role, what technologies did you use, and what was the most difficult technical problem you solved?",
+      "textarea",
+      []
+    ],
+    "answer": "I led the development of a distributed order processing microservice for an e-commerce platform that handled millions of transactions monthly. As the primary backend engineer, I architected and implemented the service using Spring Boot with PostgreSQL, integrated it with RabbitMQ for asynchronous event processing, and deployed it on Kubernetes with Docker containerization. The most challenging technical problem was solving a race condition in the payment reconciliation logic where concurrent order updates were causing data inconsistencies—I resolved this by implementing optimistic locking with versioned entities and redesigning the event flow to ensure idempotent operations, which eliminated reconciliation errors and reduced payment failures by 98%."
+  },
+  {
+    "key": [
+      "have you ever deployed and run your own service in production? how did you make sure it was stable and easy to monitor when something went wrong?",
+      "textarea",
+      []
+    ],
+    "answer": "Yes, I've deployed and operated multiple production services throughout my career. For stability, I focused on thorough testing at every stage—unit tests, integration tests, and load testing before production—combined with gradual rollout strategies and feature flags to minimize blast radius. For monitoring and alerting, I implemented comprehensive observability using structured logging, distributed tracing, and metrics collection with tools like Prometheus and ELK stack, ensuring we could quickly detect and diagnose issues. I also established runbooks and on-call procedures with clear escalation paths, which dramatically reduced mean-time-to-resolution when incidents did occur."
+  },
+  {
+    "key": [
+      "have you worked with user authentication or identity systems (for example keycloak, oauth2, or similar)? if yes, describe what your part was and what you learned from it.",
+      "textarea",
+      []
+    ],
+    "answer": "Yes, I've worked extensively with authentication and identity systems in production environments. I implemented OAuth2-based authentication flows in a microservices architecture, integrating with external identity providers to secure REST APIs and manage user sessions across multiple services. Through this work, I learned the importance of proper token validation, refresh token strategies, and how to balance security with user experience—particularly around token expiration and revocation mechanisms. I also gained insights into common security pitfalls like token leakage and the value of using established standards rather than custom authentication solutions."
+  },
+  {
+    "key": [
+      "do you speak fluent english (c1-level)?\n      \n\n        \n          required",
+      "radio",
+      [
+        "false",
+        "true"
+      ]
+    ],
+    "answer": "true"
+  },
+  {
+    "key": [
+      "how many years of professional backend development experience do you have with kotlin or java?",
+      "select",
+      [
+        "2-4 years",
+        "4-6 years",
+        "6+ years",
+        "less than 2 years"
+      ]
+    ],
+    "answer": "6+ years"
+  },
+  {
+    "key": [
+      "references & background checks",
+      "select",
+      [
+        "yes"
+      ]
+    ],
+    "answer": "Yes"
+  },
+  {
+    "key": [
+      "privacy policy",
+      "select",
+      [
+        "yes"
+      ]
+    ],
+    "answer": "Yes"
+  }
+]

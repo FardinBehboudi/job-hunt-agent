@@ -11,7 +11,12 @@
       "Bash(python -m py_compile dashboard.py)",
       "Bash(python -m py_compile scraper.py)",
       "Bash(python -m py_compile db.py scraper.py)",
-      "Bash(python -m py_compile matcher.py dashboard.py)"
+      "Bash(python -m py_compile matcher.py dashboard.py)",
+      "Bash(python -m py_compile matcher.py scraper.py)",
+      "Bash(python *)",
+      "Skill(superpowers:writing-plans)",
+      "Bash(.venv\\\\Scripts\\\\python.exe -c \"import ast, sys; [print\\('OK:', f\\) or None for f in ['applier.py','linkedin_applier.py','external_applier.py'] if \\(ast.parse\\(open\\(f\\).read\\(\\)\\) or True\\)]\")",
+      "PowerShell(Head 20 *)"
     ]
   }
 }

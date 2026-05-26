@@ -1,13 +1,6 @@
 .env
-config.yaml
+.env
+dedup.db
+uploads/linkedin_session.json
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-dist/
-build/
-.venv/
-venv/
-*.log
