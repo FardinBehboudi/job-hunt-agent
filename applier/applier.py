@@ -141,6 +141,31 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
     try:
         await page.goto(job["url"], wait_until="domcontentloaded", timeout=30_000)
 
+        # ── Check if job is expired / no longer available ──────────────────
+        try:
+            page_text = (await page.inner_text("body")).lower()
+            _expired_phrases = [
+                "no longer accepting applications",
+                "this job is no longer available",
+                "job is closed",
+                "position has been filled",
+                "this posting has expired",
+                "no longer available",
+                "job has expired",
+                "application period has ended",
+            ]
+            if any(phrase in page_text for phrase in _expired_phrases):
+                log.info("Job expired/unavailable: %s", job.get("url"))
+                _emit("job_expired", {
+                    "url":    job.get("url", ""),
+                    "title":  job.get("title", ""),
+                    "reason": "No longer accepting applications",
+                })
+                return {"success": False, "expired": True,
+                        "note": "No longer accepting applications"}
+        except Exception:
+            pass  # best-effort check, continue normally
+
         if "linkedin.com/login" in page.url or "linkedin.com/authwall" in page.url:
             log.error("LinkedIn session expired — need to re-login (URL: %s)", page.url)
             return {"success": False, "manual": False, "note": "LinkedIn session expired — re-login required"}
@@ -191,12 +216,24 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
             return {"success": True, "manual": False, "note": "Already applied", "apply_type": "Already"}
 
         if outcome == "not_found":
+            # Check if the job is expired before sending to manual queue
             try:
-                _ss = Path(__file__).resolve().parent.parent / "uploads" / f"debug_apply_{job_id}.png"
-                _ss.write_bytes(await page.screenshot(full_page=True))
+                _page_text = (await page.inner_text("body")).lower()
+                _expired_phrases = [
+                    "no longer accepting applications",
+                    "this job is no longer available",
+                    "job is closed", "position has been filled",
+                    "this posting has expired", "no longer available",
+                    "job has expired", "application period has ended",
+                ]
+                if any(p in _page_text for p in _expired_phrases):
+                    log.info("Job expired (no apply button + expired text): %s", job.get("url"))
+                    _emit("job_expired", {"url": job.get("url", ""), "title": job.get("title", ""),
+                                          "reason": "No longer accepting applications"})
+                    return {"success": False, "expired": True, "note": "No longer accepting applications"}
             except Exception:
                 pass
-            _emit("apply_step", {"url": job.get("url", ""), "step": "️ Going to manual: No Apply button found"})
+            _emit("apply_step", {"url": job.get("url", ""), "step": "’️ Going to manual: No Apply button found"})
             return {"success": False, "manual": True, "note": "No Apply button found"}
 
         if outcome == "modal_failed":
