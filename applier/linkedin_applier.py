@@ -254,7 +254,10 @@ def answer_custom_question(
                             if opt.lower() in ("true", "yes", "1", "ja", "oui"):
                                 return opt
                         return options[0] if options else "Yes"
-                return "No, I am a German citizen and do not require visa sponsorship."
+                # Text/textarea fallback — distinguish "are you eligible?" from "do you need sponsorship?"
+                if re.search(r"need|require|sponsor", question_text, re.I):
+                    return "No, I am a German citizen and do not require visa sponsorship."
+                return "Yes"  # eligible / authorized to work
             if isinstance(val, bool):
                 if field_type == "radio" and options:
                     return options[0] if val else (options[1] if len(options) > 1 else "No")
@@ -542,7 +545,9 @@ async def _retry_invalid_fields(
     profile: dict,
     job_desc: str,
     prior_answers: list[dict],
+    cfg: dict | None = None,
 ) -> int:
+    cfg = cfg or {}
     """
     Walk the DOM to find fields paired with visible validation errors, then
     clear and re-fill each one.  Returns the number of fields re-filled.
@@ -609,18 +614,503 @@ async def _retry_invalid_fields(
             )
             if not new_answer:
                 continue
-            await el.first.click()
-            await asyncio.sleep(0.1)
-            await el.first.fill("")
-            await asyncio.sleep(0.1)
-            await _reliable_fill(page, el.first, new_answer)
+            ok = await fill_field_smart(page, el.first, new_answer,
+                                        label=label, cfg=cfg)
+            if not ok:
+                await el.first.click()
+                await asyncio.sleep(0.1)
+                await el.first.fill("")
+                await asyncio.sleep(0.1)
+                await _reliable_fill(page, el.first, new_answer)
             _emit("apply_answer", {"label": label[:60], "answer": new_answer[:80]})
             prior_answers.append({"question": label, "answer": new_answer})
             fixed += 1
             await asyncio.sleep(0.4)
         except Exception:
             pass
+
+    # Fix errored selects + Claude vision fallback
+    try:
+        for el in await page.locator(".artdeco-inline-feedback--error").all():
+            try:
+                p = el.locator("xpath=ancestor::*[4]")
+                s = p.locator("select").first
+                if await s.count() and await s.is_visible():
+                    opts = [o.strip() for o in await s.locator("option").all_text_contents() if o.strip().lower() not in {"","select","please select","select an option"}]
+                    if opts:
+                        ans = answer_custom_question("field","select",opts,resume_text,profile,job_desc,prior_answers=prior_answers)
+                        if ans:
+                            try: await s.select_option(label=ans)
+                            except: pass
+                            await s.dispatch_event("change"); fixed += 1
+            except: pass
+    except: pass
+    if fixed == 0:
+        try:
+            from applier.smart_filler import _claude_decide, _execute_actions
+            _acts = await _claude_decide(page, profile, resume_text, job_desc, task="fill")
+            if _acts: fixed += await _execute_actions(page, _acts, {})
+        except: pass
     return fixed
+
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UNIVERSAL FIELD HANDLER — handles every LinkedIn/ATS input type
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _detect_field_type(el) -> str:
+    """Detect the true type of a form element."""
+    try:
+        tag  = await el.evaluate("e => e.tagName.toLowerCase()")
+        typ  = (await el.get_attribute("type") or "").lower()
+        role = (await el.get_attribute("role") or "").lower()
+        cls  = (await el.get_attribute("class") or "").lower()
+        if tag == "select":                      return "select"
+        if tag == "textarea":                    return "textarea"
+        if typ == "checkbox":                    return "checkbox"
+        if typ == "radio":                       return "radio"
+        if typ == "file":                        return "file"
+        if typ == "number":                      return "number"
+        if typ in ("date", "month", "year"):     return "date"
+        if role == "combobox" or "combobox" in cls: return "typeahead"
+        if "artdeco-combobox" in cls:            return "typeahead"
+        if "typeahead" in cls:                   return "typeahead"
+        return "text"
+    except Exception:
+        return "text"
+
+
+async def _get_field_label(page: Page, el) -> str:
+    """Extract the best label for a form element."""
+    try:
+        fid = await el.get_attribute("id") or ""
+        # 1. explicit label
+        if fid:
+            lbl = page.locator(f"label[for='{fid}']")
+            if await lbl.count():
+                return (await lbl.first.text_content() or "").strip()
+        # 2. aria-label
+        a = (await el.get_attribute("aria-label") or "").strip()
+        if a: return a
+        # 3. placeholder
+        p = (await el.get_attribute("placeholder") or "").strip()
+        if p: return p
+        # 4. parent legend/label
+        txt = await el.evaluate("""e => {
+            let p = e.parentElement;
+            for (let i=0; i<4 && p; i++, p=p.parentElement) {
+                const lbl = p.querySelector('label,legend,span[class*=label]');
+                if (lbl) return lbl.innerText.trim();
+            }
+            return '';
+        }""")
+        return (txt or "").strip()
+    except Exception:
+        return ""
+
+
+async def _react_fill(page: Page, el, value: str) -> bool:
+    """Fill a React/Vue controlled input using the native property setter."""
+    try:
+        await page.evaluate("""([el, val]) => {
+            const nativeInputSetter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value'
+            ).set;
+            nativeInputSetter.call(el, val);
+            el.dispatchEvent(new Event('input',  {bubbles:true}));
+            el.dispatchEvent(new Event('change', {bubbles:true}));
+            el.dispatchEvent(new Event('blur',   {bubbles:true}));
+        }""", [el, value])
+        return True
+    except Exception:
+        return False
+
+
+async def _fill_typeahead(page: Page, el, value: str) -> bool:
+    """Fill a typeahead/combobox: type value, wait for dropdown, click option."""
+    try:
+        await el.click()
+        await asyncio.sleep(0.2)
+        await el.fill("")
+        await asyncio.sleep(0.1)
+        # Type slowly to trigger search
+        for chunk in [value[:3], value[3:]]:
+            if chunk:
+                await el.type(chunk, delay=60)
+                await asyncio.sleep(0.4)
+        # Wait for dropdown
+        dropdown = page.locator(
+            ".artdeco-combobox__option, [role=option], "
+            "[class*=typeahead] li, [class*=dropdown] li, "
+            "[class*=suggestions] li"
+        )
+        await page.wait_for_timeout(600)
+        if await dropdown.count():
+            # Click best matching option
+            for i in range(min(await dropdown.count(), 8)):
+                opt = dropdown.nth(i)
+                opt_text = (await opt.text_content() or "").strip().lower()
+                if value.lower() in opt_text or opt_text in value.lower():
+                    await opt.click()
+                    return True
+            # Click first option as fallback
+            await dropdown.first.click()
+            return True
+        return False
+    except Exception:
+        return False
+
+
+async def _fill_date(page: Page, el, value: str) -> bool:
+    """Fill a date input — handles both text-format and native date pickers."""
+    try:
+        typ = (await el.get_attribute("type") or "").lower()
+        if typ == "date":
+            # Native date input expects YYYY-MM-DD
+            import re as _re
+            nums = _re.findall(r'\d+', value)
+            if len(nums) >= 3:
+                # Try to interpret as DD/MM/YYYY or MM/DD/YYYY
+                y = next((n for n in nums if len(n) == 4), "2020")
+                rest = [n for n in nums if len(n) != 4]
+                m, d = (rest + ["1","1"])[:2]
+                formatted = f"{y}-{m.zfill(2)}-{d.zfill(2)}"
+                await el.fill(formatted)
+                return True
+        # Text date input — just type the value
+        await el.fill(value)
+        return True
+    except Exception:
+        return False
+
+
+async def _fill_select_smart(page: Page, el, value: str) -> bool:
+    """Fill a <select> with fuzzy matching."""
+    try:
+        opts = await el.locator("option").all_text_contents()
+        opts_clean = [o.strip() for o in opts if o.strip()]
+
+        # 1. Exact match
+        try:
+            await el.select_option(label=value)
+            await el.dispatch_event("change")
+            return True
+        except Exception:
+            pass
+
+        # 2. Fuzzy match
+        v_lower = value.lower()
+        for opt in opts_clean:
+            if v_lower in opt.lower() or opt.lower() in v_lower:
+                try:
+                    await el.select_option(label=opt)
+                    await el.dispatch_event("change")
+                    return True
+                except Exception:
+                    pass
+
+        # 3. Partial word match
+        v_words = set(v_lower.split())
+        best, best_score = None, 0
+        for opt in opts_clean:
+            o_words = set(opt.lower().split())
+            score = len(v_words & o_words)
+            if score > best_score:
+                best, best_score = opt, score
+        if best and best_score > 0:
+            try:
+                await el.select_option(label=best)
+                await el.dispatch_event("change")
+                return True
+            except Exception:
+                pass
+        return False
+    except Exception:
+        return False
+
+
+async def _fill_radio_smart(page: Page, el, value: str) -> bool:
+    """Click the right radio option based on value text."""
+    try:
+        name = await el.get_attribute("name") or ""
+        radios = page.locator(f"input[type='radio'][name='{name}']") if name else page.locator("input[type='radio']")
+        v_lower = value.lower().strip()
+        yes_vals = {"yes","ja","true","1","oui"}
+        no_vals  = {"no","nein","false","0","non"}
+
+        for i in range(await radios.count()):
+            radio = radios.nth(i)
+            if not await radio.is_visible():
+                continue
+            rid = await radio.get_attribute("id") or ""
+            lbl_text = ""
+            if rid:
+                lbl = page.locator(f"label[for='{rid}']")
+                if await lbl.count():
+                    lbl_text = (await lbl.first.text_content() or "").strip().lower()
+            val_attr = (await radio.get_attribute("value") or "").lower()
+
+            # Match: yes/no type
+            if v_lower in yes_vals and (lbl_text in yes_vals or val_attr in yes_vals):
+                await radio.click(force=True)
+                return True
+            if v_lower in no_vals and (lbl_text in no_vals or val_attr in no_vals):
+                await radio.click(force=True)
+                return True
+            # Match: text overlap
+            if v_lower and (v_lower in lbl_text or lbl_text in v_lower):
+                await radio.click(force=True)
+                return True
+
+        # Fallback: click first if "yes" or first option
+        if v_lower in yes_vals and await radios.count():
+            await radios.first.click(force=True)
+            return True
+        return False
+    except Exception:
+        return False
+
+
+async def fill_field_smart(
+    page: Page, el, value: str,
+    label: str = "", cfg: dict | None = None
+) -> bool:
+    """
+    Universal field filler — detects field type and uses the correct strategy.
+    Handles: text, textarea, number, select, radio, checkbox, date,
+             typeahead/combobox, file upload, React controlled inputs.
+    Returns True if filled successfully.
+    """
+    if not value:
+        return False
+    cfg = cfg or {}
+    field_type = await _detect_field_type(el)
+
+    try:
+        if field_type == "file":
+            # Resume upload
+            resume_path = cfg.get("paths", {}).get("resume_en", "")
+            if resume_path and Path(resume_path).exists():
+                await el.set_input_files(resume_path)
+                _emit("apply_answer", {"label": label[:60] or "Resume", "answer": Path(resume_path).name})
+                return True
+            return False
+
+        if field_type == "checkbox":
+            checked = await el.is_checked()
+            # For consent/agreement boxes always check; for others match value
+            should_check = value.lower() in ("yes","true","1","agree","accepted","i agree","ja")
+            if should_check and not checked:
+                await el.click()
+                return True
+            if not should_check and checked:
+                await el.click()
+                return True
+            return True  # already correct
+
+        if field_type == "radio":
+            return await _fill_radio_smart(page, el, value)
+
+        if field_type == "select":
+            ok = await _fill_select_smart(page, el, value)
+            if ok:
+                _emit("apply_answer", {"label": label[:60], "answer": value[:80]})
+            return ok
+
+        if field_type == "typeahead":
+            ok = await _fill_typeahead(page, el, value)
+            if ok:
+                _emit("apply_answer", {"label": label[:60], "answer": value[:80]})
+            return ok
+
+        if field_type == "date":
+            ok = await _fill_date(page, el, value)
+            if ok:
+                _emit("apply_answer", {"label": label[:60], "answer": value[:80]})
+            return ok
+
+        if field_type == "number":
+            import re as _re
+            num_val = _re.sub(r"[^\d]", "", str(value).split(".")[0]) or "1"
+            value = num_val
+
+        # text / textarea / email / tel — try multiple strategies
+        filled = False
+
+        # Strategy 1: standard fill
+        try:
+            await el.click()
+            await asyncio.sleep(0.05)
+            await el.fill("")
+            await asyncio.sleep(0.05)
+            await el.fill(value)
+            current = await el.input_value()
+            if current.strip() == value.strip():
+                filled = True
+        except Exception:
+            pass
+
+        # Strategy 2: keyboard typing (for React inputs that ignore fill)
+        if not filled:
+            try:
+                await el.click()
+                await asyncio.sleep(0.1)
+                await page.keyboard.press("Control+a")
+                await page.keyboard.press("Delete")
+                await asyncio.sleep(0.05)
+                for char in value:
+                    await page.keyboard.type(char)
+                    await asyncio.sleep(0.02)
+                filled = True
+            except Exception:
+                pass
+
+        # Strategy 3: React native setter
+        if not filled:
+            filled = await _react_fill(page, el, value)
+
+        if filled:
+            # Trigger all validation events
+            try:
+                await el.dispatch_event("input")
+                await el.dispatch_event("change")
+                await el.dispatch_event("blur")
+            except Exception:
+                pass
+            await asyncio.sleep(0.15)
+
+            # Verify fill worked
+            try:
+                current = await el.input_value()
+                if not current.strip():
+                    # Last resort: JavaScript direct set
+                    await _react_fill(page, el, value)
+            except Exception:
+                pass
+
+            _emit("apply_answer", {"label": label[:60], "answer": value[:80]})
+            return True
+
+        return False
+
+    except Exception as e:
+        log.debug("fill_field_smart error: %s | label=%s type=%s", e, label, field_type)
+        return False
+
+
+async def _fill_all_visible_fields(
+    page: Page,
+    resume_text: str,
+    profile: dict,
+    job_desc: str,
+    cfg: dict,
+    prior_answers: list[dict] | None = None,
+) -> int:
+    """
+    Comprehensive pass: find ALL visible unfilled fields, answer them,
+    fill them using fill_field_smart(). Returns count filled.
+    """
+    if prior_answers is None:
+        prior_answers = []
+    filled_count = 0
+
+    # Collect all visible interactive elements
+    selectors = [
+        "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]):not([disabled])",
+        "textarea:not([disabled])",
+        "select:not([disabled])",
+        "[role=combobox]:not([disabled])",
+        ".artdeco-combobox__input",
+    ]
+    for sel in selectors:
+        try:
+            locs = page.locator(sel)
+            count = await locs.count()
+            for i in range(min(count, 30)):
+                try:
+                    el = locs.nth(i)
+                    if not await el.is_visible():
+                        continue
+
+                    field_type = await _detect_field_type(el)
+                    label = await _get_field_label(page, el)
+
+                    # Skip already-filled fields
+                    if field_type not in ("radio", "checkbox", "file"):
+                        try:
+                            current_val = await el.input_value()
+                            if current_val.strip() and current_val.strip().lower() not in {
+                                "select", "please select", "select an option", "choose",
+                            }:
+                                continue
+                        except Exception:
+                            pass
+
+                    # Check memory first
+                    value = None
+                    try:
+                        from applier.memory import get_memory
+                        value = get_memory().get_answer(label, platform="linkedin")
+                    except Exception:
+                        pass
+
+                    # Generate answer if not in memory
+                    if not value:
+                        if field_type == "select":
+                            try:
+                                opts = [o.strip() for o in await el.locator("option").all_text_contents()
+                                        if o.strip().lower() not in {"", "select", "please select",
+                                                                      "select an option", "auswählen"}]
+                                if opts:
+                                    value = answer_custom_question(
+                                        label or "select", "select", opts,
+                                        resume_text, profile, job_desc,
+                                        prior_answers=prior_answers
+                                    )
+                            except Exception:
+                                pass
+                        elif field_type == "radio":
+                            value = answer_custom_question(
+                                label or "radio", "radio", ["Yes", "No"],
+                                resume_text, profile, job_desc,
+                                prior_answers=prior_answers
+                            )
+                        elif field_type in ("checkbox",):
+                            value = "yes"  # consent boxes
+                        elif field_type == "file":
+                            value = "resume"
+                        elif field_type == "date":
+                            value = profile.get("graduation_date", "01/2020")
+                        else:
+                            value = answer_custom_question(
+                                label or "field",
+                                "textarea" if field_type == "textarea" else "text",
+                                [], resume_text, profile, job_desc,
+                                prior_answers=prior_answers
+                            )
+
+                    if not value:
+                        continue
+
+                    ok = await fill_field_smart(page, el, value, label=label, cfg=cfg)
+                    if ok:
+                        prior_answers.append({"question": label, "answer": str(value)})
+                        try:
+                            from applier.memory import get_memory
+                            get_memory().save_qa(label, str(value), platform="linkedin")
+                        except Exception:
+                            pass
+                        filled_count += 1
+                        await asyncio.sleep(0.2)
+
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    return filled_count
 
 
 # ── Profile field filler ───────────────────────────────────────────────────────
@@ -1005,10 +1495,22 @@ async def _answer_visible_questions(page: Page, resume_text: str, profile: dict,
                 effective_type = "number" if is_numeric_question(label_text, inp_type) else inp_type
                 _emit("apply_step", {"url": "", "step":
                     f"  [field] '{label_text[:40]}' type={inp_type} effective={effective_type}"})
-                answer = answer_custom_question(
-                    label_text, effective_type, [], resume_text, profile, job_desc,
-                    prior_answers=prior_answers
-                )
+                try:
+                    from applier.memory import get_memory
+                    answer = get_memory().get_answer(label_text, platform='linkedin') or ''
+                except Exception:
+                    answer = ''
+                if not answer:
+                    answer = answer_custom_question(
+                        label_text, effective_type, [], resume_text, profile, job_desc,
+                        prior_answers=prior_answers
+                    )
+                    if answer:
+                        try:
+                            from applier.memory import get_memory
+                            get_memory().save_qa(label_text, answer, platform='linkedin')
+                        except Exception:
+                            pass
                 if effective_type == "number":
                     raw_answer = answer
                     answer = re.sub(r"[^\d]", "", answer.split(".")[0]) or "1"
@@ -1430,7 +1932,16 @@ async def fill_easy_apply(
     _prev_page_labels: list[str] = []
     _stuck_count = 0
     step_n = 0
+    prior_answers: list[dict] = []
+    prior_answers: list[dict] = []
     for step_n in range(12):
+        # Refresh wizard scope on every step — modal changes between pages
+        try:
+            _modal_visible = await _modal_el.is_visible()
+        except Exception:
+            _modal_visible = False
+        _ws = _modal_el if _modal_visible else page
+
         await _maybe_attach_support_docs(page)
         _selected = await _select_or_upload_resume(page, cfg)
         if not _selected:
@@ -1457,6 +1968,22 @@ async def fill_easy_apply(
 
         if visible_labels and visible_labels == _prev_page_labels:
             _stuck_count += 1
+            if _stuck_count == 1:
+                # First time stuck — try Claude vision
+                _emit("apply_step", {"url": job["url"],
+                      "step": "  🧠 Stuck — activating Claude vision filler…"})
+                try:
+                    from applier.smart_filler import smart_fill_form
+                    _smart_r = await smart_fill_form(
+                        page, profile, resume_text,
+                        job.get('description', ''), cfg, max_rounds=2
+                    )
+                    if _smart_r.get('success'):
+                        return {"success": True, "manual": False,
+                                "note": _smart_r['note'], "apply_type": apply_type}
+                    _stuck_count = 0  # reset and try normal flow again
+                except Exception as _sf_err:
+                    log.warning("smart_fill_form error: %s", _sf_err)
             if _stuck_count >= 2:
                 log.warning("Wizard stuck on same page (step %d) — giving up", step_n + 1)
                 break
@@ -1464,6 +1991,15 @@ async def fill_easy_apply(
             _stuck_count = 0
         _prev_page_labels = visible_labels
 
+        # Use comprehensive field handler (handles all types + validation)
+        _n_filled = await _fill_all_visible_fields(
+            page, resume_text, profile, job.get("description", ""), cfg,
+            prior_answers=prior_answers
+        )
+        if _n_filled:
+            _emit("apply_step", {"url": job["url"],
+                  "step": f"  ✎ Filled {_n_filled} field(s) on page {step_n+1}"})
+        # Also run legacy handler for any missed fields
         await _answer_visible_questions(page, resume_text, profile, job.get("description", ""))
 
         _sub_exact = _ws.get_by_label("Submit application", exact=True)
@@ -1483,14 +2019,81 @@ async def fill_easy_apply(
                 "button:has-text('Fortfahren')"
             )
 
+        # Trigger blur/change so LinkedIn shows validation errors BEFORE we click
+        try:
+            await page.evaluate("""
+                () => { document.querySelectorAll(
+                    'input:not([type=hidden]):not([type=file]):not([disabled]),'
+                    +'textarea:not([disabled]),select:not([disabled])'
+                ).forEach(f => { if (f.offsetParent) {
+                    f.dispatchEvent(new Event('blur',   {bubbles:true}));
+                    f.dispatchEvent(new Event('change', {bubbles:true}));
+                    f.dispatchEvent(new Event('input',  {bubbles:true}));
+                }})}
+            """)
+            await asyncio.sleep(0.4)
+        except Exception:
+            pass
+
+        # Pre-click validation check
+        _pre_errors = await _get_page_errors(page)
+        if _pre_errors:
+            _emit("apply_step", {"url": job["url"],
+                  "step": f"  ⚠️ Validation: {'; '.join(_pre_errors[:2])[:120]}"})
+            _fixed_pre = await _retry_invalid_fields(
+                page, resume_text, profile, job.get("description", ""), prior_answers=[]
+            )
+            if _fixed_pre:
+                await asyncio.sleep(0.5)
+                try:
+                    await page.evaluate("""
+                        () => { document.querySelectorAll('input,textarea,select')
+                            .forEach(f => { if(f.offsetParent){
+                                f.dispatchEvent(new Event('blur',{bubbles:true}));
+                                f.dispatchEvent(new Event('change',{bubbles:true}));
+                            }}); }
+                    """)
+                    await asyncio.sleep(0.3)
+                except Exception:
+                    pass
+
         if await submit.count():
             _emit("apply_step", {"url": job["url"], "step": "Submitting application…"})
             await submit.first.scroll_into_view_if_needed()
             await asyncio.sleep(0.5)
             await submit.first.click()
             await asyncio.sleep(random.uniform(1.0, 3.5))
+            try:
+                from applier.memory import get_memory
+                get_memory().save_application_result(
+                    job.get("url",""), "linkedin", True, prior_answers
+                )
+            except Exception:
+                pass
             return {"success": True, "manual": False, "note": "", "apply_type": apply_type}
-        elif await nxt.count():
+        elif await nxt.count() or True:  # always enter; fallback to page search
+            if not await nxt.count():
+                nxt = page.locator(
+                    "button[aria-label='Continue to next step'],"
+                    "button[aria-label='Review your application'],"
+                    "button:has-text('Next'),button:has-text('Continue'),"
+                    "button:has-text('Review'),button:has-text('Weiter'),"
+                    "button:has-text('Fortfahren'),button:has-text('Submit')"
+                )
+                if not await nxt.count():
+                    # Claude vision fallback — find and click the right button
+                    try:
+                        from applier.smart_filler import _claude_decide, _execute_actions
+                        _nav_acts = await _claude_decide(page, profile, resume_text,
+                                                         job.get('description',''), task='submit')
+                        if _nav_acts:
+                            await _execute_actions(page, _nav_acts, cfg)
+                            await asyncio.sleep(1.5)
+                            continue
+                    except Exception:
+                        pass
+                    log.warning("No Next button found at step %d", step_n + 1)
+                    break
             nxt_text = (await nxt.first.text_content() or "Next").strip()
             _emit("apply_step", {"url": job["url"], "step": f"Page {step_n + 1} → clicking '{nxt_text}'"})
             await nxt.first.scroll_into_view_if_needed()
@@ -1504,7 +2107,8 @@ async def fill_easy_apply(
                 # Fix-and-retry: re-fill error fields and click Next again (up to 2 cycles)
                 for _fix_n in range(2):
                     _fixed = await _retry_invalid_fields(
-                        page, resume_text, profile, job.get("description", ""), prior_answers=[]
+                        page, resume_text, profile, job.get("description", ""),
+                        prior_answers=[], cfg=cfg
                     )
                     _emit("apply_step", {"url": job["url"],
                           "step": f"  🔧 Re-filled {_fixed} errored field(s)"})

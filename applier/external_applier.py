@@ -36,6 +36,54 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+# ── Cookie / privacy consent popup dismissal ──────────────────────────────────
+_CONSENT_ACCEPT_RE = re.compile(
+    r"^(accept all|accept all cookies|alle akzeptieren|accept cookies|"
+    r"alle cookies akzeptieren|i accept|agree|agree all|agree to all|"
+    r"allow all|allow cookies|allow all cookies|ok|got it|"
+    r"verstanden|zustimmen|einverstanden|accepter tout|tout accepter|"
+    r"aceitar tudo|aceptar todo|akkoord|alles accepteren)$",
+    re.I,
+)
+
+
+async def _dismiss_consent_popups(page: Page) -> None:
+    """Click Accept on any cookie/privacy consent dialog. Tries text match then CMP selectors."""
+    try:
+        buttons = await page.query_selector_all("button, [role='button']")
+        for btn in buttons:
+            try:
+                if not await btn.is_visible():
+                    continue
+                txt = (await btn.inner_text()).strip()
+                if _CONSENT_ACCEPT_RE.match(txt):
+                    await btn.click()
+                    await asyncio.sleep(0.8)
+                    log.info("Dismissed consent popup: clicked '%s'", txt[:40])
+                    return
+            except Exception:
+                pass
+        for sel in [
+            "#onetrust-accept-btn-handler",
+            ".cc-btn.cc-allow",
+            "[data-testid='uc-accept-all-button']",
+            "#CybotCookiebotDialogBodyButtonAccept",
+            ".accept-all",
+            "[aria-label*='accept all' i]",
+        ]:
+            try:
+                loc = page.locator(sel)
+                if await loc.count() and await loc.first.is_visible():
+                    await loc.first.click()
+                    await asyncio.sleep(0.8)
+                    log.info("Dismissed consent popup via selector: %s", sel)
+                    return
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 # ── Platform detection ────────────────────────────────────────────────────────
 
 _PLATFORM_PATTERNS: list[tuple[str, str]] = [
@@ -123,19 +171,118 @@ def _detect_platform_by_url(url: str) -> str:
 # ── Submission helpers ────────────────────────────────────────────────────────
 
 async def _verify_submission(page: Page) -> bool:
+    """
+    Multi-signal submission verifier. Returns True only when confident
+    the application was actually submitted (not just a redirect).
+    """
     await page.wait_for_timeout(2000)
+    score = 0
+
+    # Signal 1: URL pattern
     try:
-        text = (await page.content()).lower()
-        for phrase in [
-            "thank you", "application received", "successfully submitted",
-            "application submitted", "we'll be in touch", "your application",
-            "bewerbung eingegangen", "vielen dank", "erfolgreich",
-        ]:
-            if phrase in text:
-                return True
+        url = page.url.lower()
+        _confirm_url_patterns = [
+            "thank", "thanks", "danke", "success", "erfolgreich",
+            "confirm", "bestatig", "submitted", "bewerbung-eingegangen",
+            "application-sent", "applied", "complete", "finished",
+        ]
+        if any(p in url for p in _confirm_url_patterns):
+            score += 3
+            log.info("Submission signal: confirmation URL (%s)", url[:80])
     except Exception:
         pass
-    return False
+
+    # Signal 2: Visible text confirmation
+    try:
+        text = (await page.inner_text("body")).lower()
+        _confirm_phrases = [
+            "thank you", "thanks for applying", "application received",
+            "successfully submitted", "application submitted",
+            "we'll be in touch", "we will be in touch",
+            "your application has been", "bewerbung eingegangen",
+            "vielen dank", "danke für", "erfolgreich", "bewerbung erhalten",
+            "we have received", "wir haben deine bewerbung",
+            "application complete", "you have applied",
+        ]
+        _negative_phrases = [
+            "please fill", "required field", "pflichtfeld",
+            "bitte ausfüllen", "error", "fehler",
+        ]
+        matches = [p for p in _confirm_phrases if p in text]
+        if matches:
+            score += 3
+            log.info("Submission signal: confirmation text (%s)", matches[0])
+        neg = [p for p in _negative_phrases if p in text]
+        if neg:
+            score -= 3
+            log.info("Submission negative signal: error text (%s)", neg[0])
+    except Exception:
+        pass
+
+    # Signal 3: Form-gone check (no empty required fields = likely submitted)
+    try:
+        required_empty = await page.evaluate("""() => {
+            const fields = document.querySelectorAll(
+                'input[required]:not([type=hidden]), textarea[required], select[required]'
+            );
+            let empty = 0;
+            fields.forEach(f => {
+                if (f.offsetParent && !f.value.trim()) empty++;
+            });
+            return empty;
+        }""")
+        if required_empty == 0:
+            score += 1
+        elif required_empty > 2:
+            score -= 2
+            log.info("Submission negative signal: %d empty required fields", required_empty)
+    except Exception:
+        pass
+
+    # If already confident, skip vision call
+    if score >= 3:
+        log.info("Submission confirmed (score=%d, no vision needed)", score)
+        return True
+    if score <= -3:
+        log.info("Submission rejected (score=%d)", score)
+        return False
+
+    # Signal 4: Claude vision (only when uncertain)
+    try:
+        import base64, json as _json, os
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if api_key:
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            screenshot = await page.screenshot()
+            b64 = base64.b64encode(screenshot).decode()
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=60,
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/png", "data": b64}},
+                    {"type": "text", "text":
+                        "Is this a job application CONFIRMATION page (showing the app was submitted)? "
+                        'Reply with JSON only: {"confirmed": true} or {"confirmed": false}'}
+                ]}]
+            )
+            raw = resp.content[0].text.strip()
+            s, e = raw.find("{"), raw.rfind("}") + 1
+            if s >= 0 and e > s:
+                data = _json.loads(raw[s:e])
+                if data.get("confirmed"):
+                    score += 4
+                    log.info("Submission signal: Claude vision confirmed")
+                else:
+                    score -= 2
+                    log.info("Submission negative signal: Claude vision not confirmed")
+    except Exception as _ve:
+        log.debug("Vision verify failed: %s", _ve)
+
+    confirmed = score >= 3
+    log.info("Submission verification score=%d → %s", score, "CONFIRMED" if confirmed else "REJECTED")
+    return confirmed
 
 
 async def _get_form_snapshot(page: Page) -> str:
@@ -182,9 +329,19 @@ async def _ai_decide_form_actions(
         if not api_key:
             return []
         client = anthropic.Anthropic(api_key=api_key)
+        # Upgrade to Sonnet for better form understanding
+        _model = "claude-sonnet-4-20250514"
+        # Inject memory context into system prompt
+        _mem_context = ""
+        try:
+            from applier.memory import get_memory
+            _mem_context = get_memory().build_prompt_context()
+        except Exception:
+            pass
         system = (
             "You are filling a job application form on behalf of the candidate. "
-            "Analyse the form fields and return a JSON array of actions to take. "
+            + (_mem_context + "\n\n" if _mem_context else "")
+            + "Analyse the form fields and return a JSON array of actions to take. "
             "Each action is one of:\n"
             '  {"action":"fill", "idx":N, "value":"..."}\n'
             '  {"action":"select", "idx":N, "value":"..."}\n'
@@ -200,7 +357,7 @@ async def _ai_decide_form_actions(
             f"\nResume (first 800 chars):\n{resume_text[:800]}"
         )
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=_model,
             max_tokens=800,
             system=system,
             messages=[{"role": "user", "content":
@@ -280,6 +437,11 @@ async def _fill_remaining_questions(
                     continue
                 if (await inp.input_value()).strip():
                     continue
+                # Skip combobox inputs — handled separately below
+                _inp_role = (await inp.get_attribute("role") or "").lower()
+                _inp_popup = (await inp.get_attribute("aria-haspopup") or "").lower()
+                if _inp_role == "combobox" or _inp_popup in ("listbox", "true"):
+                    continue
                 label = await _get_label(page, inp)
                 if not label:
                     continue
@@ -339,6 +501,66 @@ async def _fill_remaining_questions(
                         await sel.select_option(value=answer)
                     _emit("apply_step", {"url": url, "step": f"  ✎ {(label or 'select')[:40]}: {answer[:40]}"})
                     prior.append({"question": label or "select", "answer": answer})
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Custom (React/Angular) combobox dropdowns — role="combobox" or aria-haspopup=listbox
+    try:
+        _PH2 = {"", "select", "select an option", "---", "please select", "choose one"}
+        comboboxes = page.locator(
+            "input[role='combobox']:not([disabled]), "
+            "input[aria-haspopup='listbox']:not([disabled]), "
+            "input[aria-haspopup='true']:not([disabled])"
+        )
+        for i in range(min(await comboboxes.count(), 10)):
+            try:
+                cb_input = comboboxes.nth(i)
+                if not await cb_input.is_visible():
+                    continue
+                cur_val = ((await cb_input.input_value()) or "").strip().lower()
+                if cur_val and cur_val not in _PH2:
+                    continue  # already filled
+                label = await _get_label(page, cb_input)
+                if not label:
+                    continue
+                # Click to open the dropdown
+                await cb_input.click()
+                await asyncio.sleep(0.5)
+                # Collect visible option elements
+                opts_loc = page.locator(
+                    "[role='option']:visible, [role='listbox'] [role='option']:visible, "
+                    "li[data-value]:visible"
+                )
+                opts_count = await opts_loc.count()
+                opts = []
+                for oi in range(min(opts_count, 20)):
+                    txt = (await opts_loc.nth(oi).text_content() or "").strip()
+                    if txt and txt.lower() not in _PH2:
+                        opts.append(txt)
+                if not opts:
+                    # close by pressing Escape and skip
+                    await cb_input.press("Escape")
+                    continue
+                answer = answer_custom_question(label, "select", opts, resume_text, profile, job_desc, prior_answers=prior)
+                if not answer:
+                    await cb_input.press("Escape")
+                    continue
+                # Click the matching option
+                clicked = False
+                for oi in range(min(await opts_loc.count(), 20)):
+                    opt_el = opts_loc.nth(oi)
+                    txt = (await opt_el.text_content() or "").strip()
+                    if txt.lower() == answer.lower() or answer.lower() in txt.lower():
+                        await opt_el.click()
+                        clicked = True
+                        break
+                if not clicked:
+                    await cb_input.press("Escape")
+                    continue
+                _emit("apply_step", {"url": url, "step": f"  ✎ {label[:40]}: {answer[:40]}"})
+                prior.append({"question": label, "answer": answer})
             except Exception:
                 pass
     except Exception:
@@ -562,8 +784,16 @@ async def _apply_generic_browser_use(
     resume_text: str, profile: dict
 ) -> dict:
     if not _BROWSER_USE_OK:
-        return {"success": False, "manual": True,
-                "note": "browser-use not installed — pip install browser-use"}
+        # Fall back to Claude vision filler (no extra deps needed)
+        _emit("apply_step", {"url": job.get("url",""),
+              "step": "🧠 browser-use unavailable — using Claude vision filler"})
+        try:
+            from applier.smart_filler import smart_apply_page
+            return await smart_apply_page(page, job, profile, resume_text, cfg)
+        except Exception as _sf_e:
+            log.warning("smart_apply_page failed: %s", _sf_e)
+            return {"success": False, "manual": True,
+                    "note": f"Smart apply failed: {_sf_e}"}
 
     url = page.url or job.get("url", "")
     p = profile
@@ -619,7 +849,7 @@ RULES:
         if browser is None:
             browser = _BUBrowser(config=_BUBrowserConfig(headless=cfg.get("headless", False)))
 
-        llm = _BUChatAnthropic(model="claude-haiku-4-5-20251001")
+        llm = _BUChatAnthropic(model="claude-sonnet-4-20250514")
         agent = _BUAgent(task=task, llm=llm, browser=browser)
         result = await agent.run(max_steps=40)
 
@@ -630,6 +860,11 @@ RULES:
         ])
         if success:
             _emit("apply_step", {"url": url, "step": "  ✓ browser-use: application submitted"})
+            try:
+                from applier.memory import get_memory
+                get_memory().save_application_result(url, platform, True, [])
+            except Exception:
+                pass
             return {"success": True, "manual": False,
                     "note": result.final_result() or "", "apply_type": "External (browser-use)"}
         _emit("apply_step", {"url": url,
@@ -712,15 +947,28 @@ async def _route_to_handler(
     page: Page, job: dict, cfg: dict,
     resume_text: str, profile: dict, platform: str
 ) -> dict:
+    # Dismiss cookie/privacy consent popups before any form interaction
+    await _dismiss_consent_popups(page)
+
     handler = PLATFORM_HANDLERS.get(platform)
     if handler and platform not in ("linkedin", "unknown"):
         new_url = page.url
         log.info("Routing to %s handler (URL: %s)", platform, new_url)
         return await handler(page, dict(job, url=new_url), cfg, resume_text, profile)
+    # Unknown platform — try Claude vision smart apply before giving up
+    _emit("apply_step", {"url": job.get("url",""),
+          "step": f"🧠 Unknown platform ({platform}) — trying smart apply"})
+    try:
+        from applier.smart_filler import smart_apply_page
+        _smart = await smart_apply_page(page, job, profile, resume_text, cfg)
+        if _smart.get('success'):
+            return _smart
+    except Exception as _se:
+        log.warning("smart_apply_page error: %s", _se)
     log.warning("DEBUG pre-manual: URL=%s", page.url)
-    log.warning("DEBUG pre-manual: Page title=%s", await page.title())
     log.warning("DEBUG pre-manual: Reason=External apply, unknown platform: %s", platform)
-    _emit("apply_step", {"url": job.get("url", ""), "step": f"⚠️ Going to manual: External apply — unknown platform: {platform}"})
+    _emit("apply_step", {"url": job.get("url", ""),
+          "step": f"⚠️ Going to manual: External apply — unknown platform: {platform}"})
     return {"success": False, "manual": True, "note": f"External apply — unknown platform: {platform}"}
 
 
@@ -741,7 +989,11 @@ async def follow_external_apply(
     _cur_url = page.url
     log.info("After Apply click — URL: %s", _cur_url)
 
-    # New tab opened
+    # New tab opened — wait a bit longer for it to appear
+    for _tab_wait in range(5):
+        if len(page.context.pages) > 1:
+            break
+        await asyncio.sleep(0.8)
     if len(page.context.pages) > 1:
         _new_page = page.context.pages[-1]
         try:

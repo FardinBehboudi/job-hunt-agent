@@ -47,6 +47,14 @@ _SESSION_FILE    = Path(__file__).resolve().parent.parent / "uploads" / "linkedi
 # ── Job-match score cache (keyed by MD5 of description; in-memory per process) ─
 _score_cache: dict[str, dict] = {}
 
+# ── URLs the user removed from the dashboard mid-session — skip these ──────────
+_skipped_urls: set[str] = set()
+
+
+def skip_url(url: str) -> None:
+    """Mark a job URL to be skipped in the current apply session."""
+    _skipped_urls.add(url.strip())
+
 _LOG_FILE = Path(__file__).resolve().parent.parent / "uploads" / "applied_jobs_log.json"
 
 
@@ -247,6 +255,18 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
             return {"success": False, "manual": True, "note": "No Apply button found"}
 
         if outcome == "modal_failed":
+            try:
+                _page_text_mf = (await page.inner_text("body")).lower()
+                _exp_phrases_mf = [
+                    "no longer accepting applications", "this job is no longer",
+                    "no longer available", "job is closed", "position has been filled",
+                    "this posting has expired", "job has expired",
+                ]
+                if any(p in _page_text_mf for p in _exp_phrases_mf):
+                    log.info("Job expired (modal_failed + expired text): %s", job.get("url"))
+                    return {"success": False, "expired": True, "note": "No longer accepting applications"}
+            except Exception:
+                pass
             _emit("apply_step", {"url": job.get("url", ""),
                 "step": "️ Going to manual: Easy Apply button clicked but modal never opened"})
             return {"success": False, "manual": True, "note": "Easy Apply modal never opened after click"}
@@ -290,10 +310,20 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
         _exc_type = type(exc).__name__.lower()
         if any(x in _exc_str or x in _exc_type for x in
                ["targetclosed", "target page", "context destroyed", "target closed"]):
-            _emit("apply_step", {"url": job.get("url", ""), "step":
-                "✓ Page closed after submit — application likely submitted"})
-            return {"success": True, "manual": False,
-                    "note": "Submitted (page closed)", "apply_type": "Easy Apply"}
+            # Page closed — only valid success signal for Easy Apply modal
+            # For external apply this would be a false positive
+            _apply_url = job.get("url", "")
+            _is_easy_apply = "linkedin.com" in _apply_url
+            if _is_easy_apply:
+                _emit("apply_step", {"url": _apply_url,
+                    "step": "✓ Page closed after submit — application likely submitted"})
+                return {"success": True, "manual": False,
+                        "note": "Submitted (page closed)", "apply_type": "Easy Apply"}
+            else:
+                _emit("apply_step", {"url": _apply_url,
+                    "step": "⚠️ External page closed — sending to manual queue"})
+                return {"success": False, "manual": True,
+                        "note": "External page closed before confirmation"}
         log.error("_apply_linkedin error: %s\n%s", exc, traceback.format_exc())
         return {"success": False, "manual": False, "note": str(exc)}
 
@@ -570,6 +600,8 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
 
     _emit("apply_start", {"total": len(jobs)})
 
+    _skipped_urls.clear()  # reset per-session skip list
+
     success_count = 0
     manual_count  = 0
     failed_count  = 0
@@ -633,6 +665,14 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     await browser.close()
                     _db.update_apply_session(session_id, datetime.utcnow().isoformat(),
                                              0, 0, len(jobs))
+                    try:
+                        from applier.memory import get_memory
+                        get_memory().save_application_result(
+                            job.get('url',''), 'linkedin', False, [],
+                            failure_note=str(_warmup_exc if '_warmup_exc' in dir() else 'crash')
+                        )
+                    except Exception:
+                        pass
                     _emit("session_done", {"success": 0, "manual": 0, "failed": len(jobs)})
                     return
                 log.info("Session verified — ready to apply")
@@ -648,6 +688,12 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     break
 
                 url       = job.get("url", "")
+
+                if url and url in _skipped_urls:
+                    log.info("Skipping removed job: %s", url)
+                    _emit("apply_step", {"url": url, "step": "⏭️ Skipped (removed from list)"})
+                    failed_count += 1
+                    continue
                 title     = job.get("title", "")
                 company   = job.get("company", "")
 
@@ -677,11 +723,13 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                         except Exception:
                             pass
                     result = await handler(page, job, cfg, resume_text, prof)
-                    if result["success"]:
+                    if result.get("success"):
                         break
-                    if result["manual"] and result.get("note") in ("CAPTCHA", "LinkedIn session expired"):
+                    if result.get("expired"):
+                        break  # no point retrying expired jobs
+                    if result.get("manual") and result.get("note") in ("CAPTCHA", "LinkedIn session expired"):
                         break  # no point retrying these
-                    if result["manual"]:
+                    if result.get("manual"):
                         if attempt < MAX_RETRIES:
                             _emit("apply_step", {"url": url, "step": f"  Attempt {attempt} failed — will retry"})
                             continue
@@ -695,13 +743,14 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     "company":    company,
                     "platform":   platform,
                     "apply_type": result.get("apply_type", "Unknown"),
-                    "success":    result["success"],
-                    "manual":     result["manual"],
+                    "success":    result.get("success", False),
+                    "expired":    result.get("expired", False),
+                    "manual":     result.get("manual", False),
                     "note":       result.get("note", ""),
                 })
 
                 is_debug = job.get("id") == -1
-                if result["success"]:
+                if result.get("success"):
                     success_count += 1
                     applied_count += 1
                     if not is_debug:
@@ -711,8 +760,11 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     else:
                         log.info("DEBUG job — skipping DB write (Applied ✓)")
                     log.info("Applied: %s @ %s", title, company)
+                elif result.get("expired"):
+                    failed_count += 1
+                    note = result.get("note", "No longer accepting applications")
+                    log.info("Expired: %s @ %s — %s", title, company, note)
                 else:
-                    # ALL non-success outcomes (manual=True or outright failures) go to manual queue
                     manual_count += 1
                     note = result.get("note", "Unknown failure")
                     if not is_debug:
