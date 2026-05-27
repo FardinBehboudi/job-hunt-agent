@@ -1,12 +1,30 @@
 .env
-.env
 dedup.db
-uploads/linkedin_session.json
 __pycache__/
 *.pyc
-
 *.pyo
+*.backup
 .venv/
 *.log
 .idea/
+
+# personal / sensitive uploads
+uploads/linkedin_session.json
+uploads/resume_en.pdf
+uploads/cover_letter.pdf
+uploads/tracker.xlsx
+uploads/jobhunt.db
+uploads/applied_jobs_log.json
+uploads/matched_jobs.json
+uploads/scraped_jobs.json
+uploads/debug_*.png
+uploads/_import_tmp.xlsx
+uploads/.fuse_hidden*
+
+# personal data
 data/linkedin_session.json
+data/agent_memory.db
+data/config.yaml
+
+# agent logs
+agent/
