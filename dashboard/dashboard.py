@@ -1453,7 +1453,7 @@ td { padding: 10px 14px; vertical-align: middle; }
 
       <div class="card c-total card-active" data-sub="overview"   onclick="showSubTab('overview')"   title="Overview" style="cursor:pointer"><div class="n" id="s-total">—</div><div class="lbl">Total</div></div>
 
-      <div class="card c-applied"           data-sub="applied"    onclick="showSubTab('applied')"    title="Applied jobs" style="cursor:pointer"><div class="n" id="s-applied">—</div><div class="lbl">Applied</div></div>
+      <div class="card c-applied"           data-sub="applied"    onclick="showSubTab('applied')"    title="Applied jobs" style="cursor:pointer"><div class="n" id="s-applied">—</div><div class="lbl">In Review</div></div>
 
       <div class="card c-interview"         data-sub="interviews" onclick="showSubTab('interviews')" title="Interviews" style="cursor:pointer"><div class="n" id="s-interviews">—</div><div class="lbl">Interviews</div></div>
 
@@ -1709,6 +1709,23 @@ td { padding: 10px 14px; vertical-align: middle; }
 
           </span>
 
+        </div>
+
+        <!-- job-limit selector — mirrors Step 3 threshold control -->
+        <div id="step2-limit-banner" class="hidden" style="padding:9px 18px;background:#0d1f14;border-bottom:1px solid #21262d;font-size:0.82rem;color:#22c55e;font-weight:600;">
+          &#10003; <span id="step2-above-cnt">0</span> jobs selected for matching &middot; <span id="step2-below-cnt">0</span> excluded
+        </div>
+
+        <div id="step2-limit-bar" class="hidden" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #21262d;background:#161b22;">
+          <label style="font-size:0.82rem;font-weight:600;color:#8b949e;white-space:nowrap;">Jobs to Match:</label>
+          <input type="range" id="step2-limit-slider" min="1" max="100" value="100"
+                 style="width:120px;accent-color:#3b82f6;cursor:pointer;" oninput="onLimitSlider()">
+          <input type="number" id="step2-limit-num" min="1" max="100" value="100"
+                 style="width:58px;padding:4px 6px;border:1px solid #30363d;border-radius:6px;font-size:0.84rem;background:#0d1117;color:#e2e8f0;"
+                 oninput="onLimitNum()">
+          <span style="font-size:0.77rem;color:#64748b;">
+            Showing top <span id="step2-limit-hint-val">100</span> jobs for matching &nbsp;(drag to adjust)
+          </span>
         </div>
 
         <div class="pip-toolbar">
@@ -3827,6 +3844,9 @@ let _matchedJobs      = [];
 
 let _matchedFiltered  = [];
 
+let _step2MatchLimit  = 9999;   // how many of the reviewed jobs to send to the matcher
+let _step2LimitIds    = [];     // ordered scraped_job IDs for those jobs
+
 let _step3Jobs        = [];
 
 let _step3Threshold   = 70;
@@ -4357,7 +4377,17 @@ async function loadScrapedJobs() {
 
     document.getElementById('scrape-cache-stats').classList.remove('hidden');
 
-    renderScrapedTable();
+    if (_scrapedJobs.length > 0) {
+
+      _step2MatchLimit = _scrapedJobs.length;   // default: match all
+
+      document.getElementById('step2-limit-banner').classList.remove('hidden');
+
+      document.getElementById('step2-limit-bar').classList.remove('hidden');
+
+    }
+
+    _updateStep2Limit(_step2MatchLimit);
 
   } catch (err) { showToast(err.message, 'error'); }
 
@@ -4381,9 +4411,51 @@ function filterScrapedJobs() {
 
     : [..._scrapedJobs];
 
+  _updateStep2Limit(_step2MatchLimit);
+
+}
+
+
+
+function _updateStep2Limit(val) {
+
+  const total = _scrapedFiltered.length;
+
+  if (total === 0) return;
+
+  _step2MatchLimit = Math.min(total, Math.max(1, parseInt(val) || total));
+
+  const sliderEl = document.getElementById('step2-limit-slider');
+
+  const numEl    = document.getElementById('step2-limit-num');
+
+  const hintVal  = document.getElementById('step2-limit-hint-val');
+
+  const aboveEl  = document.getElementById('step2-above-cnt');
+
+  const belowEl  = document.getElementById('step2-below-cnt');
+
+  if (sliderEl) { sliderEl.max = total; sliderEl.value = _step2MatchLimit; }
+
+  if (numEl)    { numEl.max = total;    numEl.value    = _step2MatchLimit; }
+
+  if (hintVal)  hintVal.textContent = _step2MatchLimit;
+
+  if (aboveEl)  aboveEl.textContent = _step2MatchLimit;
+
+  if (belowEl)  belowEl.textContent = total - _step2MatchLimit;
+
+  _step2LimitIds = _scrapedFiltered.slice(0, _step2MatchLimit).map(j => j.id).filter(Boolean);
+
   renderScrapedTable();
 
 }
+
+
+
+function onLimitSlider() { _updateStep2Limit(document.getElementById('step2-limit-slider').value); }
+
+function onLimitNum()    { _updateStep2Limit(document.getElementById('step2-limit-num').value); }
 
 
 
@@ -4453,7 +4525,11 @@ function renderScrapedTable() {
 
   }
 
-  tbody.innerHTML = _scrapedFiltered.map(j => {
+  let _passedLimit = true;
+
+  tbody.innerHTML = _scrapedFiltered.map((j, idx) => {
+
+    const isSelected = idx < _step2MatchLimit;
 
     const cs  = j.cache_status === 'cached' ? 'cached' : 'new';
 
@@ -4465,7 +4541,25 @@ function renderScrapedTable() {
 
       : '';
 
-    return `<tr data-id="${j.id||''}">
+    let sep = '';
+
+    if (_passedLimit && !isSelected) {
+
+      const excl = _scrapedFiltered.length - _step2MatchLimit;
+
+      sep = `<tr><td colspan="6" style="text-align:center;font-size:0.74rem;color:#475569;padding:4px 8px;`
+
+          + `background:#0d1117;font-style:italic;border-top:1px dashed #21262d;">`
+
+          + `&#8212; excluded from matching (${excl} job${excl !== 1 ? 's' : ''}) &#8212;</td></tr>`;
+
+      _passedLimit = false;
+
+    }
+
+    const rowStyle = isSelected ? '' : 'opacity:0.35;background:#0b0f14;';
+
+    return sep + `<tr style="${rowStyle}" data-id="${j.id||''}">
 
       <td class="td-title">${esc(j.title||'?')}${easyApplyBadge}</td>
 
@@ -4549,6 +4643,10 @@ async function dismissJob(url, row) {
 
       _scrapedFiltered.length + ' of ' + _scrapedJobs.length + ' jobs';
 
+    // Keep limit in sync after removal (re-render after the fade animation)
+
+    setTimeout(() => { if (_scrapedFiltered.length > 0) _updateStep2Limit(_step2MatchLimit); }, 250);
+
     if (_matchedFiltered.length !== _matchedJobs.length ||
 
         document.getElementById('matched-tbody').querySelector(`[data-url="${CSS.escape(url)}"]`)) {
@@ -4619,7 +4717,14 @@ async function startMatch() {
 
   try {
 
-    const r = await fetch('/api/pipeline/match', {method:'POST'});
+    const _matchIds = (_step2LimitIds.length && _step2LimitIds.length < _scrapedJobs.length)
+      ? _step2LimitIds : null;
+
+    const r = await fetch('/api/pipeline/match', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ job_ids: _matchIds }),
+    });
 
     const d = await r.json();
 
@@ -9654,7 +9759,7 @@ def _scrape_worker():
 
 
 
-def _match_worker():
+def _match_worker(job_ids=None):
 
     _pipeline_set(step=3, error=None)
 
@@ -9666,11 +9771,17 @@ def _match_worker():
 
         from dedup import db as _db
 
-        jobs = _main.run_match_only()
+        jobs = _main.run_match_only(job_ids=job_ids)
+
+        # Auto-dismiss jobs scored below 50 — not worth seeing ever again
+        _db.init_db()
+        purged = _db.purge_low_score_jobs(min_score=50)
+        if purged:
+            log.info("Auto-dismissed %d jobs with match_score < 50", purged)
+            # Drop purged jobs from the in-memory result list too
+            jobs = [j for j in jobs if (j.get("match_score") or 0) >= 50]
 
         # Sync matched_jobs scores back into seen_jobs so audit and cache stats stay consistent
-
-        _db.init_db()
 
         with _db._conn() as db:
 
@@ -9752,7 +9863,11 @@ def api_pipeline_scrape():
 
 def api_pipeline_match():
 
-    if not _run_in_thread(_match_worker):
+    body = request.get_json(force=True, silent=True) or {}
+
+    job_ids = body.get("job_ids") or None
+
+    if not _run_in_thread(_match_worker, job_ids):
 
         return jsonify({"error": "Pipeline already running"}), 409
 
@@ -9876,6 +9991,16 @@ def api_pipeline_match_progress():
 
             scored  = db.execute("SELECT COUNT(*) FROM matched_jobs").fetchone()[0]
 
+            from matcher import matcher as _matcher_mod
+
+            _run_stats = _matcher_mod.get_match_stats()
+
+            if _run_stats.get("total") is not None:
+
+                total  = _run_stats["total"]
+
+                scored = _run_stats.get("fresh", 0) + _run_stats.get("cache_hits", 0)
+
             passed  = db.execute(
 
                 "SELECT COUNT(*) FROM matched_jobs WHERE match_score >= ?"
@@ -9898,10 +10023,6 @@ def api_pipeline_match_progress():
 
         current_job = f"{last[0]} @ {last[1]}" if last else ""
 
-        from matcher import matcher as _matcher
-
-        stats = _matcher.get_match_stats()
-
         return jsonify({
 
             "total":           total,
@@ -9912,11 +10033,11 @@ def api_pipeline_match_progress():
 
             "current_job":     current_job,
 
-            "fresh":           stats.get("fresh", 0),
+            "fresh":           _run_stats.get("fresh", 0),
 
-            "cache_hits":      stats.get("cache_hits", 0),
+            "cache_hits":      _run_stats.get("cache_hits", 0),
 
-            "resume_changed":  stats.get("resume_changed", False),
+            "resume_changed":  _run_stats.get("resume_changed", False),
 
             "passed":          passed,
 
@@ -10026,7 +10147,7 @@ def api_jobs_dismiss():
 
         _db.init_db()
 
-        _db.dismiss_job(url)
+        _db.purge_job_by_url(url, reason="dismissed by user")
 
         return jsonify({"ok": True})
 
@@ -10048,7 +10169,25 @@ def api_jobs_dismiss_by_id(job_id):
 
         _db.init_db()
 
-        _db.dismiss_job_by_id(job_id)
+        with _db._conn() as db:
+
+            # job_id comes from scraped_jobs.id (the Select/Match step tables)
+            row = db.execute("SELECT url FROM scraped_jobs WHERE id=?", (job_id,)).fetchone()
+
+            if not row:
+
+                # Fallback: cache manager uses seen_jobs.id
+                row = db.execute("SELECT url FROM seen_jobs WHERE id=?", (job_id,)).fetchone()
+
+        url = (row["url"] if row else None)
+
+        if url:
+
+            _db.purge_job_by_url(url, reason="dismissed by user")
+
+        else:
+
+            _db.dismiss_job_by_id(job_id)   # last resort: mark seen_jobs by id
 
         return jsonify({"ok": True})
 
@@ -10136,6 +10275,18 @@ def api_matcher_results():
 
                 JOIN scraped_jobs s ON s.id = m.scraped_job_id
 
+                WHERE s.url NOT IN (
+
+                    SELECT url FROM excluded_jobs WHERE url IS NOT NULL AND url != ''
+
+                )
+
+                AND s.url NOT IN (
+
+                    SELECT url FROM seen_jobs WHERE dismissed = 1 AND url IS NOT NULL
+
+                )
+
                 ORDER BY m.match_score DESC
 
             """).fetchall()
@@ -10155,6 +10306,14 @@ def api_matcher_results():
                     FROM seen_jobs
 
                     WHERE match_score IS NOT NULL AND match_score > 0
+
+                      AND dismissed = 0
+
+                      AND url NOT IN (
+
+                          SELECT url FROM excluded_jobs WHERE url IS NOT NULL AND url != ''
+
+                      )
 
                     ORDER BY match_score DESC
 
@@ -10203,6 +10362,12 @@ def api_pipeline_matched_jobs():
                 WHERE s.url NOT IN (
 
                     SELECT url FROM excluded_jobs WHERE url IS NOT NULL AND url != ''
+
+                )
+
+                AND s.url NOT IN (
+
+                    SELECT url FROM seen_jobs WHERE dismissed = 1 AND url IS NOT NULL
 
                 )
 
