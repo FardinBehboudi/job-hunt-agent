@@ -254,7 +254,10 @@ def answer_custom_question(
                             if opt.lower() in ("true", "yes", "1", "ja", "oui"):
                                 return opt
                         return options[0] if options else "Yes"
-                return "No, I am a German citizen and do not require visa sponsorship."
+                # Text/textarea fallback — distinguish "are you eligible?" from "do you need sponsorship?"
+                if re.search(r"need|require|sponsor", question_text, re.I):
+                    return "No, I am a German citizen and do not require visa sponsorship."
+                return "Yes"  # eligible / authorized to work
             if isinstance(val, bool):
                 if field_type == "radio" and options:
                     return options[0] if val else (options[1] if len(options) > 1 else "No")

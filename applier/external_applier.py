@@ -36,6 +36,54 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+# ── Cookie / privacy consent popup dismissal ──────────────────────────────────
+_CONSENT_ACCEPT_RE = re.compile(
+    r"^(accept all|accept all cookies|alle akzeptieren|accept cookies|"
+    r"alle cookies akzeptieren|i accept|agree|agree all|agree to all|"
+    r"allow all|allow cookies|allow all cookies|ok|got it|"
+    r"verstanden|zustimmen|einverstanden|accepter tout|tout accepter|"
+    r"aceitar tudo|aceptar todo|akkoord|alles accepteren)$",
+    re.I,
+)
+
+
+async def _dismiss_consent_popups(page: Page) -> None:
+    """Click Accept on any cookie/privacy consent dialog. Tries text match then CMP selectors."""
+    try:
+        buttons = await page.query_selector_all("button, [role='button']")
+        for btn in buttons:
+            try:
+                if not await btn.is_visible():
+                    continue
+                txt = (await btn.inner_text()).strip()
+                if _CONSENT_ACCEPT_RE.match(txt):
+                    await btn.click()
+                    await asyncio.sleep(0.8)
+                    log.info("Dismissed consent popup: clicked '%s'", txt[:40])
+                    return
+            except Exception:
+                pass
+        for sel in [
+            "#onetrust-accept-btn-handler",
+            ".cc-btn.cc-allow",
+            "[data-testid='uc-accept-all-button']",
+            "#CybotCookiebotDialogBodyButtonAccept",
+            ".accept-all",
+            "[aria-label*='accept all' i]",
+        ]:
+            try:
+                loc = page.locator(sel)
+                if await loc.count() and await loc.first.is_visible():
+                    await loc.first.click()
+                    await asyncio.sleep(0.8)
+                    log.info("Dismissed consent popup via selector: %s", sel)
+                    return
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 # ── Platform detection ────────────────────────────────────────────────────────
 
 _PLATFORM_PATTERNS: list[tuple[str, str]] = [
@@ -389,6 +437,11 @@ async def _fill_remaining_questions(
                     continue
                 if (await inp.input_value()).strip():
                     continue
+                # Skip combobox inputs — handled separately below
+                _inp_role = (await inp.get_attribute("role") or "").lower()
+                _inp_popup = (await inp.get_attribute("aria-haspopup") or "").lower()
+                if _inp_role == "combobox" or _inp_popup in ("listbox", "true"):
+                    continue
                 label = await _get_label(page, inp)
                 if not label:
                     continue
@@ -448,6 +501,66 @@ async def _fill_remaining_questions(
                         await sel.select_option(value=answer)
                     _emit("apply_step", {"url": url, "step": f"  ✎ {(label or 'select')[:40]}: {answer[:40]}"})
                     prior.append({"question": label or "select", "answer": answer})
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Custom (React/Angular) combobox dropdowns — role="combobox" or aria-haspopup=listbox
+    try:
+        _PH2 = {"", "select", "select an option", "---", "please select", "choose one"}
+        comboboxes = page.locator(
+            "input[role='combobox']:not([disabled]), "
+            "input[aria-haspopup='listbox']:not([disabled]), "
+            "input[aria-haspopup='true']:not([disabled])"
+        )
+        for i in range(min(await comboboxes.count(), 10)):
+            try:
+                cb_input = comboboxes.nth(i)
+                if not await cb_input.is_visible():
+                    continue
+                cur_val = ((await cb_input.input_value()) or "").strip().lower()
+                if cur_val and cur_val not in _PH2:
+                    continue  # already filled
+                label = await _get_label(page, cb_input)
+                if not label:
+                    continue
+                # Click to open the dropdown
+                await cb_input.click()
+                await asyncio.sleep(0.5)
+                # Collect visible option elements
+                opts_loc = page.locator(
+                    "[role='option']:visible, [role='listbox'] [role='option']:visible, "
+                    "li[data-value]:visible"
+                )
+                opts_count = await opts_loc.count()
+                opts = []
+                for oi in range(min(opts_count, 20)):
+                    txt = (await opts_loc.nth(oi).text_content() or "").strip()
+                    if txt and txt.lower() not in _PH2:
+                        opts.append(txt)
+                if not opts:
+                    # close by pressing Escape and skip
+                    await cb_input.press("Escape")
+                    continue
+                answer = answer_custom_question(label, "select", opts, resume_text, profile, job_desc, prior_answers=prior)
+                if not answer:
+                    await cb_input.press("Escape")
+                    continue
+                # Click the matching option
+                clicked = False
+                for oi in range(min(await opts_loc.count(), 20)):
+                    opt_el = opts_loc.nth(oi)
+                    txt = (await opt_el.text_content() or "").strip()
+                    if txt.lower() == answer.lower() or answer.lower() in txt.lower():
+                        await opt_el.click()
+                        clicked = True
+                        break
+                if not clicked:
+                    await cb_input.press("Escape")
+                    continue
+                _emit("apply_step", {"url": url, "step": f"  ✎ {label[:40]}: {answer[:40]}"})
+                prior.append({"question": label, "answer": answer})
             except Exception:
                 pass
     except Exception:
@@ -834,6 +947,9 @@ async def _route_to_handler(
     page: Page, job: dict, cfg: dict,
     resume_text: str, profile: dict, platform: str
 ) -> dict:
+    # Dismiss cookie/privacy consent popups before any form interaction
+    await _dismiss_consent_popups(page)
+
     handler = PLATFORM_HANDLERS.get(platform)
     if handler and platform not in ("linkedin", "unknown"):
         new_url = page.url

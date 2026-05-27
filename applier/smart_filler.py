@@ -124,7 +124,7 @@ Return ONLY the JSON array."""
 
     try:
         resp = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=1200,
             messages=[{
                 "role": "user",
@@ -343,7 +343,7 @@ async def _find_and_click_submit(page) -> bool:
         if client:
             b64 = base64.b64encode(await page.screenshot()).decode()
             resp = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-6",
                 max_tokens=100,
                 messages=[{"role": "user", "content": [
                     {"type": "image", "source": {
@@ -427,25 +427,26 @@ async def smart_fill_form(page, profile: dict, resume_text: str,
     submitted = await _find_and_click_submit(page)
     if submitted:
         await asyncio.sleep(2)
-        # Use smart multi-signal verifier
+        # Use smart multi-signal verifier — only mark success if confirmed
         try:
             from applier.external_applier import _verify_submission as _verify_ext
             _confirmed = await _verify_ext(page)
-            if _confirmed:
-                _emit("apply_step", {"url": url, "step": "  ✅ Smart apply: submission confirmed"})
-                try:
-                    from applier.memory import get_memory
-                    _plat2 = page.url.split("/")[2].replace("www.","").split(".")[0]
-                    get_memory().save_application_result(url, _plat2, True, [])
-                except Exception:
-                    pass
-                return {"success": True, "note": "Submitted via smart fill"}
-        except Exception:
-            pass
-        _emit("apply_step", {"url": url, "step": "  ✅ Smart apply: submit clicked"})
-        return {"success": True, "note": "Submit clicked via smart fill"}
+        except Exception as _ve:
+            log.warning("smart_filler: verification error: %s", _ve)
+            _confirmed = False
+        if _confirmed:
+            _emit("apply_step", {"url": url, "step": "  ✅ Smart apply: submission confirmed"})
+            try:
+                from applier.memory import get_memory
+                _plat2 = page.url.split("/")[2].replace("www.","").split(".")[0]
+                get_memory().save_application_result(url, _plat2, True, [])
+            except Exception:
+                pass
+            return {"success": True, "manual": False, "note": "Submitted via smart fill"}
+        _emit("apply_step", {"url": url, "step": "  ⚠️ Submit clicked but not confirmed — sending to manual"})
+        return {"success": False, "manual": True, "note": "Submit clicked but submission not confirmed"}
 
-    return {"success": False, "note": "Smart fill: could not find submit button"}
+    return {"success": False, "manual": True, "note": "Smart fill: could not find submit button"}
 
 
 async def smart_apply_page(page, job: dict, profile: dict,
@@ -489,4 +490,4 @@ async def smart_apply_page(page, job: dict, profile: dict,
         else:
             break  # no more steps
 
-    return {"success": False, "note": "Smart apply could not submit"}
+    return {"success": False, "manual": True, "note": "Smart apply could not submit"}

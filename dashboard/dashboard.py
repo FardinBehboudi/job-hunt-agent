@@ -828,29 +828,44 @@ td { padding: 10px 14px; vertical-align: middle; }
 
 .section-dot.dot-applied  { color:#22c55e; }
 
-.ajc-actions { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+.ajc-actions { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; align-items:center; }
 
 .ajc-btn {
-
-  font-size:0.72rem; padding:3px 10px; border-radius:5px; border:none;
-
-  cursor:pointer; font-weight:600; transition:opacity .15s;
-
+  background:#21262d; border:1px solid #30363d; color:#8b949e;
+  border-radius:6px; padding:3px 10px; font-size:0.74rem; cursor:pointer;
+  font-weight:500; transition:background .15s; white-space:nowrap; text-decoration:none;
+  display:inline-block; line-height:1.5;
 }
 
-.ajc-btn:hover { opacity:0.8; }
+.ajc-btn:hover { background:#30363d; color:#e2e8f0; }
 
-.ajc-btn-applied  { background:#14532d; color:#4ade80; }
+.ajc-btn-applied  { border-color:#16a34a; color:#4ade80; background:#0d2b1a; }
+.ajc-btn-applied:hover { background:#14532d; }
 
-.ajc-btn-retry    { background:#1e3a5f; color:#60a5fa; }
+.ajc-btn-retry    { border-color:#1d4ed8; color:#60a5fa; background:#0d1f3a; }
+.ajc-btn-retry:hover { background:#1e3a5f; }
 
-.ajc-btn-open     { background:#1e293b; color:#94a3b8; text-decoration:none; display:inline-block; }
+.ajc-btn-remove   { border-color:#7f1d1d; color:#f87171; background:#1a0a0a; }
+.ajc-btn-remove:hover { background:#2d1515; }
 
-.ajc-btn-exclude  { background:#1a1a2e; color:#6b7280; }
+.ajc-btn-open     { border-color:#30363d; color:#8b949e; background:#21262d; }
+.ajc-btn-exclude  { border-color:#374151; color:#6b7280; background:#1a1a1a; }
+
+.ajc-situation {
+  font-size:0.74rem; font-weight:600; padding:3px 9px; border-radius:6px;
+  display:inline-block; cursor:default; white-space:nowrap;
+}
+.ajc-situation.sit-done    { background:#0d2b1a; color:#4ade80; border:1px solid #16a34a; }
+.ajc-situation.sit-manual  { background:#2a1500; color:#fb923c; border:1px solid #92400e; }
+.ajc-situation.sit-failed  { background:#1a0a0a; color:#f87171; border:1px solid #7f1d1d; }
+.ajc-situation.sit-expired { background:#111;    color:#6b7280; border:1px solid #374151; }
+.ajc-situation.sit-pending { background:#0d1117; color:#64748b; border:1px solid #1e293b; }
 
 .apply-job-card.status-expired { border-left:3px solid #374151; opacity:.65; }
 
 .section-dot.dot-expired  { color:#4b5563; }
+
+.section-dot.dot-failed   { color:#ef4444; }
 
 /* Compact cards */
 
@@ -862,7 +877,7 @@ td { padding: 10px 14px; vertical-align: middle; }
 
 .ajc-note { font-size:0.71rem !important; }
 
-.ajc-btn { padding:2px 8px !important; font-size:0.7rem !important; }
+.ajc-btn { padding:3px 10px !important; font-size:0.74rem !important; }
 
 .apply-section-header { padding:4px 0 6px 0 !important; margin-bottom:6px !important; font-size:0.72rem !important; }
 
@@ -2063,6 +2078,22 @@ td { padding: 10px 14px; vertical-align: middle; }
                 </div>
 
                 <div id="cards-expired"></div>
+
+              </div>
+
+              <!-- Section: Failed -->
+
+              <div class="apply-section-block" id="section-failed" style="display:none">
+
+                <div class="apply-section-header">
+
+                  <span class="section-dot dot-failed">&#9679;</span>
+
+                  Failed <span id="count-failed" class="section-count"></span>
+
+                </div>
+
+                <div id="cards-failed"></div>
 
               </div>
 
@@ -5978,35 +6009,31 @@ function _buildJobCard(j, idx, section) {
 
     : '';
 
-  const actionBtns = section === 'manual'
+  const _sitMap = {
+    done:    `<span class="ajc-situation sit-done">&#10003; Applied</span>`,
+    manual:  `<span class="ajc-situation sit-manual">&#9888; ${esc(j._applyNote || 'Manual Queue')}</span>`,
+    failed:  `<span class="ajc-situation sit-failed">&#10007; ${esc(j._applyNote || 'Failed')}</span>`,
+    expired: `<span class="ajc-situation sit-expired">&#8856; No longer accepting</span>`,
+    running: `<span class="ajc-situation sit-pending">&#9654; Applying…</span>`,
+  };
 
-    ? `<div class="ajc-actions">
+  const situationBadge = _sitMap[j._applyStatus] || '';
 
-         <button class="ajc-btn ajc-btn-applied" onclick="markJobApplied(${idx})">&#10003; Applied</button>
+  const manualMarkBtn = section === 'manual'
+    ? `<button class="ajc-btn ajc-btn-applied" onclick="markJobApplied(${idx})" title="Mark as manually applied">&#10003; I Applied</button>`
+    : '';
 
-         <button class="ajc-btn ajc-btn-retry"   onclick="retryJob(${idx})">&#8617; Retry</button>
+  const retryBtn = section !== 'pending'
+    ? `<button class="ajc-btn ajc-btn-retry" onclick="retryJob(${idx})" title="Reset to pending and retry">&#8617; Retry</button>`
+    : '';
 
-         <button class="ajc-btn" style="background:#2d1515;color:#f87171;" onclick="removeFromManual(${idx})">&#10005; Remove</button>
-
+  const actionBtns = `<div class="ajc-actions">
+         ${situationBadge}
+         ${manualMarkBtn}
+         ${retryBtn}
+         <button class="ajc-btn ajc-btn-remove" onclick="removeApplyCard(${idx})" title="Remove from list">&#10005; Remove</button>
          ${openBtn}
-
-       </div>`
-
-    : section === 'expired'
-
-    ? `<div class="ajc-actions">
-
-         <button class="ajc-btn ajc-btn-exclude" onclick="excludeExpiredJob(${idx})">&#128683; Not Interested</button>
-
-         ${openBtn}
-
-       </div>`
-
-    : section === 'pending'
-
-    ? `<div class="ajc-actions">${openBtn}</div>`
-
-    : `<div class="ajc-actions">${openBtn}</div>`;
+       </div>`;
 
   return `<div class="apply-job-card ${statusCls}" id="ajc-${idx}">
 
@@ -6054,6 +6081,8 @@ function renderApplyCards() {
 
     document.getElementById('section-applied').style.display = 'none';
 
+    document.getElementById('section-failed').style.display  = 'none';
+
     return;
 
   }
@@ -6064,9 +6093,11 @@ function renderApplyCards() {
 
   const pending = _applyJobs.filter((j,i) =>
 
-    !j._applyStatus || j._applyStatus === 'pending' || j._applyStatus === 'running' || j._applyStatus === 'failed');
+    !j._applyStatus || j._applyStatus === 'pending' || j._applyStatus === 'running');
 
   const expired = _applyJobs.filter((j,i) => j._applyStatus === 'expired');
+
+  const failed  = _applyJobs.filter((j,i) => j._applyStatus === 'failed');
 
   const manual  = _applyJobs.filter((j,i) => j._applyStatus === 'manual');
 
@@ -6157,6 +6188,34 @@ function renderApplyCards() {
   } else if (expiredSection) {
 
     expiredSection.style.display = 'none';
+
+  }
+
+
+
+  // Failed section
+
+  const failedSection = document.getElementById('section-failed');
+
+  const failedContainer = document.getElementById('cards-failed');
+
+  const failedCount = document.getElementById('count-failed');
+
+  if (failedSection) {
+
+    if (failed.length) {
+
+      failedSection.style.display = '';
+
+      failedContainer.innerHTML = failed.map(j => _buildJobCard(j, _applyJobs.indexOf(j), 'failed')).join('');
+
+      if (failedCount) failedCount.textContent = `(${failed.length})`;
+
+    } else {
+
+      failedSection.style.display = 'none';
+
+    }
 
   }
 
@@ -6255,6 +6314,43 @@ function removeFromManual(idx) {
   renderApplyCards();
 
   showToast('Removed from manual queue', 'info');
+
+}
+
+
+
+function removeApplyCard(idx) {
+
+  const j = _applyJobs[idx];
+
+  if (!j) return;
+
+  const st = j._applyStatus;
+
+  // Tell the backend to skip this job if the session is still running
+  if (!st || st === 'pending' || st === 'running') {
+
+    if (j.url) fetch('/api/apply/skip', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({url: j.url})
+    });
+
+  }
+
+  if (st === 'manual')  _applyStats.manual  = Math.max(0, (_applyStats.manual||0)  - 1);
+
+  if (st === 'failed')  _applyStats.failed  = Math.max(0, (_applyStats.failed||0)  - 1);
+
+  if (st === 'done')    _applyStats.success = Math.max(0, (_applyStats.success||0) - 1);
+
+  _applyJobs.splice(idx, 1);
+
+  updateApplySessionBar();
+
+  renderApplyCards();
+
+  showToast('Removed', 'info');
 
 }
 
@@ -6516,6 +6612,14 @@ function handleApplyEvent(evt) {
 
           applyLogLine('success', '  ✓ Applied: ' + d.company + ' — ' + d.title + (d.apply_type ? ' [' + d.apply_type + ']' : ''));
 
+        } else if (d.expired) {
+
+          if (i>=0){ _applyJobs[i]._applyStatus='expired'; _applyJobs[i]._applyNote=d.note||'No longer accepting applications'; }
+
+          _applyStats.failed++;
+
+          applyLogLine('failed', '  ⊘ Expired: ' + d.company + ' — ' + d.title);
+
         } else if (d.manual) {
 
           if (i>=0){ _applyJobs[i]._applyStatus='manual'; _applyJobs[i]._applyNote=d.note; }
@@ -6599,6 +6703,17 @@ function handleApplyEvent(evt) {
         }
 
         if (_applyEvtSrc) { _applyEvtSrc.close(); _applyEvtSrc = null; }
+
+        // Auto-dismiss jobs still in failed/expired at session end (user showed no interest)
+        _applyJobs.forEach(j => {
+          if ((j._applyStatus === 'failed' || j._applyStatus === 'expired') && j.url) {
+            fetch('/api/jobs/dismiss', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({url: j.url})
+            });
+          }
+        });
 
         loadManualQueue();
 
@@ -10848,6 +10963,26 @@ def api_apply_manual_queue():
         return jsonify({"items": [], "error": str(exc)})
 
 
+
+
+
+@app.route("/api/apply/skip", methods=["POST"])
+
+def api_apply_skip():
+
+    """Mark a job URL to be skipped in the current apply session."""
+
+    url = (request.get_json(silent=True) or {}).get("url", "").strip()
+
+    if not url:
+
+        return jsonify({"error": "url required"}), 400
+
+    from applier.applier import skip_url
+
+    skip_url(url)
+
+    return jsonify({"ok": True})
 
 
 
