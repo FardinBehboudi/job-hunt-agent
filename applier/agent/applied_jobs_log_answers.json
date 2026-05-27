@@ -321,5 +321,37 @@
       []
     ],
     "answer": "I don't have a Dribbble URL to provide. Dribbble is a platform primarily used by designers to showcase visual design work, and my background is in backend engineering rather than design."
+  },
+  {
+    "key": [
+      "search",
+      "text",
+      []
+    ],
+    "answer": "I am a Backend Java Engineer with 5+ years of experience building scalable microservices and distributed systems, with strong expertise in cloud-native infrastructure using Docker, Kubernetes, and AWS. My background in system design, data modeling with PostgreSQL and MongoDB, ETL pipeline development through messaging systems like Kafka and RabbitMQ, and performance optimization aligns well with building the geospatial data infrastructure for renewable energy. I'm particularly interested in applying my microservices and cloud architecture experience to solve the data challenges driving the renewable energy transition, and I'm ready to contribute immediately from Berlin."
+  },
+  {
+    "key": [
+      "type here...",
+      "text",
+      []
+    ],
+    "answer": "I'm ready to help you fill out your application. However, I notice you haven't included the actual question yet — it shows \"Type here...\" as a placeholder. \n\nCould you please provide the specific question or field you'd like me to answer? Once you share it, I'll respond with my answer based on my profile as Felix Behboudi."
+  },
+  {
+    "key": [
+      "hello@example.com...",
+      "text",
+      []
+    ],
+    "answer": "f_behboud@hotmail.com"
+  },
+  {
+    "key": [
+      "type here...",
+      "textarea",
+      []
+    ],
+    "answer": "I'm ready to help you fill out your application. However, I notice you haven't provided the specific question you'd like me to answer. Could you please tell me what the textarea field is asking for? Once you share the question, I'll provide a thoughtful response that reflects your background and experience."
   }
 ]

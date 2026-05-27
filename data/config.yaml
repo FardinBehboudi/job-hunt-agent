@@ -1,7 +1,7 @@
 notify_email: f_behboud@hotmail.com
 locations:
 - Berlin
-min_match_score: 82
+min_match_score: 50
 max_applications_per_day: 10
 posted_limit: month
 smart_scrape: true

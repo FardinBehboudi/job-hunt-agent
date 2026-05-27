@@ -666,6 +666,87 @@ def dismiss_job(url: str) -> None:
         db.execute("UPDATE seen_jobs SET dismissed=1 WHERE url=?", (url,))
 
 
+def purge_job_by_url(url: str, reason: str = "dismissed") -> None:
+    """Permanently remove a job across all tables so it never resurfaces.
+
+    Actions (all in one transaction):
+    - INSERT into excluded_jobs → blocks stage-3 cache restoration on future scrapes
+    - seen_jobs.dismissed = 1  → blocks fresh-scrape dedup path
+    - DELETE from matched_jobs → cleans current match results
+    - DELETE from scraped_jobs → cleans current review list
+    """
+    url = (url or "").strip()
+    if not url:
+        return
+    with _conn() as db:
+        row = db.execute(
+            "SELECT company, title FROM seen_jobs WHERE url=? LIMIT 1", (url,)
+        ).fetchone()
+        company = row["company"] if row else ""
+        title   = row["title"]   if row else ""
+        db.execute("""
+            INSERT INTO excluded_jobs (url, company, title, reason)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(url) DO UPDATE SET
+                reason      = excluded.reason,
+                excluded_at = CURRENT_TIMESTAMP
+        """, (url, company or "", title or "", reason))
+        db.execute("UPDATE seen_jobs SET dismissed=1 WHERE url=?", (url,))
+        db.execute("""
+            DELETE FROM matched_jobs
+            WHERE scraped_job_id IN (SELECT id FROM scraped_jobs WHERE url=?)
+        """, (url,))
+        db.execute("DELETE FROM scraped_jobs WHERE url=?", (url,))
+
+
+def purge_low_score_jobs(min_score: int = 50) -> int:
+    """Auto-dismiss all matched jobs with match_score < min_score.
+
+    For each qualifying job:
+    - Inserts into excluded_jobs (permanent scrape block, survives table clears)
+    - Sets seen_jobs.dismissed = 1 (blocks fresh-scrape and cache-restore paths)
+    - Deletes from matched_jobs and scraped_jobs (cleans the current run)
+
+    Returns the count of purged jobs.
+    """
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT s.id  AS scraped_id,
+                   m.id  AS matched_id,
+                   s.url, s.company, s.title,
+                   m.match_score
+            FROM   matched_jobs m
+            JOIN   scraped_jobs s ON s.id = m.scraped_job_id
+            WHERE  m.match_score < ?
+        """, (min_score,)).fetchall()
+
+        if not rows:
+            return 0
+
+        for r in rows:
+            url = (r["url"] or "").strip()
+            if not url:
+                continue
+            db.execute("""
+                INSERT INTO excluded_jobs (url, company, title, reason)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(url) DO UPDATE SET
+                    reason      = excluded.reason,
+                    excluded_at = CURRENT_TIMESTAMP
+            """, (url, r["company"] or "", r["title"] or "",
+                  f"auto-dismissed: low score ({r['match_score']}%)"))
+            db.execute("UPDATE seen_jobs SET dismissed=1 WHERE url=?", (url,))
+
+        matched_ids = [r["matched_id"] for r in rows]
+        scraped_ids = [r["scraped_id"] for r in rows]
+        ph_m = ",".join("?" * len(matched_ids))
+        ph_s = ",".join("?" * len(scraped_ids))
+        db.execute(f"DELETE FROM matched_jobs WHERE id IN ({ph_m})", matched_ids)
+        db.execute(f"DELETE FROM scraped_jobs  WHERE id IN ({ph_s})", scraped_ids)
+
+    return len(rows)
+
+
 def dismiss_job_by_id(job_id: int) -> None:
     with _conn() as db:
         db.execute("UPDATE seen_jobs SET dismissed=1 WHERE id=?", (job_id,))

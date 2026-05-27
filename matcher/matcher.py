@@ -216,7 +216,7 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
 
     # ── Scoring cache ─────────────────────────────────────────────────────────
     current_hash = _db.get_resume_hash(cfg)
-    _match_stats = {"fresh": 0, "cache_hits": 0, "resume_changed": False, "invalidated": 0}
+    _match_stats = {"fresh": 0, "cache_hits": 0, "resume_changed": False, "invalidated": 0, "total": len(jobs)}
 
     if current_hash:
         log.info("Resume hash: %s — cache will skip jobs already scored with this hash", current_hash)

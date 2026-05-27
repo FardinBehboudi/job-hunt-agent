@@ -180,8 +180,11 @@ def run_scrape_only(cfg: dict | None = None) -> list[dict]:
     return jobs
 
 
-def run_match_only(cfg: dict | None = None) -> list[dict]:
-    """Score unmatched scraped jobs, store results in DB, return matched list."""
+def run_match_only(cfg: dict | None = None, job_ids: list | None = None) -> list[dict]:
+    """Score unmatched scraped jobs, store results in DB, return matched list.
+
+    job_ids: optional list of scraped_job IDs to restrict matching to.
+    """
     if cfg is None:
         cfg = load_config()
     setup_logging(cfg)
@@ -190,6 +193,10 @@ def run_match_only(cfg: dict | None = None) -> list[dict]:
     _db.init_db()
 
     db_jobs = _db.get_unmatched_scraped_jobs()
+    if job_ids:
+        _id_set = set(job_ids)
+        db_jobs = [j for j in db_jobs if j["id"] in _id_set]
+        log.info("Job-limit filter applied: %d / %d jobs will be matched", len(db_jobs), len(_id_set))
     if db_jobs:
         jobs = [
             {
