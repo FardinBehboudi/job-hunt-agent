@@ -5,7 +5,7 @@ email_executor.py — IMAP folder moves and application status updates.
 import imaplib
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -76,7 +76,7 @@ def move(staging_id: int, override_folder: "str | None" = None,
     target_folder = FOLDER_MAP.get(category, FOLDER_MAP["Next Step"])
     source_folder = record["source_folder"]
     uid = str(record["email_uid"]).encode()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     mail = _connect(cfg)
     try:
@@ -85,6 +85,11 @@ def move(staging_id: int, override_folder: "str | None" = None,
             raise OSError(f"Cannot select source folder: {source_folder}")
 
         _ensure_folder(mail, target_folder)
+
+        # Re-select source: _ensure_folder may have switched the active mailbox
+        status, _ = mail.select(_imap_quoted(source_folder))
+        if status != "OK":
+            raise OSError(f"Cannot re-select source folder after ensure: {source_folder}")
 
         result, _ = mail.uid("COPY", uid, _imap_quoted(target_folder))
         if result != "OK":

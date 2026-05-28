@@ -68,14 +68,10 @@ def test_move_updates_staging_status_to_executed(temp_db):
     mock_mail = _make_mock_imap()
     with patch("tracking.email_executor._connect", return_value=mock_mail), \
          patch("tracking.email_executor.db", temp_db):
-        try:
-            email_executor.move(sid)
-        except Exception:
-            pass  # might fail due to mock_mail not being fully wired; check status
+        email_executor.move(sid)
 
     record = temp_db.get_staged_email(sid)
-    # status should be either executed or failed
-    assert record["status"] in ("executed", "failed", "pending")
+    assert record["status"] == "executed"
 
 
 def test_move_updates_application_status(temp_db):
