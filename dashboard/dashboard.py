@@ -76,6 +76,9 @@ def _setup_logging(cfg):
 
 app = Flask(__name__)
 
+from dashboard.email_admin import email_admin_bp  # noqa: E402
+app.register_blueprint(email_admin_bp)
+
 log = logging.getLogger(__name__)
 
 
@@ -1420,6 +1423,8 @@ td { padding: 10px 14px; vertical-align: middle; }
       <button class="tab-btn active" data-tab="dashboard" onclick="showTab('dashboard')">&#128202; Dashboard</button>
 
       <button class="tab-btn"        data-tab="agent"     onclick="showTab('agent')">&#129302; Job Hunt Agent</button>
+
+      <button class="tab-btn"        data-tab="email-admin" onclick="showTab('email-admin')">&#128231; Email Admin</button>
 
     </nav>
 
@@ -2981,6 +2986,20 @@ function showTab(name) {
   document.getElementById('refresh-pill').classList.toggle('hidden', name !== 'dashboard');
 
   if (name === 'agent' && !_agentInited) { _agentInited = true; initAgentTab(); }
+
+  if (name === 'email-admin') {
+    fetch('/email-admin/')
+      .then(r => r.text())
+      .then(html => {
+        const mount = document.getElementById('email-admin-mount');
+        mount.innerHTML = html;
+        mount.querySelectorAll('script').forEach(s => {
+          const ns = document.createElement('script');
+          ns.textContent = s.textContent;
+          document.head.appendChild(ns);
+        });
+      });
+  }
 
 }
 
@@ -8944,6 +8963,12 @@ fetchDashboard();
 setInterval(fetchDashboard, 60000);
 
 </script>
+
+  <!-- ═══ EMAIL ADMIN TAB ═══ -->
+
+  <div id="tab-email-admin" class="tab-content hidden">
+    <div id="email-admin-mount"></div>
+  </div>
 
 </body>
 

@@ -407,10 +407,12 @@ def get_overview_data() -> dict:
         else:
             buckets["Applied"] += r["cnt"]
 
+    auto_events = get_upcoming_events()
     return {
         "stats":           {"total": total, **buckets},
         "upcoming_events": [dict(r) for r in upcoming],
         "priority_tasks":  [dict(r) for r in tasks],
+        "auto_events":     auto_events,
     }
 
 
