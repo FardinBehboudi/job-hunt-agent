@@ -163,6 +163,54 @@ def init_db() -> None:
                 reason      TEXT,
                 excluded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS email_staging (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_uid             TEXT,
+                email_message_id      TEXT UNIQUE,
+                sender                TEXT,
+                subject               TEXT,
+                body_preview          TEXT,
+                received_date         TEXT,
+                source_folder         TEXT,
+                matched_app_id        INTEGER REFERENCES applications(id),
+                match_confidence      INTEGER DEFAULT 0,
+                match_type            TEXT DEFAULT 'unmatched',
+                predicted_folder      TEXT,
+                confidence_score      INTEGER DEFAULT 0,
+                classification_reason TEXT,
+                status                TEXT DEFAULT 'pending',
+                user_override_folder  TEXT,
+                created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at           TIMESTAMP,
+                executed_at           TIMESTAMP,
+                notes                 TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS upcoming_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_id          INTEGER REFERENCES applications(id),
+                event_type      TEXT,
+                title           TEXT,
+                description     TEXT,
+                event_date      TEXT,
+                event_time      TEXT,
+                timezone        TEXT,
+                priority        TEXT DEFAULT 'medium',
+                source_email_id INTEGER REFERENCES email_staging(id),
+                status          TEXT DEFAULT 'scheduled',
+                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS email_move_history (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_staging_id INTEGER REFERENCES email_staging(id),
+                from_folder      TEXT,
+                to_folder        TEXT,
+                moved_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                success          INTEGER DEFAULT 0,
+                error_message    TEXT
+            );
         """)
     # Migrate existing tables — add columns if missing
     _migrations = [
@@ -180,6 +228,9 @@ def init_db() -> None:
         ("manual_apply_queue",    "session_id",     "TEXT DEFAULT NULL"),
         ("applications", "applied_by",  "TEXT DEFAULT ''"),
         ("applications", "apply_type", "TEXT DEFAULT ''"),
+        ("applications", "last_email_date",       "TEXT DEFAULT NULL"),
+        ("applications", "last_email_preview",    "TEXT DEFAULT NULL"),
+        ("applications", "last_email_staging_id", "INTEGER DEFAULT NULL"),
     ]
     for table, col, definition in _migrations:
         try:
@@ -1187,4 +1238,173 @@ def get_all_jobs() -> list[dict]:
             FROM applications
             ORDER BY date_applied DESC, created_at DESC
         """).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── Email staging ──────────────────────────────────────────────────────────────
+
+def stage_email(record: dict) -> int:
+    """Insert a new email staging record. Returns new id, or 0 on duplicate."""
+    with _conn() as db:
+        cur = db.execute("""
+            INSERT OR IGNORE INTO email_staging
+            (email_uid, email_message_id, sender, subject, body_preview,
+             received_date, source_folder, matched_app_id, match_confidence,
+             match_type, predicted_folder, confidence_score,
+             classification_reason, status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            record.get("email_uid", ""),
+            record.get("email_message_id", ""),
+            record.get("sender", ""),
+            record.get("subject", ""),
+            record.get("body_preview", ""),
+            record.get("received_date", ""),
+            record.get("source_folder", ""),
+            record.get("matched_app_id"),
+            record.get("match_confidence", 0),
+            record.get("match_type", "unmatched"),
+            record.get("predicted_folder", "Uncertain"),
+            record.get("confidence_score", 0),
+            record.get("classification_reason", ""),
+            "pending",
+        ))
+        return cur.lastrowid
+
+
+def get_staged_email(email_id: int) -> "dict | None":
+    with _conn() as db:
+        row = db.execute(
+            "SELECT * FROM email_staging WHERE id=?", (email_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_pending_emails() -> list[dict]:
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT es.*, a.company, a.role
+            FROM email_staging es
+            LEFT JOIN applications a ON a.id = es.matched_app_id
+            WHERE es.status = 'pending'
+            ORDER BY es.created_at DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_staged_message_ids() -> set[str]:
+    """Return all processed Message-IDs for dedup."""
+    with _conn() as db:
+        rows = db.execute(
+            "SELECT email_message_id FROM email_staging WHERE email_message_id IS NOT NULL"
+        ).fetchall()
+    return {r["email_message_id"] for r in rows}
+
+
+def update_email_staging_status(email_id: int, status: str,
+                                  executed_at: "str | None" = None,
+                                  reviewed_at: "str | None" = None) -> None:
+    with _conn() as db:
+        db.execute("""
+            UPDATE email_staging
+            SET status=?,
+                executed_at=COALESCE(?, executed_at),
+                reviewed_at=COALESCE(?, reviewed_at)
+            WHERE id=?
+        """, (status, executed_at, reviewed_at, email_id))
+
+
+def set_email_override_folder(email_id: int, folder: str) -> None:
+    with _conn() as db:
+        db.execute(
+            "UPDATE email_staging SET user_override_folder=? WHERE id=?",
+            (folder, email_id),
+        )
+
+
+def get_email_logs(limit: int = 100, offset: int = 0) -> list[dict]:
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT h.*, es.sender, es.subject, es.predicted_folder
+            FROM email_move_history h
+            LEFT JOIN email_staging es ON es.id = h.email_staging_id
+            ORDER BY h.moved_at DESC
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def log_email_move(staging_id: int, from_folder: str, to_folder: str,
+                   success: bool, error: "str | None" = None) -> None:
+    with _conn() as db:
+        db.execute("""
+            INSERT INTO email_move_history
+            (email_staging_id, from_folder, to_folder, success, error_message)
+            VALUES (?,?,?,?,?)
+        """, (staging_id, from_folder, to_folder, int(success), error or ""))
+
+
+def update_application_from_email(app_id: int, status: str,
+                                   email_date: str, preview: str,
+                                   staging_id: int) -> None:
+    with _conn() as db:
+        db.execute("""
+            UPDATE applications
+            SET status=?, last_email_date=?, last_email_preview=?,
+                last_email_staging_id=?
+            WHERE id=?
+        """, (status, email_date, preview[:200], staging_id, app_id))
+
+
+def get_application_companies() -> list[dict]:
+    """Return id + company for all applications, used for email-to-job matching."""
+    with _conn() as db:
+        rows = db.execute(
+            "SELECT id, company FROM applications "
+            "WHERE company IS NOT NULL AND company != '' "
+            "ORDER BY id DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def insert_upcoming_event(record: dict) -> int:
+    with _conn() as db:
+        cur = db.execute("""
+            INSERT INTO upcoming_events
+            (app_id, event_type, title, description, event_date, event_time,
+             timezone, priority, source_email_id, status)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (
+            record.get("app_id"),
+            record.get("event_type", "interview"),
+            record.get("title", ""),
+            record.get("description", ""),
+            record.get("event_date"),
+            record.get("event_time"),
+            record.get("timezone"),
+            record.get("priority", "medium"),
+            record.get("source_email_id"),
+            "scheduled",
+        ))
+        return cur.lastrowid
+
+
+def get_upcoming_events(event_type: "str | None" = None) -> list[dict]:
+    with _conn() as db:
+        if event_type:
+            rows = db.execute("""
+                SELECT ue.*, a.company, a.role
+                FROM upcoming_events ue
+                LEFT JOIN applications a ON a.id = ue.app_id
+                WHERE ue.event_type=? AND ue.status='scheduled'
+                ORDER BY ue.event_date ASC, ue.created_at ASC
+            """, (event_type,)).fetchall()
+        else:
+            rows = db.execute("""
+                SELECT ue.*, a.company, a.role
+                FROM upcoming_events ue
+                LEFT JOIN applications a ON a.id = ue.app_id
+                WHERE ue.status='scheduled'
+                ORDER BY ue.event_date ASC, ue.created_at ASC
+            """).fetchall()
     return [dict(r) for r in rows]
