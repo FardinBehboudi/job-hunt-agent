@@ -346,9 +346,9 @@ def run(cfg: "dict | None" = None) -> None:
                 "source_email_id": staging_id,
             })
 
-        if auto_move_enabled and confidence >= threshold and category == "Rejected":
-            _auto_execute(staging_id, category, link["matched_app_id"],
-                          msg["received_date"], subject)
+        if auto_move_enabled and category == "Rejected":
+            _maybe_auto_execute(staging_id, category, link["matched_app_id"],
+                                msg["received_date"], subject, threshold)
 
 
 if __name__ == "__main__":
