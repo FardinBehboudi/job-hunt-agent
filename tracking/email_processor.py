@@ -5,6 +5,11 @@ Run via Windows Task Scheduler every 15 minutes:
     python tracking\\email_processor.py
 """
 
+import sys
+from pathlib import Path
+# Ensure project root is on sys.path when run as a standalone script
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import email as _email_module
 import email.header
 import email.utils
