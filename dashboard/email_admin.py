@@ -167,7 +167,11 @@ _EMAIL_ADMIN_HTML = """
   border-bottom:1px solid #21262d; white-space:nowrap; background:#161b22; }
 .ea-table tbody tr { border-bottom:1px solid #0d1117; }
 .ea-table tbody tr:hover { background:#1c2128; }
-.ea-table td { padding:9px 12px; vertical-align:middle; }
+.ea-table td { padding:7px 10px; vertical-align:middle; }
+.td-date { white-space:nowrap; color:#8b949e; font-size:0.78rem; }
+.td-nowrap { white-space:nowrap; }
+.td-trunc { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.td-trunc-sm { max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ea-folder { display:inline-block; padding:2px 8px; border-radius:99px;
   font-size:0.7rem; font-weight:700; text-transform:uppercase; }
 .ef-rejected { background:#2d0f0f; color:#f87171; }
@@ -298,14 +302,14 @@ function eaRenderPending() {
   const rows = data.map(r => `
     <tr id="ea-row-${r.id}">
       <td class="td-date">${eaEsc(r.received_date||'').slice(0,16)}</td>
-      <td>${eaEsc(r.sender)}</td>
-      <td>${eaEsc(r.subject)}</td>
-      <td>
+      <td class="td-trunc-sm">${eaEsc(r.sender)}</td>
+      <td class="td-trunc">${eaEsc(r.subject)}</td>
+      <td class="td-nowrap">
         <span class="ea-folder ${eaFolderClass(r.predicted_folder)}">${eaEsc(r.predicted_folder)}</span>
         <span class="ea-conf">${r.confidence_score}%</span>
       </td>
-      <td style="max-width:200px;font-size:0.78rem;color:#8b949e">${eaEsc(r.classification_reason)}</td>
-      <td>${r.company
+      <td class="td-trunc" style="font-size:0.78rem;color:#8b949e">${eaEsc(r.classification_reason)}</td>
+      <td class="td-trunc-sm">${r.company
         ? eaEsc(r.company) + '<br><span style="color:#64748b;font-size:0.76rem">'+eaEsc(r.role||'')+'</span>'
         : '<span class="ea-unmatched">'+r.match_type+'</span>'}</td>
       <td>
@@ -388,13 +392,13 @@ async function eaLoadLogs() {
     return `
     <tr>
       <td class="td-date">${eaEsc((r.moved_at||'').slice(0,16))}</td>
-      <td>${eaEsc(r.sender||'')}</td>
-      <td>${eaEsc(r.subject||'')}</td>
-      <td>${eaEsc(eaShortFolder(r.to_folder))}</td>
-      <td>${r.success ? '<span style="color:#34d399">✓ OK</span>'
+      <td class="td-trunc-sm">${eaEsc(r.sender||'')}</td>
+      <td class="td-trunc">${eaEsc(r.subject||'')}</td>
+      <td class="td-nowrap">${eaEsc(eaShortFolder(r.to_folder))}</td>
+      <td class="td-nowrap">${r.success ? '<span style="color:#34d399">✓ OK</span>'
                       : '<span style="color:#f87171">✗ Failed</span>'}</td>
-      <td>${sourceIcon}${isAuto ? 'Agent' : 'Manual'}</td>
-      <td style="color:#f87171;font-size:0.75rem">${eaEsc(r.error_message||'')}</td>
+      <td class="td-nowrap">${sourceIcon}${isAuto ? 'Agent' : 'Manual'}</td>
+      <td class="td-trunc" style="color:#f87171;font-size:0.75rem">${eaEsc(r.error_message||'')}</td>
     </tr>`; }).join('');
   document.getElementById('ea-logs-wrap').innerHTML = `
     <table class="ea-table">
