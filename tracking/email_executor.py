@@ -5,6 +5,7 @@ email_executor.py — Graph API folder moves and application status updates.
 import logging
 from datetime import datetime, timezone
 
+import requests
 from dotenv import load_dotenv
 
 from dedup import db
@@ -64,6 +65,19 @@ def move(staging_id: int, override_folder: "str | None" = None,
             )
         log.info("Moved staging_id=%d → %s", staging_id, target_folder)
 
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            # Message no longer exists at this ID — already moved or deleted.
+            # Treat as success so it doesn't stay in the approval queue.
+            log.warning("staging_id=%d: message not found (404), marking executed", staging_id)
+            db.log_email_move(staging_id, source_folder, target_folder, success=True)
+            db.update_email_staging_status(staging_id, "executed", executed_at=now)
+        else:
+            db.log_email_move(staging_id, source_folder, target_folder,
+                              success=False, error=str(exc))
+            db.update_email_staging_status(staging_id, "failed")
+            log.error("Move failed staging_id=%d: %s", staging_id, exc)
+            raise
     except Exception as exc:
         db.log_email_move(staging_id, source_folder, target_folder,
                           success=False, error=str(exc))
