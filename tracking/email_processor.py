@@ -193,7 +193,7 @@ def run(cfg: "dict | None" = None) -> None:
     messages: list[dict] = []
     for folder in MONITORED_FOLDERS:
         try:
-            fetched = ms_graph.get_unread_messages(folder)
+            fetched = ms_graph.get_messages(folder)
             new = [m for m in fetched if m["email_message_id"] not in seen_ids]
             messages.extend(new)
             for m in new:

@@ -118,12 +118,13 @@ def folder_id_for_display(display_name: str) -> str | None:
 _SELECT = "id,subject,sender,receivedDateTime,body,parentFolderId,internetMessageId"
 
 
-def get_unread_messages(folder_display_name: str,
-                        max_messages: int = 50) -> list[dict]:
+def get_messages(folder_display_name: str,
+                 max_messages: int = 50) -> list[dict]:
     """
-    Return up to max_messages unread messages from the named folder.
-    Each item: {graph_id, email_message_id, sender, subject, body_preview,
+    Return up to max_messages messages (read or unread) from the named folder.
+    Each item: {email_uid, email_message_id, sender, subject, body_preview,
                 received_date, source_folder}
+    Already-staged messages are filtered out by the caller via seen_ids dedup.
     """
     folder_id = folder_id_for_display(folder_display_name)
     if folder_id is None:
@@ -133,7 +134,6 @@ def get_unread_messages(folder_display_name: str,
     data = _get(
         f"{_BASE}/mailFolders/{folder_id}/messages",
         params={
-            "$filter": "isRead eq false",
             "$select": _SELECT,
             "$top": max_messages,
             "$orderby": "receivedDateTime desc",
