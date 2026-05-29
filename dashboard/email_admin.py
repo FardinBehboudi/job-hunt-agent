@@ -228,6 +228,7 @@ _EMAIL_ADMIN_HTML = """
   <div class="ea-bar">
     <button class="ea-btn primary" onclick="eaApproveAll()">Approve All ✓</button>
     <button class="ea-btn" onclick="eaSkipAll()">Skip All</button>
+    <button class="ea-btn" onclick="eaLoadPending()" title="Refresh pending list" style="margin-left:4px">🔄</button>
     <span style="flex:1"></span>
     <span class="ea-chip active" onclick="eaFilter('all',this)">All</span>
     <span class="ea-chip" onclick="eaFilter('high',this)">High Confidence</span>
@@ -345,9 +346,9 @@ function eaRenderPending() {
       <td class="td-trunc-sm">${r.company
         ? eaEsc(r.company) + '<br><span style="color:#64748b;font-size:0.76rem">'+eaEsc(r.role||'')+'</span>'
         : '<span class="ea-unmatched">'+r.match_type+'</span>'}</td>
-      <td>
+      <td id="ea-actions-${r.id}">
         <div class="ea-actions">
-          <button class="ea-btn primary" onclick="eaApprove(${r.id},this)">✓</button>
+          <button class="ea-btn primary" onclick="eaApprove(${r.id})">✓</button>
           <button class="ea-btn danger" onclick="eaSkip(${r.id})">✗</button>
           <select onchange="if(this.value){eaOverride(${r.id},this.value,this)}">
             <option value="">Change…</option>
@@ -379,20 +380,27 @@ function eaModalClose() {
 }
 document.addEventListener('keydown', e => { if(e.key==='Escape') eaModalClose(); });
 
-async function eaApprove(id, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+async function eaApprove(id) {
+  const actionsCell = document.getElementById('ea-actions-'+id);
+  if (!actionsCell || actionsCell.dataset.busy === '1') return;
+  actionsCell.dataset.busy = '1';
+  const original = actionsCell.innerHTML;
+  actionsCell.innerHTML = '<span style="color:#38bdf8;font-size:0.8rem">Moving…</span>';
   try {
     const r = await fetch('/email-admin/api/approve/'+id, {method:'POST'});
     const d = await r.json();
     if (d.ok) {
-      document.getElementById('ea-row-'+id)?.remove();
+      actionsCell.innerHTML = '<span style="color:#34d399;font-size:0.8rem">✓ Moved</span>';
+      setTimeout(() => document.getElementById('ea-row-'+id)?.remove(), 600);
     } else {
       alert('Error: ' + (d.error || 'unknown'));
-      if (btn) { btn.disabled = false; btn.textContent = '✓'; }
+      actionsCell.innerHTML = original;
+      actionsCell.dataset.busy = '0';
     }
   } catch(e) {
     alert('Request failed: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = '✓'; }
+    actionsCell.innerHTML = original;
+    actionsCell.dataset.busy = '0';
   }
 }
 
