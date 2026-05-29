@@ -376,22 +376,31 @@ async function eaLoadLogs() {
       '<div class="ea-empty">No move history yet</div>';
     return;
   }
-  const rows = data.map(r => `
+  function eaShortFolder(path) {
+    // Strip "Inbox/Applications/" prefix for display
+    return (path||'').replace(/^Inbox\/Applications\//i, '').replace(/^Applications\//i, '');
+  }
+  const rows = data.map(r => {
+    const isAuto = (r.move_source === 'auto');
+    const sourceIcon = isAuto
+      ? '<span title="Auto-filed by agent" style="margin-right:4px">🤖</span>'
+      : '<span title="Manually approved" style="margin-right:4px">👤</span>';
+    return `
     <tr>
       <td class="td-date">${eaEsc((r.moved_at||'').slice(0,16))}</td>
       <td>${eaEsc(r.sender||'')}</td>
       <td>${eaEsc(r.subject||'')}</td>
-      <td>${eaEsc(r.to_folder||'')}</td>
+      <td>${eaEsc(eaShortFolder(r.to_folder))}</td>
       <td>${r.success ? '<span style="color:#34d399">✓ OK</span>'
                       : '<span style="color:#f87171">✗ Failed</span>'}</td>
+      <td>${sourceIcon}${isAuto ? 'Agent' : 'Manual'}</td>
       <td style="color:#f87171;font-size:0.75rem">${eaEsc(r.error_message||'')}</td>
-    </tr>
-  `).join('');
+    </tr>`; }).join('');
   document.getElementById('ea-logs-wrap').innerHTML = `
     <table class="ea-table">
       <thead><tr>
         <th>Date</th><th>From</th><th>Subject</th>
-        <th>Moved To</th><th>Status</th><th>Error</th>
+        <th>Moved To</th><th>Status</th><th>By</th><th>Error</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;

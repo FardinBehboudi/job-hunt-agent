@@ -171,7 +171,7 @@ def _auto_execute(staging_id: int, category: str,
                   app_id: "int | None", received_date: str,
                   subject: str) -> None:
     try:
-        email_executor.move(staging_id)
+        email_executor.move(staging_id, move_source="auto")
         log.info("Auto-executed staging_id=%d (%s)", staging_id, category)
     except Exception as exc:
         log.error("Auto-execute failed staging_id=%d: %s", staging_id, exc)

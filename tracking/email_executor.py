@@ -34,7 +34,7 @@ APP_STATUS_MAP = {
 
 
 def move(staging_id: int, override_folder: "str | None" = None,
-         cfg: "dict | None" = None) -> None:
+         cfg: "dict | None" = None, move_source: str = "manual") -> None:
     """Move the email for staging_id to its target Outlook folder via Graph API."""
     record = db.get_staged_email(staging_id)
     if not record:
@@ -51,7 +51,8 @@ def move(staging_id: int, override_folder: "str | None" = None,
     try:
         ms_graph.move_message(graph_id, target_folder)
 
-        db.log_email_move(staging_id, source_folder, target_folder, success=True)
+        db.log_email_move(staging_id, source_folder, target_folder, success=True,
+                          move_source=move_source)
         db.update_email_staging_status(staging_id, "executed", executed_at=now)
 
         app_id = record.get("matched_app_id")
@@ -70,7 +71,8 @@ def move(staging_id: int, override_folder: "str | None" = None,
             # Message no longer exists at this ID — already moved or deleted.
             # Treat as success so it doesn't stay in the approval queue.
             log.warning("staging_id=%d: message not found (404), marking executed", staging_id)
-            db.log_email_move(staging_id, source_folder, target_folder, success=True)
+            db.log_email_move(staging_id, source_folder, target_folder, success=True,
+                              move_source=move_source)
             db.update_email_staging_status(staging_id, "executed", executed_at=now)
         else:
             db.log_email_move(staging_id, source_folder, target_folder,

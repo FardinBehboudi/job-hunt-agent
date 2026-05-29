@@ -231,6 +231,7 @@ def init_db() -> None:
         ("applications", "last_email_date",       "TEXT DEFAULT NULL"),
         ("applications", "last_email_preview",    "TEXT DEFAULT NULL"),
         ("applications", "last_email_staging_id", "INTEGER DEFAULT NULL"),
+        ("email_move_history", "move_source",     "TEXT DEFAULT 'manual'"),
     ]
     for table, col, definition in _migrations:
         try:
@@ -1337,13 +1338,14 @@ def get_email_logs(limit: int = 100, offset: int = 0) -> list[dict]:
 
 
 def log_email_move(staging_id: int, from_folder: str, to_folder: str,
-                   success: bool, error: "str | None" = None) -> None:
+                   success: bool, error: "str | None" = None,
+                   move_source: str = "manual") -> None:
     with _conn() as db:
         db.execute("""
             INSERT INTO email_move_history
-            (email_staging_id, from_folder, to_folder, success, error_message)
-            VALUES (?,?,?,?,?)
-        """, (staging_id, from_folder, to_folder, int(success), error or ""))
+            (email_staging_id, from_folder, to_folder, success, error_message, move_source)
+            VALUES (?,?,?,?,?,?)
+        """, (staging_id, from_folder, to_folder, int(success), error or "", move_source))
 
 
 def update_application_from_email(app_id: int, status: str,
