@@ -198,6 +198,21 @@ _EMAIL_ADMIN_HTML = """
 .ea-settings-form input[type=checkbox] { accent-color:#38bdf8; margin-right:8px; }
 .ea-badge { display:inline-block; background:#1d2d44; color:#60a5fa;
   border-radius:99px; font-size:0.7rem; padding:1px 7px; margin-left:6px; }
+.ea-clickable { cursor:pointer; border-bottom:1px dotted #444; }
+.ea-clickable:hover { color:#e2e8f0; border-bottom-color:#8b949e; }
+/* Detail modal */
+#ea-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65);
+  z-index:1000; align-items:center; justify-content:center; }
+#ea-modal-overlay.open { display:flex; }
+#ea-modal-box { background:#161b22; border:1px solid #30363d; border-radius:12px;
+  padding:24px 28px; max-width:520px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.5); }
+#ea-modal-box h3 { margin:0 0 6px; font-size:0.9rem; color:#38bdf8; }
+#ea-modal-box .ea-modal-subject { font-size:0.85rem; color:#e2e8f0; margin-bottom:14px;
+  padding-bottom:12px; border-bottom:1px solid #21262d; }
+#ea-modal-box .ea-modal-body { font-size:0.85rem; color:#94a3b8; line-height:1.6; }
+#ea-modal-close { float:right; background:none; border:none; color:#8b949e;
+  font-size:1.2rem; cursor:pointer; padding:0; margin:-4px -4px 0 0; }
+#ea-modal-close:hover { color:#e2e8f0; }
 </style>
 
 <div class="ea-subnav">
@@ -221,6 +236,16 @@ _EMAIL_ADMIN_HTML = """
   </div>
   <div class="ea-table-wrap" id="ea-pending-wrap">
     <div class="ea-empty">Loading…</div>
+  </div>
+</div>
+
+<!-- Detail modal -->
+<div id="ea-modal-overlay" onclick="if(event.target===this)eaModalClose()">
+  <div id="ea-modal-box">
+    <button id="ea-modal-close" onclick="eaModalClose()">✕</button>
+    <h3 id="ea-modal-title"></h3>
+    <div class="ea-modal-subject" id="ea-modal-subject"></div>
+    <div class="ea-modal-body" id="ea-modal-body"></div>
   </div>
 </div>
 
@@ -307,12 +332,16 @@ function eaRenderPending() {
     <tr id="ea-row-${r.id}">
       <td class="td-date">${eaEsc(r.received_date||'').slice(0,16)}</td>
       <td class="td-trunc-sm">${eaEsc(r.sender)}</td>
-      <td class="td-trunc">${eaEsc(r.subject)}</td>
+      <td class="td-trunc ea-clickable"
+          onclick="eaModalOpen('Email Subject', ${JSON.stringify('')}, ${JSON.stringify(r.subject||'')})">
+        ${eaEsc(r.subject)}</td>
       <td class="td-nowrap">
         <span class="ea-folder ${eaFolderClass(r.predicted_folder)}">${eaEsc(r.predicted_folder)}</span>
         <span class="ea-conf">${r.confidence_score}%</span>
       </td>
-      <td class="td-trunc" style="font-size:0.78rem;color:#8b949e">${eaEsc(r.classification_reason)}</td>
+      <td class="td-trunc ea-clickable" style="font-size:0.78rem;color:#8b949e"
+          onclick="eaModalOpen('AI Classification', ${JSON.stringify('From: '+(r.sender||'')+'\n'+r.subject)}, ${JSON.stringify(r.classification_reason||'')})">
+        ${eaEsc(r.classification_reason)}</td>
       <td class="td-trunc-sm">${r.company
         ? eaEsc(r.company) + '<br><span style="color:#64748b;font-size:0.76rem">'+eaEsc(r.role||'')+'</span>'
         : '<span class="ea-unmatched">'+r.match_type+'</span>'}</td>
@@ -338,6 +367,17 @@ function eaRenderPending() {
       <tbody>${rows}</tbody>
     </table>`;
 }
+
+function eaModalOpen(title, subject, body) {
+  document.getElementById('ea-modal-title').textContent = title;
+  document.getElementById('ea-modal-subject').textContent = subject;
+  document.getElementById('ea-modal-body').textContent = body;
+  document.getElementById('ea-modal-overlay').classList.add('open');
+}
+function eaModalClose() {
+  document.getElementById('ea-modal-overlay').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if(e.key==='Escape') eaModalClose(); });
 
 async function eaApprove(id, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
