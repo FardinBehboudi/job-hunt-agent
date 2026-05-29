@@ -316,7 +316,7 @@ function eaRenderPending() {
         <div class="ea-actions">
           <button class="ea-btn primary" onclick="eaApprove(${r.id})">✓</button>
           <button class="ea-btn danger" onclick="eaSkip(${r.id})">✗</button>
-          <select onchange="if(this.value){eaOverride(${r.id},this.value);this.value=''}">
+          <select onchange="if(this.value){eaOverride(${r.id},this.value,this)}">
             <option value="">Change…</option>
             ${EA_FOLDERS.map(f=>'<option value="'+f+'">'+f+'</option>').join('')}
           </select>
@@ -347,15 +347,25 @@ async function eaSkip(id) {
   document.getElementById('ea-row-'+id)?.remove();
 }
 
-async function eaOverride(id, folder) {
-  const r = await fetch('/email-admin/api/override/'+id, {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({folder}),
-  });
-  const d = await r.json();
-  if (d.ok) document.getElementById('ea-row-'+id)?.remove();
-  else alert('Error: '+d.error);
+async function eaOverride(id, folder, selectEl) {
+  if (selectEl) { selectEl.disabled = true; }
+  try {
+    const r = await fetch('/email-admin/api/override/'+id, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({folder}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('ea-row-'+id)?.remove();
+    } else {
+      alert('Move failed: ' + (d.error || 'unknown error'));
+      if (selectEl) { selectEl.value = ''; selectEl.disabled = false; }
+    }
+  } catch(e) {
+    alert('Request failed: ' + e.message);
+    if (selectEl) { selectEl.value = ''; selectEl.disabled = false; }
+  }
 }
 
 async function eaApproveAll() {
