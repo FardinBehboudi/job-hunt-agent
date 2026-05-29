@@ -14,12 +14,12 @@ load_dotenv()
 log = logging.getLogger(__name__)
 
 FOLDER_MAP = {
-    "Rejected":       "Applications/Rejected",
-    "In Review":      "Applications/In Review",
-    "Next Step":      "Applications/Next Step",
-    "Interview":      "Applications/Next Step/Interview/Todo",
-    "Code Challenge": "Applications/Next Step/Code Challange/ToDo",
-    "Offer":          "Applications/Offer",
+    "Rejected":       "Inbox/Applications/Rejected",
+    "In Review":      "Inbox/Applications/In Review",
+    "Next Step":      "Inbox/Applications/Next Step",
+    "Interview":      "Inbox/Applications/Next Step/Interview/Todo",
+    "Code Challenge": "Inbox/Applications/Next Step/Code Challange/ToDo",
+    "Offer":          "Inbox/Applications/Offer",
 }
 
 APP_STATUS_MAP = {
