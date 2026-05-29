@@ -1,130 +1,164 @@
 # Job Hunt Automation System
 
-Complete job application automation with Claude in Chrome integration.
+Fully automated job application pipeline with AI-powered scraping, applying, and email tracking.
 
 ## Quick Start
 
 ### 1. Prerequisites
-- Python 3.9+
-- API key: ANTHROPIC_API_KEY
-- Resume files in ~/Dropbox/CV/
+- Python 3.11+
+- API keys: `ANTHROPIC_API_KEY`, `APIFY_API_TOKEN`
+- Azure app registration (for email OAuth2)
+- Resume files in `~/Dropbox/CV/`
 
-### 2. Setup
+### 2. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configuration
-Edit `config.yaml`:
+### 3. Configure
+Edit `data/config.yaml` with your profile:
 ```yaml
+contact:
+  email: "you@hotmail.com"
 application_profile:
-  first_name: "Felix"
-  last_name: "Behboudi"
-  email: "your.email@example.com"
-  phone: "+49 123 456789"
-  linkedin_url: "https://linkedin.com/in/..."
-  github_url: "https://github.com/..."
-  current_location: "Berlin"
-  years_of_experience: 5
-  salary_expectation: 75000
-  work_permit: "German citizen"
+  first_name: "..."
+  last_name: "..."
+  ...
 ```
 
-### 4. Add Resumes
-Place in `~/Dropbox/CV/`:
-- `resume_en.pdf` - English resume
-- `resume_de.pdf` - German resume
+Copy `.env.example` to `.env` and fill in your keys:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+APIFY_API_TOKEN=apify_api_...
+LINKEDIN_EMAIL=you@hotmail.com
+LINKEDIN_PASSWORD=...
+```
+
+### 4. One-time email auth (Microsoft OAuth2)
+```bash
+python tracking/get_token.py
+```
+Opens a device-code browser flow — sign in with your Outlook/Hotmail account.
+Saves `MS_REFRESH_TOKEN` to `.env` automatically.
 
 ### 5. Run
 ```bash
-# Full automation
+# Full pipeline (scrape → match → apply)
 python main.py
 
-# Test single job
-python apply_debugger.py --url "https://www.linkedin.com/jobs/view/123456/"
+# Email processor only
+python tracking/email_processor.py
+
+# Dashboard
+python dashboard/dashboard.py
 ```
+
+---
 
 ## How It Works
 
-1. **Scraping** - Find jobs from LinkedIn/Indeed/Glassdoor
-2. **Matching** - AI scores jobs (min 70% match)
-3. **Applying** - Claude in Chrome + intelligent form filling applies automatically
-4. **Logging** - Results saved to JSON and Excel
+1. **Scraping** — Finds jobs from LinkedIn via Apify
+2. **Matching** — Claude AI scores each job against your profile (min 70%)
+3. **Applying** — Claude in Chrome fills and submits application forms
+4. **Tracking** — SQLite DB logs every application with status
+5. **Email monitoring** — Reads recruiter emails via Microsoft Graph API, classifies them (Rejected / In Review / Interview / Offer / etc.), and files them into the correct Outlook folders
 
-## Features
+---
 
-✅ Easy Apply automation
-✅ External ATS form filling (Greenhouse, Lever, Ashby, Workday)
-✅ Resume upload
-✅ Intelligent form decisions via Claude AI
-✅ Application tracking
+## Email Handler
 
-## System Architecture
+The email pipeline runs every 15 minutes (via Windows Task Scheduler) and:
 
-- **main.py** - Orchestration (scraping → matching → applying)
-- **apply_agent.py** - Apply automation core
-- **apply_integration.py** - Connect matcher to applier
-- **apply_logger.py** - Log results to JSON/Excel/DB
-- **config_loader.py** - Load resume from Dropbox CV
-- **apply_debugger.py** - Debug tool for testing individual jobs
+- Fetches unread emails from: `Inbox`, `Focus`, `Other`, `Junk Email`
+- Classifies each email with Claude AI
+- Auto-files **Rejected** and **In Review** emails above 90% confidence
+- Queues everything else for manual approval in the Email Admin dashboard tab
+- Extracts calendar events from Interview / Code Challenge emails
 
-## Configuration Files
+### Outlook folder structure created automatically
+```
+Applications/
+  Rejected/
+  In Review/
+  Next Step/
+    Interview/Todo/
+    Code Challange/ToDo/
+  Offer/
+```
 
-- `config.yaml` - User profile and preferences
-- `.env` - API keys (ANTHROPIC_API_KEY)
-- `core/config.yaml` - Default configuration
+### Email Admin dashboard
+Open `http://localhost:5000` → **Email Admin** tab:
+- Review pending emails with AI classification and confidence score
+- Approve / skip individual emails or bulk-approve all
+- Override the target folder per email
+- View move history and logs
+- Adjust auto-move threshold and on/off toggle in Settings
 
-## Output Files
+---
 
-All results saved to `outputs/`:
-- `applied_jobs_log.json` - Application results
-- `job_application_tracker.xlsx` - Excel tracker
-- `debug_*.png` - Debug screenshots
+## Architecture
+
+```
+job-hunt-agent/
+├── main.py                  # Orchestration entry point
+├── data/config.yaml         # User profile & preferences
+├── .env                     # API keys & secrets (never commit)
+├── core/
+│   └── config.py            # Config loader + logging setup
+├── scraping/                # Apify job scraping
+├── matching/                # Claude AI job scoring
+├── applying/                # Claude-in-Chrome form filling
+├── tracking/
+│   ├── email_processor.py   # Fetch → classify → stage emails
+│   ├── email_executor.py    # Move emails via Graph API
+│   ├── ms_auth.py           # MSAL OAuth2 token management
+│   ├── ms_graph.py          # Microsoft Graph API helpers
+│   └── get_token.py         # One-time auth script
+├── dedup/
+│   └── db.py                # SQLite helpers (applications, email staging)
+├── dashboard/
+│   ├── dashboard.py         # Flask app + Job Hunt Agent UI
+│   └── email_admin.py       # Email Admin Blueprint (/email-admin/)
+└── tests/                   # pytest suite (23 tests)
+```
+
+---
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude API key |
+| `APIFY_API_TOKEN` | Apify scraping token |
+| `LINKEDIN_EMAIL` | LinkedIn login |
+| `LINKEDIN_PASSWORD` | LinkedIn password |
+| `MS_REFRESH_TOKEN` | Auto-set by `get_token.py` — do not edit manually |
+
+---
 
 ## Testing
 
-### Test Easy Apply
 ```bash
-python apply_debugger.py --url "https://www.linkedin.com/jobs/view/EASY_APPLY_ID/"
+pytest                          # run all tests
+pytest tests/test_email_db.py   # DB schema tests
+pytest tests/test_email_processor.py
+pytest tests/test_email_executor.py
 ```
 
-### Test External Apply
-```bash
-python apply_debugger.py --url "https://www.linkedin.com/jobs/view/EXTERNAL_APPLY_ID/"
-```
+---
 
-## Troubleshooting
+## Task Scheduler (Windows)
 
-### Resume not found
-Check that resumes are in `~/Dropbox/CV/`:
-- resume_en.pdf
-- resume_de.pdf
+To run the email processor every 15 minutes automatically:
 
-### Apply failed
-Run debugger to test individual job:
-```bash
-python apply_debugger.py --url "https://..."
-```
+1. Open **Task Scheduler** → Create Basic Task
+2. Trigger: Daily, repeat every 15 minutes
+3. Action: Start a program
+   - Program: `C:\path\to\python.exe`
+   - Arguments: `tracking\email_processor.py`
+   - Start in: `C:\Users\f_beh\Projects\claude\job-hunt-agent`
 
-Check `outputs/applied_jobs_log.json` for results.
-
-### API key issues
-Set ANTHROPIC_API_KEY in environment:
-```bash
-export ANTHROPIC_API_KEY="your_api_key_here"
-```
-
-## Development
-
-### Testing with debug output
-Add logging to see detailed execution:
-```python
-import logging
-logging.basicConfig(level=logging.DEBUG)
-```
-
-### Debugging individual jobs
-Use apply_debugger.py with verbose logging to identify issues with specific job forms.
+---
 
 ## License
 

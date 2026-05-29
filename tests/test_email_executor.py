@@ -1,10 +1,10 @@
 # tests/test_email_executor.py
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 def _insert_staging(temp_db, message_id="<exec@test.com>", folder="Inbox",
-                    category="Rejected", uid="42"):
+                    category="Rejected", uid="AAMkABC123"):
     return temp_db.stage_email({
         "email_uid": uid,
         "email_message_id": message_id,
@@ -22,37 +22,24 @@ def _insert_staging(temp_db, message_id="<exec@test.com>", folder="Inbox",
     })
 
 
-def _make_mock_imap():
-    mail = MagicMock()
-    mail.select.return_value = ("OK", [b"1"])
-    mail.uid.return_value = ("OK", [b""])
-    mail.create.return_value = ("OK", [])
-    mail.expunge.return_value = ("OK", [])
-    return mail
-
-
-def test_move_calls_imap_copy(temp_db):
+def test_move_calls_graph_move(temp_db):
     from tracking import email_executor
     sid = _insert_staging(temp_db)
 
-    mock_mail = _make_mock_imap()
-    with patch("tracking.email_executor._connect", return_value=mock_mail), \
+    with patch("tracking.email_executor.ms_graph.move_message") as mock_move, \
          patch("tracking.email_executor.db", temp_db):
         email_executor.move(sid)
 
-    # COPY should have been called with the uid and target folder
-    uid_calls = [c for c in mock_mail.uid.call_args_list
-                 if c[0][0] == "COPY"]
-    assert len(uid_calls) == 1
-    assert "Applications/Rejected" in str(uid_calls[0])
+    mock_move.assert_called_once()
+    _, target = mock_move.call_args[0]
+    assert target == "Applications/Rejected"
 
 
 def test_move_logs_success(temp_db):
     from tracking import email_executor
     sid = _insert_staging(temp_db, message_id="<log@test.com>")
 
-    mock_mail = _make_mock_imap()
-    with patch("tracking.email_executor._connect", return_value=mock_mail), \
+    with patch("tracking.email_executor.ms_graph.move_message"), \
          patch("tracking.email_executor.db", temp_db):
         email_executor.move(sid)
 
@@ -65,8 +52,7 @@ def test_move_updates_staging_status_to_executed(temp_db):
     from tracking import email_executor
     sid = _insert_staging(temp_db, message_id="<stat@test.com>")
 
-    mock_mail = _make_mock_imap()
-    with patch("tracking.email_executor._connect", return_value=mock_mail), \
+    with patch("tracking.email_executor.ms_graph.move_message"), \
          patch("tracking.email_executor.db", temp_db):
         email_executor.move(sid)
 
@@ -86,7 +72,7 @@ def test_move_updates_application_status(temp_db):
         ).fetchone()["id"]
 
     sid = temp_db.stage_email({
-        "email_uid": "77", "email_message_id": "<app@test.com>",
+        "email_uid": "AAMkACME", "email_message_id": "<app@test.com>",
         "sender": "hr@acme.com", "subject": "Rejected",
         "body_preview": "not moving forward",
         "received_date": "2026-05-28", "source_folder": "Inbox",
@@ -95,8 +81,7 @@ def test_move_updates_application_status(temp_db):
         "confidence_score": 92, "classification_reason": "rejection",
     })
 
-    mock_mail = _make_mock_imap()
-    with patch("tracking.email_executor._connect", return_value=mock_mail), \
+    with patch("tracking.email_executor.ms_graph.move_message"), \
          patch("tracking.email_executor.db", temp_db):
         email_executor.move(sid)
 
@@ -109,11 +94,10 @@ def test_move_updates_application_status(temp_db):
 
 def test_approve_batch_returns_counts(temp_db):
     from tracking import email_executor
-    sid1 = _insert_staging(temp_db, message_id="<b1@test.com>", uid="10")
-    sid2 = _insert_staging(temp_db, message_id="<b2@test.com>", uid="11")
+    sid1 = _insert_staging(temp_db, message_id="<b1@test.com>", uid="AAMkB1")
+    sid2 = _insert_staging(temp_db, message_id="<b2@test.com>", uid="AAMkB2")
 
-    mock_mail = _make_mock_imap()
-    with patch("tracking.email_executor._connect", return_value=mock_mail), \
+    with patch("tracking.email_executor.ms_graph.move_message"), \
          patch("tracking.email_executor.db", temp_db):
         result = email_executor.approve_batch([sid1, sid2])
 

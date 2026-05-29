@@ -10,15 +10,9 @@ from pathlib import Path
 # Ensure project root is on sys.path when run as a standalone script
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import email as _email_module
-import email.header
-import email.utils
-import html.parser
-import imaplib
 import json
 import logging
 import os
-import re
 
 import anthropic
 from dotenv import load_dotenv
@@ -26,15 +20,15 @@ from dotenv import load_dotenv
 from core.config import load_config
 from dedup import db
 from tracking import email_executor
+from tracking import ms_graph
 
 load_dotenv()
 log = logging.getLogger(__name__)
 
 _MODEL = "claude-sonnet-4-6"
-IMAP_HOST = "imap-mail.outlook.com"
-IMAP_PORT = 993
 MONITORED_FOLDERS = ["Inbox", "Focus", "Other", "Junk Email"]
 _EVENT_CATEGORIES = {"Interview", "Code Challenge", "Next Step"}
+_AUTO_MOVE_CATEGORIES = {"Rejected", "In Review"}
 
 # ── Claude prompts ─────────────────────────────────────────────────────────────
 
@@ -90,130 +84,6 @@ Extract event details and return:
   "priority": "<high|medium|low>"
 }}
 """
-
-# ── HTML stripping ─────────────────────────────────────────────────────────────
-
-class _Stripper(html.parser.HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self._parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self._parts.append(data)
-
-    def get_text(self) -> str:
-        return " ".join(self._parts)
-
-
-def _strip_html(raw: str) -> str:
-    s = _Stripper()
-    try:
-        s.feed(raw)
-        return s.get_text()
-    except Exception:
-        return re.sub(r"<[^>]+>", " ", raw)
-
-
-def _decode_header(value: str) -> str:
-    parts = _email_module.header.decode_header(value or "")
-    out: list[str] = []
-    for part, charset in parts:
-        if isinstance(part, bytes):
-            out.append(part.decode(charset or "utf-8", errors="replace"))
-        else:
-            out.append(str(part))
-    return "".join(out)
-
-
-def _extract_body(msg) -> str:
-    if msg.is_multipart():
-        for part in msg.walk():
-            if (part.get_content_type() == "text/plain"
-                    and "attachment" not in str(part.get("Content-Disposition", ""))):
-                charset = part.get_content_charset() or "utf-8"
-                try:
-                    return part.get_payload(decode=True).decode(charset, errors="replace")
-                except Exception:
-                    return ""
-        for part in msg.walk():
-            if part.get_content_type() == "text/html":
-                charset = part.get_content_charset() or "utf-8"
-                try:
-                    return _strip_html(
-                        part.get_payload(decode=True).decode(charset, errors="replace")
-                    )
-                except Exception:
-                    return ""
-    else:
-        charset = msg.get_content_charset() or "utf-8"
-        try:
-            raw = msg.get_payload(decode=True)
-            if raw:
-                text = raw.decode(charset, errors="replace")
-                return _strip_html(text) if msg.get_content_type() == "text/html" else text
-        except Exception:
-            pass
-    return ""
-
-
-# ── IMAP ───────────────────────────────────────────────────────────────────────
-
-def _connect(cfg: dict) -> imaplib.IMAP4_SSL:
-    addr = cfg.get("hotmail_address") or cfg["contact"]["email"]
-    password = os.getenv("HOTMAIL_PASSWORD")
-    if not password:
-        raise EnvironmentError("HOTMAIL_PASSWORD is not set in .env")
-    mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
-    mail.login(addr, password)
-    return mail
-
-
-def _fetch_unseen_from_folders(mail: imaplib.IMAP4_SSL,
-                                seen_ids: "set[str]") -> list[dict]:
-    """Fetch UNSEEN messages from all monitored folders, skipping already-staged IDs."""
-    messages: list[dict] = []
-
-    for folder in MONITORED_FOLDERS:
-        quoted = f'"{folder}"' if " " in folder else folder
-        try:
-            status, _ = mail.select(quoted, readonly=True)
-            if status != "OK":
-                log.debug("Folder unavailable: %s", folder)
-                continue
-        except Exception as exc:
-            log.debug("Cannot select folder %s: %s", folder, exc)
-            continue
-
-        status, data = mail.uid("search", None, "UNSEEN")
-        if status != "OK" or not data[0]:
-            continue
-
-        for uid in data[0].split()[-50:]:
-            try:
-                status, msg_data = mail.uid("fetch", uid, "(RFC822)")
-                if status != "OK" or not msg_data or not msg_data[0]:
-                    continue
-                parsed = _email_module.message_from_bytes(msg_data[0][1])
-                message_id = (parsed.get("Message-ID") or "").strip()
-                if not message_id or message_id in seen_ids:
-                    continue
-                _, from_addr = _email_module.utils.parseaddr(parsed.get("From", ""))
-                body = _extract_body(parsed)
-                messages.append({
-                    "email_uid": uid.decode() if isinstance(uid, bytes) else str(uid),
-                    "email_message_id": message_id,
-                    "sender": from_addr,
-                    "subject": _decode_header(parsed.get("Subject", "")),
-                    "body_preview": body[:500],
-                    "received_date": parsed.get("Date", ""),
-                    "source_folder": folder,
-                })
-                seen_ids.add(message_id)
-            except Exception as exc:
-                log.warning("Error fetching uid=%s from %s: %s", uid, folder, exc)
-
-    return messages
-
 
 # ── Classification ─────────────────────────────────────────────────────────────
 
@@ -293,7 +163,7 @@ def _maybe_auto_execute(staging_id: int, category: str,
                          app_id: "int | None", received_date: str,
                          subject: str, threshold: int = 90) -> None:
     record = db.get_staged_email(staging_id)
-    if record and category == "Rejected" and record["confidence_score"] >= threshold:
+    if record and category in _AUTO_MOVE_CATEGORIES and record["confidence_score"] >= threshold:
         _auto_execute(staging_id, category, app_id, received_date, subject)
 
 
@@ -318,10 +188,19 @@ def run(cfg: "dict | None" = None) -> None:
     auto_move_enabled = db.get_setting("email_auto_move_enabled", "1") == "1"
 
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    mail = _connect(cfg)
     seen_ids = db.get_staged_message_ids()
-    messages = _fetch_unseen_from_folders(mail, seen_ids)
-    mail.logout()
+
+    messages: list[dict] = []
+    for folder in MONITORED_FOLDERS:
+        try:
+            fetched = ms_graph.get_unread_messages(folder)
+            new = [m for m in fetched if m["email_message_id"] not in seen_ids]
+            messages.extend(new)
+            for m in new:
+                seen_ids.add(m["email_message_id"])
+        except Exception as exc:
+            log.warning("Failed to fetch from folder '%s': %s", folder, exc)
+
     log.info("Fetched %d new emails", len(messages))
 
     for msg in messages:
@@ -351,7 +230,7 @@ def run(cfg: "dict | None" = None) -> None:
                 "source_email_id": staging_id,
             })
 
-        if auto_move_enabled and category == "Rejected":
+        if auto_move_enabled and category in _AUTO_MOVE_CATEGORIES:
             _maybe_auto_execute(staging_id, category, link["matched_app_id"],
                                 msg["received_date"], subject, threshold)
 
