@@ -82,6 +82,17 @@ def api_skip(email_id: int):
     return jsonify({"ok": True})
 
 
+@email_admin_bp.route("/api/skipped", methods=["GET"])
+def api_skipped():
+    return jsonify(db.get_skipped_emails())
+
+
+@email_admin_bp.route("/api/requeue/<int:email_id>", methods=["POST"])
+def api_requeue(email_id: int):
+    db.requeue_email(email_id)
+    return jsonify({"ok": True})
+
+
 @email_admin_bp.route("/api/override/<int:email_id>", methods=["POST"])
 def api_override(email_id: int):
     data = request.get_json(force=True) or {}
@@ -219,6 +230,9 @@ _EMAIL_ADMIN_HTML = """
   <button class="ea-sub-btn active" onclick="eaShowTab('pending',this)">
     Pending Approvals<span class="ea-badge" id="ea-pending-count">0</span>
   </button>
+  <button class="ea-sub-btn" onclick="eaShowTab('skipped',this)">
+    Skipped<span class="ea-badge" id="ea-skipped-count">0</span>
+  </button>
   <button class="ea-sub-btn" onclick="eaShowTab('logs',this)">Logs</button>
   <button class="ea-sub-btn" onclick="eaShowTab('settings',this)">Settings</button>
 </div>
@@ -247,6 +261,13 @@ _EMAIL_ADMIN_HTML = """
     <h3 id="ea-modal-title"></h3>
     <div class="ea-modal-subject" id="ea-modal-subject"></div>
     <div class="ea-modal-body" id="ea-modal-body"></div>
+  </div>
+</div>
+
+<!-- Skipped -->
+<div id="ea-skipped" class="ea-section">
+  <div class="ea-table-wrap" id="ea-skipped-wrap">
+    <div class="ea-empty">Loading…</div>
   </div>
 </div>
 
@@ -301,6 +322,7 @@ function eaShowTab(id, btn) {
   btn.classList.add('active');
   if (id === 'logs') eaLoadLogs();
   if (id === 'settings') eaLoadSettings();
+  if (id === 'skipped') eaLoadSkipped();
 }
 
 function eaFilter(type, chip) {
@@ -444,6 +466,69 @@ async function eaSkipAll() {
   for (const r of _eaPendingData) await eaSkip(r.id);
 }
 
+async function eaLoadSkipped() {
+  const r = await fetch('/email-admin/api/skipped');
+  const data = await r.json();
+  const badge = document.getElementById('ea-skipped-count');
+  if (badge) badge.textContent = data.length;
+  if (!data.length) {
+    document.getElementById('ea-skipped-wrap').innerHTML =
+      '<div class="ea-empty">No skipped emails</div>';
+    return;
+  }
+  const rows = data.map(d => `
+    <tr id="ea-skipped-row-${d.id}">
+      <td class="td-date">${eaEsc((d.received_date||'').slice(0,16))}</td>
+      <td class="td-trunc-sm">${eaEsc(d.sender||'')}</td>
+      <td class="td-trunc ea-clickable"
+          onclick="eaModalOpen('Subject', '', ${JSON.stringify(d.subject||'')})">
+        ${eaEsc(d.subject||'')}</td>
+      <td class="td-nowrap">
+        <span class="ea-folder ${eaFolderClass(d.predicted_folder)}">${eaEsc(d.predicted_folder)}</span>
+        <span class="ea-conf">${d.confidence_score}%</span>
+      </td>
+      <td class="td-trunc ea-clickable" style="font-size:0.78rem;color:#8b949e"
+          onclick="eaModalOpen('AI Classification', ${JSON.stringify('From: '+(d.sender||'')+'\n'+d.subject)}, ${JSON.stringify(d.classification_reason||'')})">
+        ${eaEsc(d.classification_reason||'')}</td>
+      <td id="ea-requeue-${d.id}">
+        <button class="ea-btn" onclick="eaRequeue(${d.id})" style="font-size:0.78rem">↩ Re-queue</button>
+      </td>
+    </tr>`).join('');
+  document.getElementById('ea-skipped-wrap').innerHTML = `
+    <table class="ea-table">
+      <thead><tr>
+        <th>Date</th><th>From</th><th>Subject</th>
+        <th>Folder</th><th>Reason</th><th>Action</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function eaRequeue(id) {
+  const cell = document.getElementById('ea-requeue-'+id);
+  if (!cell || cell.dataset.busy === '1') return;
+  cell.dataset.busy = '1';
+  cell.innerHTML = '<span style="color:#38bdf8;font-size:0.8rem">Re-queuing…</span>';
+  try {
+    const r = await fetch('/email-admin/api/requeue/'+id, {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      cell.innerHTML = '<span style="color:#34d399;font-size:0.8rem">✓ Queued</span>';
+      setTimeout(() => document.getElementById('ea-skipped-row-'+id)?.remove(), 700);
+      const badge = document.getElementById('ea-skipped-count');
+      if (badge) badge.textContent = Math.max(0, parseInt(badge.textContent||0) - 1);
+    } else {
+      alert('Re-queue failed: ' + (d.error||'unknown'));
+      cell.innerHTML = '<button class="ea-btn" onclick="eaRequeue('+id+')" style="font-size:0.78rem">↩ Re-queue</button>';
+      cell.dataset.busy = '0';
+    }
+  } catch(e) {
+    alert('Request failed: ' + e.message);
+    cell.innerHTML = '<button class="ea-btn" onclick="eaRequeue('+id+')" style="font-size:0.78rem">↩ Re-queue</button>';
+    cell.dataset.busy = '0';
+  }
+}
+
 async function eaLoadLogs() {
   const r = await fetch('/email-admin/api/logs');
   const data = await r.json();
@@ -517,8 +602,12 @@ async function eaRunNow() {
   }, 3000);
 }
 
-// Load pending on init
+// Load pending and skipped counts on init
 eaLoadPending();
+fetch('/email-admin/api/skipped').then(r=>r.json()).then(data => {
+  const badge = document.getElementById('ea-skipped-count');
+  if (badge) badge.textContent = data.length;
+});
 </script>
 """
 

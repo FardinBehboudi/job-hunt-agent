@@ -1295,6 +1295,27 @@ def get_pending_emails() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_skipped_emails() -> list[dict]:
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT es.*, a.company, a.role
+            FROM email_staging es
+            LEFT JOIN applications a ON a.id = es.matched_app_id
+            WHERE es.status = 'skipped'
+            ORDER BY es.created_at DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def requeue_email(email_id: int) -> None:
+    """Reset a skipped email back to pending so it re-appears for approval."""
+    with _conn() as db:
+        db.execute(
+            "UPDATE email_staging SET status='pending', reviewed_at=NULL WHERE id=?",
+            (email_id,),
+        )
+
+
 def get_staged_message_ids() -> set[str]:
     """Return all processed Message-IDs for dedup."""
     with _conn() as db:
