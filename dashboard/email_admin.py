@@ -40,6 +40,10 @@ def api_logs():
 
 @email_admin_bp.route("/api/approve/<int:email_id>", methods=["POST"])
 def api_approve(email_id: int):
+    # Idempotency: if already executed, return success without moving again
+    record = db.get_staged_email(email_id)
+    if record and record.get("status") == "executed":
+        return jsonify({"ok": True})
     try:
         from tracking.email_executor import move
         move(email_id)
@@ -314,7 +318,7 @@ function eaRenderPending() {
         : '<span class="ea-unmatched">'+r.match_type+'</span>'}</td>
       <td>
         <div class="ea-actions">
-          <button class="ea-btn primary" onclick="eaApprove(${r.id})">✓</button>
+          <button class="ea-btn primary" onclick="eaApprove(${r.id},this)">✓</button>
           <button class="ea-btn danger" onclick="eaSkip(${r.id})">✗</button>
           <select onchange="if(this.value){eaOverride(${r.id},this.value,this)}">
             <option value="">Change…</option>
@@ -335,11 +339,21 @@ function eaRenderPending() {
     </table>`;
 }
 
-async function eaApprove(id) {
-  const r = await fetch('/email-admin/api/approve/'+id, {method:'POST'});
-  const d = await r.json();
-  if (d.ok) document.getElementById('ea-row-'+id)?.remove();
-  else alert('Error: '+d.error);
+async function eaApprove(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await fetch('/email-admin/api/approve/'+id, {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('ea-row-'+id)?.remove();
+    } else {
+      alert('Error: ' + (d.error || 'unknown'));
+      if (btn) { btn.disabled = false; btn.textContent = '✓'; }
+    }
+  } catch(e) {
+    alert('Request failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '✓'; }
+  }
 }
 
 async function eaSkip(id) {
