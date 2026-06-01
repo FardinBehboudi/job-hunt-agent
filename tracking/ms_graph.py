@@ -55,31 +55,44 @@ def _top_level_folders() -> dict[str, str]:
     return {f["displayName"].lower(): f["id"] for f in data.get("value", [])}
 
 
+@lru_cache(maxsize=None)
 def _child_folders(parent_id: str) -> dict[str, str]:
-    """Return {display_name_lower: folder_id} for direct children of parent_id."""
+    """Return {display_name_lower: folder_id} for direct children of parent_id.
+    Cached per parent_id — folder IDs are stable once created."""
     data = _get(f"{_BASE}/mailFolders/{parent_id}/childFolders", params={"$top": 100})
     return {f["displayName"].lower(): f["id"] for f in data.get("value", [])}
+
+
+# Resolved path → folder ID cache. Populated on first use, persists for server lifetime.
+_path_cache: dict[str, str] = {}
 
 
 def ensure_folder_path(path: str) -> str:
     """
     Resolve 'Applications/Rejected' → Graph folder ID, creating missing folders.
     Top-level well-known names (Inbox, Junk Email) are accepted as-is.
+    Results are cached in _path_cache so repeated moves cost zero API calls.
     """
+    if path in _path_cache:
+        return _path_cache[path]
+
     parts = [p.strip() for p in path.split("/")]
 
     # Single segment — check well-known first
     if len(parts) == 1:
         wk = _WELL_KNOWN.get(parts[0].lower())
         if wk:
+            _path_cache[path] = wk
             return wk
         top = _top_level_folders()
         if parts[0].lower() in top:
-            return top[parts[0].lower()]
+            _path_cache[path] = top[parts[0].lower()]
+            return _path_cache[path]
         # Create at top level
         result = _post(f"{_BASE}/mailFolders", {"displayName": parts[0]})
         _top_level_folders.cache_clear()
-        return result["id"]
+        _path_cache[path] = result["id"]
+        return _path_cache[path]
 
     # Multi-segment: resolve or create each level
     top = _top_level_folders()
@@ -100,8 +113,10 @@ def ensure_folder_path(path: str) -> str:
                 f"{_BASE}/mailFolders/{current_id}/childFolders",
                 {"displayName": segment},
             )
+            _child_folders.cache_clear()  # invalidate so new child is visible
             current_id = result["id"]
 
+    _path_cache[path] = current_id
     return current_id
 
 
@@ -160,10 +175,36 @@ def get_messages(folder_display_name: str,
 
 # ── Message operations ────────────────────────────────────────────────────────
 
-def move_message(graph_id: str, destination_path: str) -> None:
-    """Move message to destination_path (e.g. 'Applications/Rejected')."""
+def find_message_id_by_internet_id(internet_message_id: str) -> str | None:
+    """
+    Look up the current Graph message ID using the stable RFC-2822 internetMessageId.
+    Returns the Graph ID string, or None if not found.
+    Graph message IDs change after folder moves; internetMessageId does not.
+    """
+    try:
+        quoted = internet_message_id.replace("'", "''")
+        data = _get(
+            f"{_BASE}/messages",
+            params={
+                "$filter": f"internetMessageId eq '{quoted}'",
+                "$select": "id",
+                "$top": 1,
+            },
+        )
+        items = data.get("value", [])
+        return items[0]["id"] if items else None
+    except Exception:
+        return None
+
+
+def move_message(graph_id: str, destination_path: str) -> str:
+    """
+    Move message to destination_path (e.g. 'Applications/Rejected').
+    Returns the new Graph message ID (Graph assigns a new ID after every move).
+    """
     dest_id = ensure_folder_path(destination_path)
-    _post(f"{_BASE}/messages/{graph_id}/move", {"destinationId": dest_id})
+    result = _post(f"{_BASE}/messages/{graph_id}/move", {"destinationId": dest_id})
+    return result.get("id", graph_id)
 
 
 def mark_read(graph_id: str) -> None:

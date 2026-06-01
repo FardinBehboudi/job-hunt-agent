@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import json
 import logging
 import os
+from datetime import datetime
 
 import anthropic
 from dotenv import load_dotenv
@@ -130,6 +131,8 @@ def _link_to_application(sender: str, subject: str,
                           body_preview: str,
                           db_module=None) -> dict:
     """Match email to applications row. Returns {matched_app_id, match_confidence, match_type}."""
+    import re as _re
+
     _db = db_module or db
     domain = ""
     if "@" in sender:
@@ -137,22 +140,57 @@ def _link_to_application(sender: str, subject: str,
 
     companies = _db.get_application_companies()
 
-    if domain and len(domain) > 2:
-        exact = [c for c in companies
-                 if domain in (c.get("company") or "").lower()]
-        if len(exact) == 1:
-            return {"matched_app_id": exact[0]["id"],
-                    "match_confidence": 95, "match_type": "exact"}
-        if len(exact) > 1:
-            return {"matched_app_id": None,
-                    "match_confidence": 80, "match_type": "ambiguous"}
+    def _word_match(term: str, text: str) -> bool:
+        """True if term appears as a whole word/token in text.
+        Prevents 'sap' from matching inside 'osapiens', etc."""
+        if not term:
+            return False
+        return bool(_re.search(r'(?<!\w)' + _re.escape(term) + r'(?!\w)', text))
 
-    text = f"{subject} {body_preview}".lower()
+    # Try domain match; also try stripping common prefixes (getpliant→pliant, mycompany→company)
+    _DOMAIN_PREFIXES = ("get", "my", "use", "try", "hello", "join", "team",
+                        "meet", "talk", "go", "the", "be")
+    domain_variants = [domain]
+    for pfx in _DOMAIN_PREFIXES:
+        if domain.startswith(pfx) and len(domain) > len(pfx) + 2:
+            domain_variants.append(domain[len(pfx):])
+            break
+
+    if domain and len(domain) > 2:
+        for dv in domain_variants:
+            exact = [c for c in companies
+                     if _word_match(dv, (c.get("company") or "").lower())]
+            if len(exact) == 1:
+                return {"matched_app_id": exact[0]["id"],
+                        "match_confidence": 95, "match_type": "exact"}
+            if len(exact) > 1:
+                return {"matched_app_id": None,
+                        "match_confidence": 80, "match_type": "ambiguous"}
+
+    subject_lower = subject.lower()
+    body_lower    = body_preview.lower()
+    # Strip URLs from body before matching — prevents "google" in
+    # "calendar.google.com" from incorrectly matching the Google application.
+    body_no_urls = _re.sub(r'https?://\S+|www\.\S+|\S+\.\w{2,4}/\S*', ' ', body_lower)
+
+    # ── Pass 1: subject-only (most reliable signal) ──────────────────────────
+    # Collect ALL companies that match in the subject so we can detect ambiguity.
+    subject_hits = [c for c in companies
+                    if len((c.get("company") or "").strip()) >= 3
+                    and _word_match((c.get("company") or "").lower().strip(), subject_lower)]
+    if len(subject_hits) == 1:
+        return {"matched_app_id": subject_hits[0]["id"],
+                "match_confidence": 78, "match_type": "fuzzy"}
+    if len(subject_hits) > 1:
+        return {"matched_app_id": None,
+                "match_confidence": 78, "match_type": "ambiguous"}
+
+    # ── Pass 2: body text (URL-stripped), first match wins ───────────────────
     for c in companies:
         name = (c.get("company") or "").lower().strip()
-        if len(name) >= 3 and name in text:
+        if len(name) >= 3 and _word_match(name, body_no_urls):
             return {"matched_app_id": c["id"],
-                    "match_confidence": 70, "match_type": "fuzzy"}
+                    "match_confidence": 65, "match_type": "fuzzy"}
 
     return {"matched_app_id": None, "match_confidence": 0, "match_type": "unmatched"}
 
@@ -190,10 +228,16 @@ def run(cfg: "dict | None" = None) -> None:
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     seen_ids = db.get_staged_message_ids()
 
+    # Fetch all visible messages from monitored folders (up to 200 per folder).
+    # We keep track of every message_id currently present in Outlook so that
+    # pending records for emails the user already handled manually can be pruned.
     messages: list[dict] = []
+    live_message_ids: set[str] = set()   # all IDs currently visible in Outlook
+
     for folder in MONITORED_FOLDERS:
         try:
-            fetched = ms_graph.get_messages(folder)
+            fetched = ms_graph.get_messages(folder, max_messages=200)
+            live_message_ids.update(m["email_message_id"] for m in fetched)
             new = [m for m in fetched if m["email_message_id"] not in seen_ids]
             messages.extend(new)
             for m in new:
@@ -201,7 +245,32 @@ def run(cfg: "dict | None" = None) -> None:
         except Exception as exc:
             log.warning("Failed to fetch from folder '%s': %s", folder, exc)
 
-    log.info("Fetched %d new emails", len(messages))
+    log.info("Fetched %d new emails (%d total visible in monitored folders)",
+             len(messages), len(live_message_ids))
+
+    # ── Prune stale pending records ───────────────────────────────────────────
+    # If an email was manually moved or deleted in Outlook while it was sitting
+    # in our pending queue, remove it so the user doesn't see ghost entries.
+    if live_message_ids:   # only prune when we got a valid response from Outlook
+        pruned = 0
+        now_iso = datetime.utcnow().isoformat()
+        for pending in db.get_pending_emails():
+            mid = pending.get("email_message_id")
+            if mid and mid not in live_message_ids:
+                db.update_email_staging_status(
+                    pending["id"], "skipped",
+                    reviewed_at=now_iso,
+                )
+                pruned += 1
+                log.info("Pruned stale pending id=%d — email no longer in monitored folder", pending["id"])
+        if pruned:
+            log.info("Pruned %d stale pending record(s)", pruned)
+
+        # Re-stage emails marked 'executed' that are still in a monitored folder —
+        # their Graph move never actually happened (common from the old 404 false-executed bug).
+        restaged = db.restage_falsely_executed(live_message_ids)
+        if restaged:
+            log.info("Re-staged %d falsely-executed email(s) back to pending", restaged)
 
     for msg in messages:
         subject = msg["subject"]

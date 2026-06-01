@@ -436,7 +436,9 @@ def get_dashboard_data() -> dict:
                    verdict, match_pct, key_gap, strengths, company_size,
                    language, job_url, source, interview_chance, archive_path,
                    COALESCE(applied_by, '')  AS applied_by,
-                   COALESCE(apply_type, '')  AS apply_type
+                   COALESCE(apply_type, '')  AS apply_type,
+                   last_email_date,
+                   created_at
             FROM applications
             ORDER BY date_applied DESC, created_at DESC
         """).fetchall()
@@ -1316,13 +1318,62 @@ def requeue_email(email_id: int) -> None:
         )
 
 
+def get_failed_email_count() -> int:
+    """Return how many email_staging rows are in 'failed' status."""
+    with _conn() as db:
+        row = db.execute(
+            "SELECT COUNT(*) AS n FROM email_staging WHERE status = 'failed'"
+        ).fetchone()
+    return row["n"] if row else 0
+
+
+def restage_falsely_executed(live_message_ids: set) -> int:
+    """Re-stage executed emails that are still visible in monitored Outlook folders.
+
+    If an email is marked 'executed' but its internetMessageId still appears in a
+    monitored folder (Inbox/Focus/Other/Junk), the Graph move never actually
+    happened — reset it to 'pending' so it shows up in the approval queue again.
+    Returns the count of rows updated.
+    """
+    if not live_message_ids:
+        return 0
+    with _conn() as db:
+        ph = ",".join("?" * len(live_message_ids))
+        rows = db.execute(
+            f"SELECT id FROM email_staging "
+            f"WHERE status = 'executed' AND email_message_id IN ({ph})",
+            list(live_message_ids),
+        ).fetchall()
+        if not rows:
+            return 0
+        ids = [r["id"] for r in rows]
+        id_ph = ",".join("?" * len(ids))
+        db.execute(
+            f"UPDATE email_staging SET status='pending', executed_at=NULL "
+            f"WHERE id IN ({id_ph})",
+            ids,
+        )
+    return len(ids)
+
+
 def get_staged_message_ids() -> set[str]:
-    """Return all processed Message-IDs for dedup."""
+    """Return Message-IDs that should be skipped on the next processor scan.
+
+    Failed emails are excluded so they can be re-staged and retried.
+    Pending/executed/skipped emails are excluded to prevent duplicates.
+    """
     with _conn() as db:
         rows = db.execute(
-            "SELECT email_message_id FROM email_staging WHERE email_message_id IS NOT NULL"
+            "SELECT email_message_id FROM email_staging "
+            "WHERE email_message_id IS NOT NULL AND status != 'failed'"
         ).fetchall()
     return {r["email_message_id"] for r in rows}
+
+
+def update_email_uid(email_id: int, new_graph_id: str) -> None:
+    """Update the stored Graph message ID (email_uid) after it changes due to a folder move."""
+    with _conn() as db:
+        db.execute("UPDATE email_staging SET email_uid=? WHERE id=?", (new_graph_id, email_id))
 
 
 def update_email_staging_status(email_id: int, status: str,
@@ -1356,6 +1407,12 @@ def get_email_logs(limit: int = 100, offset: int = 0) -> list[dict]:
             LIMIT ? OFFSET ?
         """, (limit, offset)).fetchall()
     return [dict(r) for r in rows]
+
+
+def delete_email_move_log(staging_id: int) -> None:
+    """Remove all log entries for a staging record (used when a move is undone via Restore)."""
+    with _conn() as db:
+        db.execute("DELETE FROM email_move_history WHERE email_staging_id=?", (staging_id,))
 
 
 def log_email_move(staging_id: int, from_folder: str, to_folder: str,
@@ -1392,6 +1449,95 @@ def get_application_companies() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_application_by_id(app_id: int) -> "dict | None":
+    """Return the full applications row for app_id, or None."""
+    with _conn() as db:
+        row = db.execute("SELECT * FROM applications WHERE id=?", (app_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_event_by_source_email(staging_id: int) -> "dict | None":
+    """Return the upcoming_event row that was created from a specific staging email."""
+    with _conn() as db:
+        row = db.execute(
+            "SELECT * FROM upcoming_events WHERE source_email_id=? ORDER BY id DESC LIMIT 1",
+            (staging_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_event_from_executor(staging_id: int, app_id: int, data: dict,
+                               received_date: str = "") -> None:
+    """
+    Create or update the upcoming_event for this application.
+
+    Lookup is by app_id (not source_email_id) so that all emails about the same
+    application converge on a single event row.
+
+    Date priority: the incoming email's received_date is compared to the
+    received_date of whichever email last updated the event.
+    - Newer email → overwrite all provided fields (reschedule notices win).
+    - Older email → skip to avoid clobbering more-current data.
+    - If no date info available → always update (safe fallback).
+    """
+    with _conn() as conn:
+        # Find the most recent scheduled event for this application
+        row = conn.execute("""
+            SELECT ue.*, COALESCE(es.received_date, '') AS src_date
+            FROM upcoming_events ue
+            LEFT JOIN email_staging es ON es.id = ue.source_email_id
+            WHERE ue.app_id = ? AND ue.status = 'scheduled'
+            ORDER BY ue.id DESC LIMIT 1
+        """, (app_id,)).fetchone()
+
+        if row:
+            existing_src_date = row["src_date"] or ""
+            # Allow update if incoming is newer OR we can't compare dates
+            should_update = (not existing_src_date or not received_date
+                             or received_date >= existing_src_date)
+            if should_update:
+                conn.execute("""
+                    UPDATE upcoming_events SET
+                        source_email_id = ?,
+                        event_type  = COALESCE(NULLIF(?, ''), event_type),
+                        title       = COALESCE(NULLIF(?, ''), title),
+                        description = COALESCE(NULLIF(?, ''), description),
+                        event_date  = COALESCE(NULLIF(?, ''), event_date),
+                        event_time  = COALESCE(NULLIF(?, ''), event_time),
+                        timezone    = COALESCE(NULLIF(?, ''), timezone),
+                        priority    = ?
+                    WHERE id = ?
+                """, (
+                    staging_id,
+                    data.get("event_type") or None,
+                    data.get("title") or None,
+                    data.get("description") or None,
+                    data.get("event_date") or None,
+                    data.get("event_time") or None,
+                    data.get("timezone") or None,
+                    data.get("priority", "high"),
+                    row["id"],
+                ))
+        else:
+            conn.execute("""
+                INSERT INTO upcoming_events
+                    (app_id, event_type, title, description, event_date,
+                     event_time, timezone, priority, source_email_id, status)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, (
+                app_id,
+                data.get("event_type", "interview"),
+                data.get("title", ""),
+                data.get("description", ""),
+                data.get("event_date"),
+                data.get("event_time"),
+                data.get("timezone"),
+                data.get("priority", "high"),
+                staging_id,
+                "scheduled",
+            ))
+
+
 def insert_upcoming_event(record: dict) -> int:
     with _conn() as db:
         cur = db.execute("""
@@ -1412,6 +1558,32 @@ def insert_upcoming_event(record: dict) -> int:
             "scheduled",
         ))
         return cur.lastrowid
+
+
+def update_upcoming_event(event_id: int, data: dict) -> None:
+    with _conn() as db:
+        db.execute("""
+            UPDATE upcoming_events
+            SET title=?, description=?, event_date=?, event_time=?, timezone=?, priority=?
+            WHERE id=?
+        """, (
+            data.get("title"),
+            data.get("description"),
+            data.get("event_date") or None,
+            data.get("event_time") or None,
+            data.get("timezone"),
+            data.get("priority", "high"),
+            event_id,
+        ))
+
+
+def cancel_app_events(app_id: int) -> None:
+    """Mark all scheduled events for an application as cancelled."""
+    with _conn() as db:
+        db.execute(
+            "UPDATE upcoming_events SET status='cancelled' WHERE app_id=? AND status='scheduled'",
+            (app_id,),
+        )
 
 
 def get_upcoming_events(event_type: "str | None" = None) -> list[dict]:
