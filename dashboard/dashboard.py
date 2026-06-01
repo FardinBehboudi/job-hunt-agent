@@ -76,6 +76,9 @@ def _setup_logging(cfg):
 
 app = Flask(__name__)
 
+from dashboard.email_admin import email_admin_bp  # noqa: E402
+app.register_blueprint(email_admin_bp)
+
 log = logging.getLogger(__name__)
 
 
@@ -1421,6 +1424,8 @@ td { padding: 10px 14px; vertical-align: middle; }
 
       <button class="tab-btn"        data-tab="agent"     onclick="showTab('agent')">&#129302; Job Hunt Agent</button>
 
+      <button class="tab-btn"        data-tab="email-admin" onclick="showTab('email-admin')">&#128231; Email Admin</button>
+
     </nav>
 
   </header>
@@ -1475,25 +1480,9 @@ td { padding: 10px 14px; vertical-align: middle; }
 
     <div id="sub-overview" class="sub-content">
 
-      <div class="ov-grid">
-
-        <div class="ov-section">
-
-          <div class="ov-section-hd">&#128197; Upcoming Events</div>
-
-          <div id="ov-events" class="ov-list"><div class="ov-empty">Loading…</div></div>
-
-        </div>
-
-        <div class="ov-section">
-
-          <div class="ov-section-hd">&#9889; Priority Tasks</div>
-
-          <div id="ov-tasks" class="ov-list"><div class="ov-empty">Loading…</div></div>
-
-        </div>
-
-      </div>
+      <!-- ov-events and ov-tasks kept as hidden sinks so JS calls are no-ops -->
+      <div id="ov-events" style="display:none"></div>
+      <div id="ov-tasks"  style="display:none"></div>
 
 
 
@@ -1517,9 +1506,9 @@ td { padding: 10px 14px; vertical-align: middle; }
 
               <th>Date</th><th>Company</th><th>Role</th>
 
-              <th>Interview Type</th><th>Time (Berlin)</th><th>Format</th>
+              <th>Type</th><th>Time</th><th>Notes / Interviewers / Link</th>
 
-              <th style="width:72px"></th>
+              <th style="width:48px"></th>
 
             </tr></thead>
 
@@ -2888,6 +2877,74 @@ td { padding: 10px 14px; vertical-align: middle; }
 
 
 
+<!-- ═══ EVENT EDIT MODAL ═══ -->
+
+<div id="modal-event-edit" class="modal-backdrop hidden">
+
+  <div class="modal-box">
+
+    <div class="modal-hd">
+
+      <span class="modal-title">&#9998; Edit Interview Details</span>
+
+      <button class="modal-close" onclick="closeModal('modal-event-edit')">&#215;</button>
+
+    </div>
+
+    <div class="modal-body">
+
+      <input type="hidden" id="ev-app-id">
+
+      <input type="hidden" id="ev-event-id">
+
+      <div class="mf"><label>Title</label><input id="ev-title" type="text" placeholder="Interview title / description"></div>
+
+      <div class="mf-2col">
+
+        <div class="mf"><label>Date</label><input id="ev-date" type="date"></div>
+
+        <div class="mf"><label>Time (HH:MM)</label><input id="ev-time" type="time"></div>
+
+      </div>
+
+      <div class="mf-2col">
+
+        <div class="mf"><label>Timezone</label><input id="ev-tz" type="text" placeholder="Europe/Berlin"></div>
+
+        <div class="mf"><label>Priority</label>
+
+          <select id="ev-priority">
+
+            <option value="high">High</option>
+
+            <option value="medium">Medium</option>
+
+            <option value="low">Low</option>
+
+          </select>
+
+        </div>
+
+      </div>
+
+      <div class="mf"><label>Description / Meeting Link / Interviewers</label><textarea id="ev-desc" placeholder="Google Meet link, interviewers, topics to prepare..." rows="4"></textarea></div>
+
+    </div>
+
+    <div class="modal-footer">
+
+      <button class="btn-sm" onclick="closeModal('modal-event-edit')">Cancel</button>
+
+      <button class="btn-primary" onclick="saveEventEdit()">Save</button>
+
+    </div>
+
+  </div>
+
+</div>
+
+
+
 <!-- ═══ TASK MODAL ═══ -->
 
 <div id="modal-task" class="modal-backdrop hidden">
@@ -2956,6 +3013,34 @@ td { padding: 10px 14px; vertical-align: middle; }
 
 
 
+<!-- ═══ CONFIRM MODAL ═══ -->
+
+<div id="modal-confirm" class="modal-backdrop hidden">
+
+  <div class="modal-box" style="max-width:400px;">
+
+    <div class="modal-hd">
+
+      <span class="modal-title">Confirm</span>
+
+    </div>
+
+    <div style="padding:18px 24px;color:#c9d1d9;font-size:0.88rem;line-height:1.5;" id="confirm-msg"></div>
+
+    <div class="modal-footer">
+
+      <button class="btn-sm" id="confirm-no">Cancel</button>
+
+      <button class="btn-primary" id="confirm-yes">Confirm</button>
+
+    </div>
+
+  </div>
+
+</div>
+
+
+
 <script>
 
 'use strict';
@@ -2981,6 +3066,24 @@ function showTab(name) {
   document.getElementById('refresh-pill').classList.toggle('hidden', name !== 'dashboard');
 
   if (name === 'agent' && !_agentInited) { _agentInited = true; initAgentTab(); }
+
+  if (name === 'email-admin') {
+    const mount = document.getElementById('email-admin-mount');
+    if (mount.dataset.eaLoaded) {
+      if (typeof eaLoadPending === 'function') eaLoadPending();
+      return;
+    }
+    fetch('/email-admin/')
+      .then(r => r.text())
+      .then(html => {
+        mount.innerHTML = html;
+        mount.dataset.eaLoaded = '1';
+        const ns = document.createElement('script');
+        ns.src = '/email-admin/ea.js';
+        document.head.appendChild(ns);
+      })
+      .catch(err => console.error('Email admin load failed:', err));
+  }
 
 }
 
@@ -3084,7 +3187,7 @@ async function _initWizardFromHash() {
 
 // Browser back/forward support
 
-window.addEventListener('hashchange', () => {
+window.addEventListener('hashchange', async () => {
 
   if (!_agentInited) return;
 
@@ -3100,7 +3203,7 @@ window.addEventListener('hashchange', () => {
 
   if (_wizStep === 5 && _applyRunning) {
 
-    if (!confirm('Apply session is running. Go back anyway?')) {
+    if (!await showConfirm('Apply session is running. Go back anyway?')) {
 
       history.pushState(null, '', '#step-5');
 
@@ -3194,6 +3297,19 @@ function esc(s) {
 
 }
 
+// Normalise any date/timestamp to "1 Jun 2026" format.
+// Passes through already-formatted strings like "17 Apr 2026" unchanged.
+function _normDate(s) {
+  if (!s) return '';
+  if (/^\\d{1,2}\\s+[A-Z][a-z]{2}\\s+\\d{4}$/.test(String(s).trim())) return String(s).trim();
+  try {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return d.getUTCDate() + ' ' + M[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+  } catch(e) { return s; }
+}
+
 
 
 function showToast(msg, type) {
@@ -3207,6 +3323,46 @@ function showToast(msg, type) {
   clearTimeout(t._tid);
 
   t._tid = setTimeout(() => t.classList.remove('show'), 3200);
+
+}
+
+
+
+function showConfirm(msg) {
+
+  return new Promise(resolve => {
+
+    document.getElementById('confirm-msg').textContent = msg;
+
+    const modal = document.getElementById('modal-confirm');
+
+    modal.classList.remove('hidden');
+
+    const yes = document.getElementById('confirm-yes');
+
+    const no  = document.getElementById('confirm-no');
+
+    function cleanup(val) {
+
+      modal.classList.add('hidden');
+
+      yes.removeEventListener('click', onYes);
+
+      no.removeEventListener('click', onNo);
+
+      resolve(val);
+
+    }
+
+    function onYes() { cleanup(true); }
+
+    function onNo()  { cleanup(false); }
+
+    yes.addEventListener('click', onYes);
+
+    no.addEventListener('click', onNo);
+
+  });
 
 }
 
@@ -3386,6 +3542,9 @@ function buildTableSection(tabKey, rows) {
 
     </div>`;
 
+  const isIV  = tabKey === 'interviews';
+  const isREJ = tabKey === 'rejected';
+
   const tableHtml = `
 
     <div class="table-wrap">
@@ -3398,25 +3557,27 @@ function buildTableSection(tabKey, rows) {
 
           <thead><tr>
 
-            <th onclick="sortTable('${tabKey}','date_applied')"     data-col="date_applied">     Date   <span class="arr">↕</span></th>
+            ${isIV ? '' : isREJ
+              ? `<th onclick="sortTable('${tabKey}','_rej_date')" data-col="_rej_date">Rejection Date<span class="arr">↕</span></th>`
+              : `<th onclick="sortTable('${tabKey}','date_applied')" data-col="date_applied">Date<span class="arr">↕</span></th>`}
 
             <th onclick="sortTable('${tabKey}','company')"          data-col="company">           Company<span class="arr">↕</span></th>
 
             <th onclick="sortTable('${tabKey}','role')"             data-col="role">              Role   <span class="arr">↕</span></th>
 
-            <th onclick="sortTable('${tabKey}','location')"         data-col="location">          Location<span class="arr">↕</span></th>
+            ${isIV ? '' : `<th onclick="sortTable('${tabKey}','location')" data-col="location">Location<span class="arr">↕</span></th>`}
 
-            <th onclick="sortTable('${tabKey}','match_pct')"        data-col="match_pct">         Match %<span class="arr">↕</span></th>
+            ${isIV ? '' : `<th onclick="sortTable('${tabKey}','match_pct')" data-col="match_pct">Match %<span class="arr">↕</span></th>`}
 
-            <th onclick="sortTable('${tabKey}','interview_chance')" data-col="interview_chance">  Chance <span class="arr">↕</span></th>
+            ${isIV ? '' : `<th onclick="sortTable('${tabKey}','interview_chance')" data-col="interview_chance">Chance<span class="arr">↕</span></th>`}
 
-            <th onclick="sortTable('${tabKey}','language')"         data-col="language">          German <span class="arr">↕</span></th>
+            ${isIV ? '' : `<th onclick="sortTable('${tabKey}','language')" data-col="language">German<span class="arr">↕</span></th>`}
 
             <th onclick="sortTable('${tabKey}','status')"           data-col="status">            Status <span class="arr">↕</span></th>
 
-            <th>Archive</th>
+            ${isIV ? '' : '<th>Archive</th>'}
 
-            ${tabKey === 'interviews' ? '<th>Interview Date</th><th>Interview Type</th><th>Time (Berlin)</th><th>Format</th><th>Notes</th>' : ''}
+            ${isIV ? `<th onclick="sortTable('interviews','_iv_date')" data-col="_iv_date">Interview Date<span class="arr">↕</span></th><th>Type</th><th>Time</th><th>Notes</th><th></th>` : ''}
 
           </tr></thead>
 
@@ -3460,7 +3621,9 @@ function renderTable(tabKey) {
 
     if (min && (r.match_pct || 0) < min) return false;
 
-    const d = r.date_applied || '';
+    const d = tabKey === 'rejected'
+      ? (r.last_email_date || r.date_applied || '')
+      : (r.date_applied || '');
 
     if (dfr && d && d < dfr) return false;
 
@@ -3481,6 +3644,8 @@ function renderTable(tabKey) {
     let av = a[sc] ?? '', bv = b[sc] ?? '';
 
     if (sc === 'match_pct') { av = a.match_pct || 0; bv = b.match_pct || 0; }
+
+    if (sc === '_rej_date') { av = a.last_email_date || a.date_applied || ''; bv = b.last_email_date || b.date_applied || ''; }
 
     const cmp = typeof av === 'number' ? av - bv
 
@@ -3516,9 +3681,51 @@ function renderTable(tabKey) {
 
       : '<span>' + esc(j.role || '—') + '</span>';
 
+    if (tabKey === 'interviews') {
+
+      // Clean focused layout: no Date Applied, Location, Match%, Chance, German, Archive
+
+      const ivDate = j._iv_date ? '<span style="color:#e2e8f0;font-weight:600;">' + esc(j._iv_date) + '</span>' : '<span style="color:#4b5563;">—</span>';
+
+      const ivTime = j._iv_time ? '<span style="color:#8b949e;">' + esc(j._iv_time) + '</span>' : '';
+
+      const ivType = j._iv_type ? '<span style="font-size:0.76rem;background:#0d2818;color:#34d399;padding:2px 7px;border-radius:99px;">' + esc(j._iv_type) + '</span>' : '';
+
+      const ivNotes = j._iv_notes
+
+        ? '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.79rem;color:#58a6ff;cursor:pointer;" title="' + esc(j._iv_notes) + '" onclick="openEventEdit(' + j.id + ',' + (j._iv_event_id||'null') + ')">' + esc(j._iv_notes) + '</td>'
+
+        : '<td style="color:#4b5563;font-size:0.79rem;">—</td>';
+
+      return '<tr>'
+
+        + '<td class="td-company">' + esc(j.company || '') + '</td>'
+
+        + '<td class="td-role">' + roleCell + '</td>'
+
+        + '<td>' + statusBadge(j.status) + '</td>'
+
+        + '<td style="white-space:nowrap;">' + ivDate + (ivTime ? ' <span style="color:#4b5563;font-size:0.75rem;">·</span> ' + ivTime : '') + '</td>'
+
+        + '<td>' + ivType + '</td>'
+
+        + ivNotes
+
+        + '<td style="white-space:nowrap;">'
+
+        + '<button class="btn-sm" onclick="openEventEdit(' + j.id + ',' + (j._iv_event_id||'null') + ')" style="margin-right:4px;" title="Edit interview details">&#9998; Edit</button>'
+
+        + '<button class="btn-sm" style="background:#7f1d1d;color:#fca5a5;border-color:#991b1b;" onclick="rejectInterview(' + j.id + ')" title="Mark as Rejected">&#10005; Reject</button>'
+
+        + '</td>'
+
+        + '</tr>';
+
+    }
+
     return '<tr>'
 
-      + '<td class="td-date">' + esc(j.date_applied || '') + '</td>'
+      + '<td class="td-date">' + esc(_normDate(tabKey === 'rejected' ? (j.last_email_date || j.date_applied) : j.date_applied)) + '</td>'
 
       + '<td class="td-company">' + esc(j.company || '') + '</td>'
 
@@ -3535,20 +3742,6 @@ function renderTable(tabKey) {
       + '<td>' + (tabKey === 'applied' ? applyBadge(j) : statusBadge(j.status)) + '</td>'
 
       + '<td class="td-archive">' + archiveLink(j.archive_path) + '</td>'
-
-      + (tabKey === 'interviews'
-
-          ? '<td style="white-space:nowrap;color:#8b949e;font-size:0.79rem;">' + esc(j._iv_date||'') + '</td>'
-
-          + '<td style="font-size:0.79rem;">' + esc(j._iv_type||'') + '</td>'
-
-          + '<td style="white-space:nowrap;font-size:0.79rem;color:#8b949e;">' + esc(j._iv_time||'') + '</td>'
-
-          + '<td style="font-size:0.79rem;color:#8b949e;">' + esc(j._iv_format||'') + '</td>'
-
-          + '<td style="font-size:0.77rem;color:#64748b;max-width:180px;white-space:normal;">' + esc(j._iv_notes||'') + '</td>'
-
-          : '')
 
       + '</tr>';
 
@@ -3676,7 +3869,7 @@ function applyDashboardData(d) {
 
     container.innerHTML = buildTableSection(key, rows);
 
-    _sortColMap[key] = 'date_applied';
+    _sortColMap[key] = key === 'interviews' ? '_iv_date' : key === 'rejected' ? '_rej_date' : 'date_applied';
 
     _sortAscMap[key] = false;
 
@@ -3949,7 +4142,7 @@ async function navigateToStep(n) {
 
   if (_wizStep === 5 && n !== 5 && _applyRunning) {
 
-    if (!confirm('Apply session is running. Go back anyway?')) return;
+    if (!await showConfirm('Apply session is running. Go back anyway?')) return;
 
   }
 
@@ -6946,7 +7139,7 @@ async function debugApply() {
 
   if (prev) prev.remove();
 
-  if (!url) { alert('Paste a URL first'); return; }
+  if (!url) { showToast('Paste a URL first'); return; }
 
   log.textContent = 'Starting apply...\\n';
 
@@ -8341,9 +8534,13 @@ async function fetchOverview() {
 
     if (d.error) { console.error('Overview error:', d.error); return; }
 
-    renderEvents(d.upcoming_events || []);
+    _autoEvents = d.auto_events || [];
+
+    renderEvents(_autoEvents);
 
     renderTasks(d.priority_tasks || []);
+
+    renderManualInterviews();
 
   } catch (err) { console.error('Overview fetch error:', err.message); }
 
@@ -8367,37 +8564,50 @@ function _eventBadge(status) {
 
 
 
+function _evTypeBadge(t) {
+  const map = {
+    interview:      ['#0d2818','#34d399','Interview'],
+    code_challenge: ['#2d1a06','#fb923c','Code Challenge'],
+    call:           ['#0c2a4a','#60a5fa','Call'],
+    meeting:        ['#1a1a2e','#818cf8','Meeting'],
+    task:           ['#2d2006','#fbbf24','Task'],
+  };
+  const [bg, fg, label] = map[(t||'').toLowerCase()] || ['#1c2128','#64748b', t || 'Event'];
+  return `<span style="font-size:0.72rem;background:${bg};color:${fg};padding:2px 8px;border-radius:99px;font-weight:600;">${esc(label)}</span>`;
+}
+
 function renderEvents(items) {
 
   const box = document.getElementById('ov-events');
 
   if (!box) return;
 
-  if (!items.length) { box.innerHTML = '<div class="ov-empty">No upcoming events.</div>'; return; }
+  // Show future events first; past events still shown but dimmed
+  const today = new Date().toISOString().slice(0, 10);
 
-  box.innerHTML = items.map(e => `
+  const sorted = [...items].sort((a, b) => {
+    const ad = a.event_date || '9999', bd = b.event_date || '9999';
+    return ad < bd ? -1 : ad > bd ? 1 : 0;
+  });
 
-    <div class="ov-item">
+  if (!sorted.length) { box.innerHTML = '<div class="ov-empty">No upcoming events.</div>'; return; }
 
+  box.innerHTML = sorted.map(e => {
+    const isPast = e.event_date && e.event_date < today;
+    const timeStr = e.event_time ? ` · ${esc(e.event_time)}` : '';
+    return `
+    <div class="ov-item" style="${isPast ? 'opacity:0.5;' : ''}">
       <div class="ov-item-main">
-
         <div class="ov-company">${esc(e.company || '—')}</div>
-
-        <div class="ov-role">${esc(e.role || '—')}</div>
-
-        <div style="margin-top:5px;">${_eventBadge(e.status || '')}</div>
-
+        <div class="ov-role" style="font-size:0.78rem;color:#8b949e;">${esc(e.title || e.role || '—')}</div>
+        <div style="margin-top:5px;">${_evTypeBadge(e.event_type)}</div>
       </div>
-
       <div class="ov-item-right">
-
-        <div class="ov-date">${esc(e.date_applied || '')}</div>
-
-        ${e.job_url ? `<a href="${esc(e.job_url)}" target="_blank" rel="noopener" style="font-size:0.75rem;color:#58a6ff;">View ↗</a>` : ''}
-
+        <div class="ov-date">${esc(_normDate(e.event_date) + timeStr)}</div>
+        ${isPast ? '<div style="font-size:0.7rem;color:#64748b;">past</div>' : ''}
       </div>
-
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
 }
 
@@ -8497,7 +8707,19 @@ function closeModal(id) {
 
 document.addEventListener('click', e => {
 
-  if (e.target.classList.contains('modal-backdrop')) closeModal(e.target.id);
+  if (e.target.classList.contains('modal-backdrop')) {
+
+    if (e.target.id === 'modal-confirm') {
+
+      document.getElementById('confirm-no')?.click();
+
+    } else {
+
+      closeModal(e.target.id);
+
+    }
+
+  }
 
 });
 
@@ -8505,13 +8727,22 @@ document.addEventListener('keydown', e => {
 
   if (e.key === 'Escape') {
 
-    ['modal-interview','modal-task'].forEach(id => {
+    ['modal-interview','modal-task','modal-event-edit'].forEach(id => {
 
       const el = document.getElementById(id);
 
       if (el && !el.classList.contains('hidden')) closeModal(id);
 
     });
+
+    // Confirm modal: pressing Escape is same as Cancel
+    const cm = document.getElementById('modal-confirm');
+
+    if (cm && !cm.classList.contains('hidden')) {
+
+      document.getElementById('confirm-no')?.click();
+
+    }
 
   }
 
@@ -8521,7 +8752,8 @@ document.addEventListener('keydown', e => {
 
 // ── Manual Interviews ─────────────────────────────────────────────────────────
 
-let _interviews = [];
+let _interviews  = [];
+let _autoEvents  = [];
 
 
 
@@ -8567,47 +8799,71 @@ function renderManualInterviews() {
 
   if (!tbody) return;
 
-  if (!_interviews.length) {
+  // Convert auto (email-extracted) events to the same shape as manual interviews
+  const autoRows = _autoEvents.map(e => ({
+    _auto:          true,
+    _event_id:      e.id,
+    date:           e.event_date  || '',
+    company:        e.company     || '',
+    role:           e.role        || '',
+    interview_type: (e.event_type || '').replace(/_/g, ' '),
+    time_berlin:    e.event_time  || '',
+    _description:   e.description || '',
+    job_url:        null,
+  }));
 
+  // Merge: manual entries first (they have edit/delete buttons), then auto
+  // Deduplicate by (date + company) so a manually-added row hides the auto one
+  const manualKeys = new Set(_interviews.map(iv => (iv.date||'') + '|' + (iv.company||'').toLowerCase()));
+  const filtered   = autoRows.filter(r => !manualKeys.has((r.date||'') + '|' + r.company.toLowerCase()));
+  const combined   = [..._interviews, ...filtered];
+
+  // Sort: future dates first (ascending), then past (descending)
+  const today = new Date().toISOString().slice(0, 10);
+  const future = combined.filter(r => !r.date || r.date >= today).sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  const past   = combined.filter(r => r.date && r.date < today).sort((a,b) => b.date.localeCompare(a.date));
+  const rows   = [...future, ...past];
+
+  if (!rows.length) {
     tbody.innerHTML = '';
-
     if (empty) empty.classList.remove('hidden');
-
     return;
-
   }
 
   if (empty) empty.classList.add('hidden');
 
-  tbody.innerHTML = _interviews.map(iv => `
+  tbody.innerHTML = rows.map(iv => {
 
-    <tr class="${_isPast(iv.date) ? 'past-row' : ''}" id="iv-row-${iv.id}">
+    const isPast = _isPast(iv.date);
 
-      <td style="white-space:nowrap;">${esc(iv.date||'')}</td>
+    const companyCell = iv.job_url
+      ? `<a href="${esc(iv.job_url)}" target="_blank" rel="noopener" style="color:#58a6ff;">${esc(iv.company||'')}</a>`
+      : `<span style="font-weight:600;">${esc(iv.company||'')}</span>`;
 
-      <td style="font-weight:600;">${iv.job_url
+    const actionBtn = iv._auto
+      ? `<button class="btn-icon" title="Edit event" onclick="openEventEdit(null,${iv._event_id})">&#9998;</button>`
+      : `<button class="btn-icon" title="Edit" onclick="openInterviewModal(${iv.id})">&#9998;</button>
+         <button class="btn-icon del" title="Delete" onclick="deleteInterview(${iv.id})">&#215;</button>`;
 
-        ? `<a href="${esc(iv.job_url)}" target="_blank" rel="noopener" style="color:#58a6ff;">${esc(iv.company||'')}</a>`
+    const typeLabel = `<span style="font-size:0.72rem;background:#0d2818;color:#34d399;padding:2px 8px;border-radius:99px;">${esc((iv.interview_type||'—').replace(/_/g,' '))}</span>`;
 
-        : esc(iv.company||'')}</td>
+    // Notes: for auto events use description; for manual use format/notes
+    const notesRaw  = iv._auto ? (iv._description || '') : (iv.format || iv.notes || '');
+    const notesCell = notesRaw
+      ? `<td style="font-size:0.78rem;color:#8b949e;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(notesRaw)}">${esc(notesRaw)}</td>`
+      : `<td style="color:#4b5563;">—</td>`;
 
-      <td>${esc(iv.role||'')}</td>
-
-      <td>${esc(iv.interview_type||'')}</td>
-
+    return `<tr class="${isPast ? 'past-row' : ''}" id="iv-row-${iv._auto ? 'a'+iv._event_id : iv.id}">
+      <td style="white-space:nowrap;font-weight:${isPast?'400':'600'};color:${isPast?'#8b949e':'#e2e8f0'};">${esc(_normDate(iv.date))}</td>
+      <td>${companyCell}</td>
+      <td style="color:#94a3b8;">${esc(iv.role||'')}</td>
+      <td>${typeLabel}</td>
       <td style="white-space:nowrap;color:#8b949e;">${esc(iv.time_berlin||'')}</td>
+      ${notesCell}
+      <td><div class="man-row-btns">${actionBtn}</div></td>
+    </tr>`;
 
-      <td style="color:#8b949e;">${esc(iv.format||'')}</td>
-
-      <td><div class="man-row-btns">
-
-        <button class="btn-icon" title="Edit" onclick="openInterviewModal(${iv.id})">&#9998;</button>
-
-        <button class="btn-icon del" title="Delete" onclick="deleteInterview(${iv.id})">&#215;</button>
-
-      </div></td>
-
-    </tr>`).join('');
+  }).join('');
 
 }
 
@@ -8693,7 +8949,7 @@ async function saveInterview() {
 
 async function deleteInterview(id) {
 
-  if (!confirm('Delete this interview?')) return;
+  if (!await showConfirm('Delete this interview?')) return;
 
   try {
 
@@ -8715,43 +8971,169 @@ async function deleteInterview(id) {
 
 // ── Interviews sub-tab enrichment ─────────────────────────────────────────────
 
-function enrichInterviewsTab() {
+let _eventsCache = [];
+
+
+
+async function enrichInterviewsTab() {
 
   const rows = _tableData['interviews'];
 
   if (!rows) return;
 
+  try {
+
+    const r = await fetch('/email-admin/api/events');
+
+    const data = await r.json();
+
+    _eventsCache = Array.isArray(data) ? data : (data.events || []);
+
+  } catch (_) {
+
+    _eventsCache = [];
+
+  }
+
+  // Build lookup: app_id → first scheduled event for that app
+
   const lookup = {};
 
-  _interviews.forEach(iv => {
+  _eventsCache.forEach(ev => {
 
-    const key = (iv.company || '').toLowerCase().trim();
-
-    if (!lookup[key]) lookup[key] = iv;
+    if (ev.app_id != null && !lookup[ev.app_id]) lookup[ev.app_id] = ev;
 
   });
 
   _tableData['interviews'] = rows.map(row => {
 
-    const iv = lookup[(row.company || '').toLowerCase().trim()] || {};
+    const ev = lookup[row.id] || {};
 
     return Object.assign({}, row, {
 
-      _iv_date:   iv.date           || '',
+      _iv_event_id: ev.id           || null,
 
-      _iv_type:   iv.interview_type || '',
+      _iv_date:     ev.event_date   || '',
 
-      _iv_time:   iv.time_berlin    || '',
+      _iv_type:     ev.event_type   || '',
 
-      _iv_format: iv.format         || '',
+      _iv_time:     ev.event_time   || '',
 
-      _iv_notes:  iv.notes          || '',
+      _iv_format:   '',
+
+      _iv_notes:    ev.description  || '',
 
     });
 
   });
 
   renderTable('interviews');
+
+}
+
+
+
+// ── Interview event edit / reject ──────────────────────────────────────────────
+
+function openEventEdit(appId, eventId) {
+
+  const ev = eventId ? (_eventsCache.find(e => e.id === eventId) || {}) : {};
+
+  document.getElementById('ev-app-id').value   = appId;
+
+  document.getElementById('ev-event-id').value = eventId || '';
+
+  document.getElementById('ev-title').value    = ev.title       || '';
+
+  document.getElementById('ev-date').value     = ev.event_date  || '';
+
+  document.getElementById('ev-time').value     = ev.event_time  || '';
+
+  document.getElementById('ev-tz').value       = ev.timezone    || '';
+
+  document.getElementById('ev-priority').value = ev.priority    || 'high';
+
+  document.getElementById('ev-desc').value     = ev.description || '';
+
+  document.getElementById('modal-event-edit').classList.remove('hidden');
+
+}
+
+
+
+async function saveEventEdit() {
+
+  const appId   = parseInt(document.getElementById('ev-app-id').value, 10);
+
+  const eventId = document.getElementById('ev-event-id').value;
+
+  const payload = {
+
+    app_id:      appId,
+
+    title:       document.getElementById('ev-title').value.trim(),
+
+    event_date:  document.getElementById('ev-date').value,
+
+    event_time:  document.getElementById('ev-time').value,
+
+    timezone:    document.getElementById('ev-tz').value.trim(),
+
+    priority:    document.getElementById('ev-priority').value,
+
+    description: document.getElementById('ev-desc').value.trim(),
+
+  };
+
+  const url    = eventId ? '/email-admin/api/events/' + eventId : '/email-admin/api/events';
+
+  const method = eventId ? 'PUT' : 'POST';
+
+  try {
+
+    const r = await fetch(url, {
+
+      method,
+
+      headers: {'Content-Type': 'application/json'},
+
+      body: JSON.stringify(payload),
+
+    });
+
+    const d = await r.json();
+
+    if (!d.ok) throw new Error(d.error || 'Save failed');
+
+    closeModal('modal-event-edit');
+
+    showToast('Interview details saved \\u2713');
+
+    await enrichInterviewsTab();
+
+  } catch (err) { showToast(err.message, 'error'); }
+
+}
+
+
+
+async function rejectInterview(appId) {
+
+  if (!await showConfirm('Mark this application as Rejected and cancel any scheduled events?')) return;
+
+  try {
+
+    const r = await fetch('/api/applications/' + appId + '/reject', {method: 'POST'});
+
+    const d = await r.json();
+
+    if (!d.ok) throw new Error(d.error || 'Reject failed');
+
+    showToast('Marked as Rejected \\u2713');
+
+    await fetchDashboard();
+
+  } catch (err) { showToast(err.message, 'error'); }
 
 }
 
@@ -8917,7 +9299,7 @@ async function saveTask() {
 
 async function deleteManualTask(id) {
 
-  if (!confirm('Delete this task?')) return;
+  if (!await showConfirm('Delete this task?')) return;
 
   try {
 
@@ -8944,6 +9326,12 @@ fetchDashboard();
 setInterval(fetchDashboard, 60000);
 
 </script>
+
+  <!-- ═══ EMAIL ADMIN TAB ═══ -->
+
+  <div id="tab-email-admin" class="tab-content hidden">
+    <div id="email-admin-mount"></div>
+  </div>
 
 </body>
 
@@ -9262,6 +9650,44 @@ def api_advance_status(app_id: int):
         return jsonify({"error": str(exc)}), 500
 
 
+
+
+
+@app.route("/api/applications/<int:app_id>/reject", methods=["POST"])
+
+def api_reject_application(app_id: int):
+
+    try:
+
+        from dedup import db as _db
+
+        _db.init_db()
+
+        with _db._conn() as conn:
+
+            row = conn.execute(
+
+                "SELECT id FROM applications WHERE id=?", (app_id,)
+
+            ).fetchone()
+
+            if not row:
+
+                return jsonify({"error": "Application not found"}), 404
+
+            conn.execute(
+
+                "UPDATE applications SET status='Rejected' WHERE id=?", (app_id,)
+
+            )
+
+        _db.cancel_app_events(app_id)
+
+        return jsonify({"ok": True})
+
+    except Exception as exc:
+
+        return jsonify({"error": str(exc)}), 500
 
 
 
