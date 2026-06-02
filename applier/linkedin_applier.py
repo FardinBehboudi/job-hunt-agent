@@ -902,11 +902,12 @@ async def fill_field_smart(
 
     try:
         if field_type == "file":
-            # Resume upload
-            resume_path = cfg.get("paths", {}).get("resume_en", "")
-            if resume_path and Path(resume_path).exists():
-                await el.set_input_files(resume_path)
-                _emit("apply_answer", {"label": label[:60] or "Resume", "answer": Path(resume_path).name})
+            # Resume upload — honour the job's language (de/en), fall back to EN
+            _lang = cfg.get("_resume_lang", "en")
+            resume = _resume_path(cfg, _lang)
+            if resume and resume.exists():
+                await el.set_input_files(str(resume))
+                _emit("apply_answer", {"label": label[:60] or "Resume", "answer": resume.name})
                 return True
             return False
 
