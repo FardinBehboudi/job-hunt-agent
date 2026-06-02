@@ -75,7 +75,7 @@ def _log_to_json(job: dict, apply_type: str, resume_used: str) -> None:
             "apply_type": apply_type,
             "resume_used": Path(resume_used).name if resume_used else "",
             "timestamp":  datetime.utcnow().isoformat() + "Z",
-            "status":     "applied",
+            "status":     "pending_confirmation",
         })
         _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         _LOG_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -665,14 +665,6 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     await browser.close()
                     _db.update_apply_session(session_id, datetime.utcnow().isoformat(),
                                              0, 0, len(jobs))
-                    try:
-                        from applier.memory import get_memory
-                        get_memory().save_application_result(
-                            job.get('url',''), 'linkedin', False, [],
-                            failure_note=str(_warmup_exc if '_warmup_exc' in dir() else 'crash')
-                        )
-                    except Exception:
-                        pass
                     _emit("session_done", {"success": 0, "manual": 0, "failed": len(jobs)})
                     return
                 log.info("Session verified — ready to apply")
@@ -727,7 +719,7 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                         break
                     if result.get("expired"):
                         break  # no point retrying expired jobs
-                    if result.get("manual") and result.get("note") in ("CAPTCHA", "LinkedIn session expired"):
+                    if result.get("manual") and any(kw in (result.get("note") or "") for kw in ("CAPTCHA", "session expired")):
                         break  # no point retrying these
                     if result.get("manual"):
                         if attempt < MAX_RETRIES:
@@ -754,11 +746,11 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     success_count += 1
                     applied_count += 1
                     if not is_debug:
-                        _db.log_application(job, status="Applied ✓", applied_by="Agent",
+                        _db.log_application(job, status="Pending Confirmation", applied_by="Agent",
                                             apply_type=result.get("apply_type", ""))
                         _log_to_json(job, result.get("apply_type", ""), _used_resume)
                     else:
-                        log.info("DEBUG job — skipping DB write (Applied ✓)")
+                        log.info("DEBUG job — skipping DB write (Pending Confirmation)")
                     log.info("Applied: %s @ %s", title, company)
                 elif result.get("expired"):
                     failed_count += 1

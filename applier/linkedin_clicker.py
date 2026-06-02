@@ -146,7 +146,7 @@ _EA_CSS = [
 async def click_apply_button(
     page: Page,
     *,
-    modal_timeout_ms: int = 12_000,
+    modal_timeout_ms: int = 8_000,
 ) -> Literal["easy_apply", "external", "already", "not_found", "modal_failed"]:
 
     print(f"[clicker] URL: {page.url}", flush=True)
@@ -161,7 +161,7 @@ async def click_apply_button(
         pass  # proceed anyway — might still work on non-standard layouts
 
     await page.evaluate("window.scrollTo(0, 0)")
-    await page.wait_for_timeout(1_000)
+    await page.wait_for_timeout(400)
 
     # ── Already applied? ──────────────────────────────────────────────────────
     for sel in [

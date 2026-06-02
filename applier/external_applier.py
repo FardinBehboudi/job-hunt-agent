@@ -330,7 +330,7 @@ async def _ai_decide_form_actions(
             return []
         client = anthropic.Anthropic(api_key=api_key)
         # Upgrade to Sonnet for better form understanding
-        _model = "claude-sonnet-4-20250514"
+        _model = "claude-sonnet-4-6"
         # Inject memory context into system prompt
         _mem_context = ""
         try:
@@ -849,7 +849,7 @@ RULES:
         if browser is None:
             browser = _BUBrowser(config=_BUBrowserConfig(headless=cfg.get("headless", False)))
 
-        llm = _BUChatAnthropic(model="claude-sonnet-4-20250514")
+        llm = _BUChatAnthropic(model="claude-sonnet-4-6")
         agent = _BUAgent(task=task, llm=llm, browser=browser)
         result = await agent.run(max_steps=40)
 
@@ -862,7 +862,7 @@ RULES:
             _emit("apply_step", {"url": url, "step": "  ✓ browser-use: application submitted"})
             try:
                 from applier.memory import get_memory
-                get_memory().save_application_result(url, platform, True, [])
+                get_memory().save_application_result(url, "browser-use", True, [])
             except Exception:
                 pass
             return {"success": True, "manual": False,

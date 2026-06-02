@@ -220,6 +220,18 @@ def answer_custom_question(
     if _ACCOMM_KW.search(question_text) and field_type in ("text", "textarea"):
         return "I don't require any special accommodations to participate in the interview process."
 
+    # Cover letter / motivation letter → dedicated Sonnet generator
+    _COVER_KW = re.compile(
+        r"cover\s*letter|motivation\s*letter|anschreiben|motivationsschreiben|"
+        r"motivational\s*letter|letter\s+of\s+motivation|bewerbungsschreiben|"
+        r"why\s+(do\s+you\s+want|are\s+you\s+applying|this\s+role|this\s+company|this\s+position)",
+        re.I
+    )
+    if _COVER_KW.search(question_text) and field_type in ("text", "textarea"):
+        result = _generate_cover_letter(question_text, profile, resume_text, job_desc)
+        if result:
+            return result
+
     _SALARY_KW = re.compile(r"\bsalary\b|\bcompensation\b|\bpay\b|\bwage\b|\bctc\b|\brate\b|\bgehalt\b|vergütung", re.I)
     if _SALARY_KW.search(question_text):
         _sal = str(profile.get("salary_expectation", "75000"))
@@ -1198,6 +1210,9 @@ async def _fill_profile_fields(page: Page, profile: dict) -> None:
             page.locator("input[type='email'], input[name='email'], input[id*='email' i], input[autocomplete='email']"),
         ])
 
+    # Fill phone country-code SELECT first (LinkedIn renders it before the number field)
+    await _fill_phone_country_code(page, profile)
+
     phone_value = profile["phone"]
     try:
         cc_label = page.locator("label").filter(
@@ -1890,6 +1905,195 @@ async def _answer_visible_questions(page: Page, resume_text: str, profile: dict,
         pass
 
 
+# ── Wizard lifecycle helpers ───────────────────────────────────────────────────
+
+async def _dismiss_unfinished_application_dialog(page: Page) -> bool:
+    """Handle LinkedIn's 'unfinished application' dialog (Continue / Discard).
+
+    Clicks 'Continue' to preserve any data LinkedIn already pre-filled
+    (name, email, phone).  Returns True if the dialog was found and handled.
+
+    Only call this ONCE per job, right after the Easy Apply modal opens —
+    the dialog never appears mid-wizard, so no need to poll inside the step loop.
+    """
+    try:
+        # Poll twice (1 s total) — covers the case where the dialog takes a moment to render
+        for _ms in range(2):
+            discard = page.locator(
+                "button[aria-label*='Discard' i], button:has-text('Discard')"
+            )
+            if await discard.count() and await discard.first.is_visible():
+                # Dialog confirmed — click Continue to keep LinkedIn's pre-fills
+                for cont_sel in [
+                    "button[aria-label*='Continue' i]",
+                    "button:has-text('Continue')",
+                ]:
+                    btn = page.locator(cont_sel)
+                    if await btn.count() and await btn.first.is_visible():
+                        await btn.first.click()
+                        await asyncio.sleep(1.0)
+                        log.info("Unfinished-application dialog dismissed — clicked Continue")
+                        _emit("apply_step", {"url": "", "step": "  ↩ Continuing previous application"})
+                        return True
+                # Continue button not found — click Discard to start fresh
+                await discard.first.click()
+                await asyncio.sleep(1.0)
+                log.info("Unfinished-application dialog dismissed — clicked Discard (no Continue found)")
+                _emit("apply_step", {"url": "", "step": "  ↩ Starting fresh application (discarded previous)"})
+                return True
+            await asyncio.sleep(0.5)
+    except Exception:
+        pass
+    return False
+
+
+async def _dismiss_post_submit_dialogs(page: Page) -> None:
+    """Dismiss the post-submission dialogs LinkedIn shows after a successful submit.
+
+    Handles:
+    - "Your application was sent" confirmation modal → click Done
+    - "Follow [Company]" auto-checked checkbox → uncheck it
+    - Generic profile-update / upsell overlays → dismiss
+    """
+    await asyncio.sleep(1.2)
+
+    # 1. Click the "Done" button that closes the "application sent" modal
+    for sel in [
+        "button[aria-label='Done']",
+        "button:has-text('Done')",
+        "button[data-control-name='submit_unify_apply_close_btn']",
+    ]:
+        try:
+            btn = page.locator(sel)
+            if await btn.count() and await btn.first.is_visible():
+                await btn.first.click()
+                await asyncio.sleep(0.5)
+                _emit("apply_step", {"url": "", "step": "  ✓ Closed post-submit confirmation"})
+                break
+        except Exception:
+            pass
+
+    # 2. Uncheck "Follow [Company]" — LinkedIn auto-checks it, we don't want spam
+    try:
+        follow_chk = page.locator(
+            "input[type='checkbox'][aria-label*='follow' i], "
+            "input[type='checkbox'][id*='follow-company' i]"
+        )
+        if await follow_chk.count() and await follow_chk.first.is_visible():
+            if await follow_chk.first.is_checked():
+                await follow_chk.first.click()
+                await asyncio.sleep(0.3)
+                log.debug("Unchecked 'Follow company' post-submit")
+    except Exception:
+        pass
+
+    # 3. Dismiss any remaining overlay (profile update prompt, upsell, etc.)
+    for sel in [
+        "button[aria-label='Dismiss']",
+        ".artdeco-modal__dismiss",
+        "button[data-test-modal-close-btn]",
+    ]:
+        try:
+            btn = page.locator(sel)
+            if await btn.count() and await btn.first.is_visible():
+                await btn.first.click()
+                await asyncio.sleep(0.4)
+        except Exception:
+            pass
+
+
+async def _fill_phone_country_code(page: Page, profile: dict) -> None:
+    """Fill the phone country-code <select> that LinkedIn renders before the phone field.
+
+    Derives the target dial code from the profile phone number prefix (e.g. '+49').
+    Falls back to '+49' (Germany) if the prefix cannot be parsed.
+    """
+    try:
+        phone = profile.get("phone", "")
+        if phone.startswith("+"):
+            m = re.match(r"(\+\d{1,3})", phone)
+            target_code = m.group(1) if m else "+49"
+        else:
+            target_code = "+49"  # default: Germany
+
+        cc_sel = page.locator(
+            "select[id*='phoneCountry' i], select[id*='phone-country' i], "
+            "select[name*='phoneCountry' i], select[id*='countryCode' i], "
+            "select[aria-label*='country code' i], select[aria-label*='phone country' i], "
+            "select[data-test-phone-country-code]"
+        )
+        if not await cc_sel.count():
+            return
+        sel_el = cc_sel.first
+        if not await sel_el.is_visible():
+            return
+
+        opts = await sel_el.locator("option").all_text_contents()
+        for opt in opts:
+            if target_code in opt:
+                try:
+                    await sel_el.select_option(label=opt)
+                    await sel_el.dispatch_event("change")
+                    _emit("apply_step", {"url": "", "step": f"  ✎ Phone country code: {opt.strip()[:30]}"})
+                    return
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _generate_cover_letter(
+    question_text: str,
+    profile: dict,
+    resume_text: str,
+    job_desc: str,
+) -> str:
+    """Generate a job-specific cover letter using claude-sonnet-4-6.
+
+    Uses the answer cache so Sonnet is only called once per unique question label.
+    """
+    _ck = _cache_key(question_text, "cover_letter", [])
+    if _ck in _answer_cache:
+        log.debug("Cover letter cache hit for: %r", question_text[:50])
+        return _answer_cache[_ck]
+
+    try:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return ""
+        client = anthropic.Anthropic(api_key=api_key)
+        system = (
+            f"You ARE {profile.get('first_name', '')} {profile.get('last_name', '')} "
+            "writing a genuine, concise job application cover letter. "
+            "Write in first person. Exactly 3 short paragraphs:\n"
+            "1. Why this specific role/company excites you, connecting to your background.\n"
+            "2. 2-3 concrete skills or achievements from your experience that match the job.\n"
+            "3. A brief professional closing (no 'I look forward to hearing from you' clichés).\n"
+            "Maximum 220 words. No 'Dear Hiring Manager' salutation. No placeholder text. "
+            "No meta-commentary about the letter itself."
+        )
+        user = (
+            f"Question/label: {question_text}\n\n"
+            f"Job description:\n{job_desc[:900]}\n\n"
+            f"My profile:\n{_profile_summary(profile)}\n\n"
+            f"My resume:\n{resume_text[:900]}"
+        )
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=450,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        answer = resp.content[0].text.strip()
+        _answer_cache[_ck] = answer
+        _save_answer_cache_entry(_ck, answer)
+        log.info("Cover letter generated (%d chars)", len(answer))
+        return answer
+    except Exception as exc:
+        log.warning("Cover letter generation failed: %s", exc)
+        return ""
+
+
 # ── Easy Apply wizard ──────────────────────────────────────────────────────────
 
 async def fill_easy_apply(
@@ -1925,6 +2129,9 @@ async def fill_easy_apply(
     except Exception:
         await page.wait_for_timeout(2000)
 
+    # Handle "unfinished application" dialog that LinkedIn shows before the wizard starts
+    await _dismiss_unfinished_application_dialog(page)
+
     await _handle_email_dropdown(page, profile, job["url"])
     await _fill_profile_fields(page, profile)
 
@@ -1933,7 +2140,7 @@ async def fill_easy_apply(
     _stuck_count = 0
     step_n = 0
     prior_answers: list[dict] = []
-    prior_answers: list[dict] = []
+    _resume_selected = False  # cache: only scan for resume once it's confirmed selected
     for step_n in range(12):
         # Refresh wizard scope on every step — modal changes between pages
         try:
@@ -1943,9 +2150,10 @@ async def fill_easy_apply(
         _ws = _modal_el if _modal_visible else page
 
         await _maybe_attach_support_docs(page)
-        _selected = await _select_or_upload_resume(page, cfg)
-        if not _selected:
-            await _upload_resume(page, cfg, _resume_lang)
+        if not _resume_selected:
+            _resume_selected = await _select_or_upload_resume(page, cfg)
+            if not _resume_selected:
+                _resume_selected = await _upload_resume(page, cfg, _resume_lang)
 
         _BORING_LABELS = {"select language", "select an option", "upload resume",
                           "upload a resume", "change resume"}
@@ -2041,7 +2249,7 @@ async def fill_easy_apply(
             _emit("apply_step", {"url": job["url"],
                   "step": f"  ⚠️ Validation: {'; '.join(_pre_errors[:2])[:120]}"})
             _fixed_pre = await _retry_invalid_fields(
-                page, resume_text, profile, job.get("description", ""), prior_answers=[]
+                page, resume_text, profile, job.get("description", ""), prior_answers=prior_answers
             )
             if _fixed_pre:
                 await asyncio.sleep(0.5)
@@ -2062,7 +2270,8 @@ async def fill_easy_apply(
             await submit.first.scroll_into_view_if_needed()
             await asyncio.sleep(0.5)
             await submit.first.click()
-            await asyncio.sleep(random.uniform(1.0, 3.5))
+            await asyncio.sleep(random.uniform(0.8, 1.5))
+            await _dismiss_post_submit_dialogs(page)
             try:
                 from applier.memory import get_memory
                 get_memory().save_application_result(
@@ -2099,7 +2308,7 @@ async def fill_easy_apply(
             await nxt.first.scroll_into_view_if_needed()
             await asyncio.sleep(0.5)
             await nxt.first.click()
-            await asyncio.sleep(random.uniform(1.0, 3.5))
+            await asyncio.sleep(random.uniform(0.8, 1.5))
             _step_errs = await _get_page_errors(page)
             if _step_errs:
                 for _se in _step_errs:
@@ -2108,7 +2317,7 @@ async def fill_easy_apply(
                 for _fix_n in range(2):
                     _fixed = await _retry_invalid_fields(
                         page, resume_text, profile, job.get("description", ""),
-                        prior_answers=[], cfg=cfg
+                        prior_answers=prior_answers, cfg=cfg
                     )
                     _emit("apply_step", {"url": job["url"],
                           "step": f"  🔧 Re-filled {_fixed} errored field(s)"})
@@ -2124,7 +2333,7 @@ async def fill_easy_apply(
                             )
                         if await _nxt_r.count() and await _nxt_r.first.is_visible():
                             await _nxt_r.first.click()
-                            await asyncio.sleep(random.uniform(1.0, 2.5))
+                            await asyncio.sleep(random.uniform(0.8, 1.5))
                     except Exception:
                         pass
                     _step_errs = await _get_page_errors(page)
