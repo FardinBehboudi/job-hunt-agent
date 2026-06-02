@@ -1388,21 +1388,43 @@ async def _route_to_handler(
         new_url = page.url
         log.info("Routing to %s handler (URL: %s)", platform, new_url)
         return await handler(page, dict(job, url=new_url), cfg, resume_text, profile)
-    # Unknown platform — try Claude vision smart apply before giving up
-    _emit("apply_step", {"url": job.get("url",""),
-          "step": f"🧠 Unknown platform ({platform}) — trying smart apply"})
+
+    # Unknown / custom ATS — two-tier fallback:
+    # Tier 1: CSS-selector form runner (_run_ats_form).  Fast, works on any standard
+    #         HTML form (most custom company portals use standard elements).
+    # Tier 2: Claude vision smart apply.  Slower but handles React/Angular SPAs and
+    #         non-standard UI patterns.
+    _emit("apply_step", {"url": job.get("url", ""),
+          "step": f"🔍 Unknown/custom ATS — trying CSS form runner first…"})
+    try:
+        _css_result = await _run_ats_form(
+            page, dict(job, url=page.url), cfg, resume_text, profile,
+            apply_type="External (custom)", max_steps=7,
+        )
+        if _css_result.get("success"):
+            return _css_result
+        # If the CSS runner couldn't find a submit button at all (note contains
+        # "could not confirm"), escalate to Claude vision.  If it DID click submit
+        # but verification failed, still escalate — Claude vision may do better.
+        log.info("CSS form runner: %s — escalating to Claude vision", _css_result.get("note", ""))
+    except Exception as _ce:
+        log.warning("CSS form runner error: %s", _ce)
+
+    _emit("apply_step", {"url": job.get("url", ""),
+          "step": "🧠 CSS runner could not complete — trying Claude vision smart apply…"})
     try:
         from applier.smart_filler import smart_apply_page
         _smart = await smart_apply_page(page, job, profile, resume_text, cfg)
-        if _smart.get('success'):
+        if _smart.get("success"):
             return _smart
     except Exception as _se:
         log.warning("smart_apply_page error: %s", _se)
-    log.warning("DEBUG pre-manual: URL=%s", page.url)
-    log.warning("DEBUG pre-manual: Reason=External apply, unknown platform: %s", platform)
+
+    log.warning("DEBUG pre-manual: URL=%s platform=%s", page.url, platform)
     _emit("apply_step", {"url": job.get("url", ""),
-          "step": f"⚠️ Going to manual: External apply — unknown platform: {platform}"})
-    return {"success": False, "manual": True, "note": f"External apply — unknown platform: {platform}"}
+          "step": f"⚠️ Going to manual: could not complete external apply ({platform})"})
+    return {"success": False, "manual": True,
+            "note": f"External apply — unknown platform: {platform}"}
 
 
 # ── Public entry point ────────────────────────────────────────────────────────
