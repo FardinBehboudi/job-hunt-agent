@@ -940,6 +940,37 @@ async def _click_next_or_submit(page: Page) -> str:
     return "none"
 
 
+async def _get_form_frame(page: Page):
+    """
+    Return the Playwright frame that contains the application form.
+
+    Many ATS platforms (some Taleo, iCIMS, BambooHR, custom portals) embed
+    their form inside an <iframe>.  Playwright exposes frames via page.frames;
+    we find the first one that has at least 2 visible form fields and return it.
+    Falls back to `page` itself if no iframe qualifies.
+    """
+    try:
+        for frame in page.frames:
+            if frame is page.main_frame:
+                continue
+            try:
+                # A real application form has at least two interactive fields
+                count = await frame.locator(
+                    "input:not([type=hidden]):not([disabled]), "
+                    "textarea:not([disabled]), select:not([disabled])"
+                ).count()
+                if count >= 2:
+                    log.info("Form detected in iframe: %s", frame.url[:80])
+                    _emit("apply_step", {"url": page.url,
+                          "step": f"  🖼️ Form is inside an iframe — switching context"})
+                    return frame
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return page  # no qualifying iframe found — use the top-level page
+
+
 async def _run_ats_form(
     page: Page,
     job: dict,
@@ -964,22 +995,29 @@ async def _run_ats_form(
     job_desc = job.get("description", "")
     prior: list[dict] = []
 
+    # Resolve the frame that actually contains the form (may be an iframe)
+    ctx = await _get_form_frame(page)
+    # Wrap job with the frame's URL if we switched context
+    _job_ctx = dict(job, url=getattr(ctx, "url", url))
+
     for step in range(max_steps):
         _emit("apply_step", {"url": url, "step": f"  📋 Form step {step + 1}/{max_steps}…"})
 
-        # 1. Fill all visible fields
-        await _fill_remaining_questions(page, job, resume_text, profile)
+        # 1. Fill all visible fields (use the frame context)
+        await _fill_remaining_questions(ctx, _job_ctx, resume_text, profile)
         await asyncio.sleep(0.4)
 
         # 2. Fix validation errors (up to 2 repair passes before clicking anything)
         for _fp in range(2):
-            n_fixed = await _fix_ext_validation_errors(page, resume_text, profile, job_desc, prior)
+            n_fixed = await _fix_ext_validation_errors(ctx, resume_text, profile, job_desc, prior)
             if not n_fixed:
                 break
             await asyncio.sleep(0.4)
 
-        # 3. Click Next or Submit
-        action = await _click_next_or_submit(page)
+        # 3. Click Next or Submit (try frame context first, then top-level page)
+        action = await _click_next_or_submit(ctx)
+        if action == "none" and ctx is not page:
+            action = await _click_next_or_submit(page)
 
         if action == "none":
             _emit("apply_step", {"url": url, "step": "  ⚠ No navigation button found"})
@@ -987,7 +1025,7 @@ async def _run_ats_form(
 
         _emit("apply_step", {"url": url, "step": f"  → Clicked '{action}' button on step {step + 1}"})
 
-        # Wait for the page to settle after the click
+        # Wait for the page to settle (use top-level page for load state — frames don't have it)
         try:
             await page.wait_for_load_state("domcontentloaded", timeout=10_000)
         except Exception:
@@ -995,7 +1033,6 @@ async def _run_ats_form(
         await asyncio.sleep(1.0)
 
         if action == "submit":
-            # Give networkidle a chance (not mandatory — avoid hanging forever)
             try:
                 await page.wait_for_load_state("networkidle", timeout=8_000)
             except Exception:
@@ -1005,17 +1042,18 @@ async def _run_ats_form(
                 return {"success": True, "manual": False, "apply_type": apply_type}
 
             # Post-submit validation errors? Fix and retry once.
-            errs = await _get_ext_error_texts(page)
+            errs = await _get_ext_error_texts(ctx)
             if errs:
                 _emit("apply_step", {"url": url,
                       "step": f"  ⚠️ Post-submit errors: {errs[0][:80]}"})
                 for _fp in range(2):
-                    n_fixed = await _fix_ext_validation_errors(page, resume_text, profile, job_desc, prior)
+                    n_fixed = await _fix_ext_validation_errors(ctx, resume_text, profile, job_desc, prior)
                     if not n_fixed:
                         break
                     await asyncio.sleep(0.5)
-                # Retry submit
-                action2 = await _click_next_or_submit(page)
+                action2 = await _click_next_or_submit(ctx)
+                if action2 == "none" and ctx is not page:
+                    action2 = await _click_next_or_submit(page)
                 if action2 == "submit":
                     try:
                         await page.wait_for_load_state("networkidle", timeout=8_000)
@@ -1025,12 +1063,16 @@ async def _run_ats_form(
                         return {"success": True, "manual": False, "apply_type": apply_type}
 
             # If there are still form fields, the ATS moved us to the next step
-            still_form = await page.locator(
+            still_form = await ctx.locator(
                 "input:not([type=hidden]):not([disabled]), "
                 "textarea:not([disabled]), select:not([disabled])"
             ).count()
             if not still_form:
                 break  # No form = likely confirmation page without recognisable signals
+
+            # Re-resolve frame — multi-step forms sometimes swap iframes
+            ctx = await _get_form_frame(page)
+            _job_ctx = dict(job, url=getattr(ctx, "url", url))
 
         # Check for confirmation page after any action
         if await _verify_submission(page):
@@ -1180,17 +1222,64 @@ async def _apply_ashby(page: Page, job: dict, cfg: dict, resume_text: str, profi
 
 
 async def _apply_workday(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
-    _emit("apply_step", {"url": job.get("url", ""), "step": "⚙️ Workday detected — using AI agent"})
+    """Workday: try CSS form runner first (handles standard wizard steps), fall back to browser-use."""
+    url = job.get("url", "")
+    _emit("apply_step", {"url": url, "step": "⚙️ Workday — trying CSS form runner first…"})
+    try:
+        result = await _run_ats_form(page, job, cfg, resume_text, profile,
+                                     apply_type="External (Workday)", max_steps=10)
+        if result.get("success"):
+            return result
+        log.info("Workday CSS runner: %s — escalating to browser-use", result.get("note", ""))
+    except Exception as _we:
+        log.warning("Workday CSS runner error: %s", _we)
+    _emit("apply_step", {"url": url, "step": "⚙️ Workday CSS incomplete — using AI agent"})
     return await _apply_generic_browser_use(page, job, cfg, resume_text, profile)
 
 
 async def _apply_taleo(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
-    _emit("apply_step", {"url": job.get("url", ""), "step": "⚠️ Going to manual: Taleo requires manual apply (login-gated)"})
+    """Taleo: try CSS form runner (works for guest/quick-apply instances), fall back to manual."""
+    url = job.get("url", "")
+    _emit("apply_step", {"url": url, "step": "⚙️ Taleo — checking for guest apply form…"})
+    try:
+        has_form = await page.locator(
+            "input:not([type=hidden]):not([disabled]), "
+            "textarea:not([disabled]), select:not([disabled])"
+        ).count()
+        if has_form:
+            result = await _run_ats_form(page, job, cfg, resume_text, profile,
+                                         apply_type="External (Taleo)", max_steps=8)
+            if result.get("success"):
+                return result
+            log.info("Taleo CSS runner: %s", result.get("note", ""))
+        else:
+            log.info("Taleo: no visible form fields — login wall or unsupported page")
+    except Exception as _te:
+        log.warning("Taleo CSS runner error: %s", _te)
+    _emit("apply_step", {"url": url, "step": "⚠️ Going to manual: Taleo (login-gated or unsupported)"})
     return {"success": False, "manual": True, "note": "Taleo requires manual apply (login-gated)"}
 
 
 async def _apply_icims(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
-    _emit("apply_step", {"url": job.get("url", ""), "step": "⚠️ Going to manual: iCIMS requires manual apply (login-gated)"})
+    """iCIMS: try CSS form runner (works for public-facing forms), fall back to manual."""
+    url = job.get("url", "")
+    _emit("apply_step", {"url": url, "step": "⚙️ iCIMS — checking for public apply form…"})
+    try:
+        has_form = await page.locator(
+            "input:not([type=hidden]):not([disabled]), "
+            "textarea:not([disabled]), select:not([disabled])"
+        ).count()
+        if has_form:
+            result = await _run_ats_form(page, job, cfg, resume_text, profile,
+                                         apply_type="External (iCIMS)", max_steps=8)
+            if result.get("success"):
+                return result
+            log.info("iCIMS CSS runner: %s", result.get("note", ""))
+        else:
+            log.info("iCIMS: no visible form fields — login wall or unsupported page")
+    except Exception as _ie:
+        log.warning("iCIMS CSS runner error: %s", _ie)
+    _emit("apply_step", {"url": url, "step": "⚠️ Going to manual: iCIMS (login-gated or unsupported)"})
     return {"success": False, "manual": True, "note": "iCIMS requires manual apply (login-gated)"}
 
 
