@@ -522,6 +522,36 @@ async def _get_label(page: Page, element) -> str:
         parent_label = element.locator("xpath=ancestor::label[1]")
         if await parent_label.count():
             return (await parent_label.first.text_content() or "").strip()
+        # Fallback: nearest preceding sibling or parent text (for custom-styled forms)
+        txt = await element.evaluate("""el => {
+            // Check aria-labelledby
+            const lblId = el.getAttribute('aria-labelledby');
+            if (lblId) {
+                const ref = document.getElementById(lblId);
+                if (ref) return ref.innerText.trim();
+            }
+            // Walk up max 4 levels looking for a label-like sibling or heading
+            let node = el.parentElement;
+            for (let i = 0; i < 4 && node; i++, node = node.parentElement) {
+                // preceding sibling label/span/p/div with text
+                let sib = node.previousElementSibling;
+                while (sib) {
+                    const t = sib.innerText ? sib.innerText.trim() : '';
+                    if (t && t.length < 120 && !sib.querySelector('input,select,textarea'))
+                        return t;
+                    sib = sib.previousElementSibling;
+                }
+                // first text child of parent that isn't too long
+                const direct = Array.from(node.childNodes)
+                    .filter(n => n.nodeType === 3)
+                    .map(n => n.textContent.trim())
+                    .find(t => t.length > 1 && t.length < 100);
+                if (direct) return direct;
+            }
+            return '';
+        }""")
+        if txt:
+            return txt.strip()
     except Exception:
         pass
     return ""
@@ -1127,8 +1157,13 @@ async def _fill_wizard_step(
     job_desc: str,
     cfg: dict,
     prior_answers: list[dict] | None = None,
+    scope=None,
 ) -> int:
     """Single comprehensive pass over all visible form fields on the current wizard step.
+
+    `scope` should be the modal Locator (_ws) when available — this restricts all
+    DOM searches to inside the EA modal so we never accidentally interact with the
+    LinkedIn background page and close the modal.
 
     Processing order (phone country code must precede the phone number field):
       1. Phone country-code <select>
@@ -1146,6 +1181,9 @@ async def _fill_wizard_step(
     if prior_answers is None:
         prior_answers = []
     filled = 0
+    # All locator searches use `scope` (the modal element) to avoid accidentally
+    # interacting with the LinkedIn background page and closing the modal.
+    scope = scope or page
 
     _PLACEHOLDER_OPTS = {
         "", "select", "select an option", "select an option...", "select one",
@@ -1158,7 +1196,7 @@ async def _fill_wizard_step(
 
     # ── 2. File inputs (resume) ───────────────────────────────────────────────
     try:
-        fi_locs = page.locator("input[type='file']:not([disabled])")
+        fi_locs = scope.locator("input[type='file']:not([disabled])")
         for i in range(await fi_locs.count()):
             try:
                 fi = fi_locs.nth(i)
@@ -1176,7 +1214,7 @@ async def _fill_wizard_step(
     # ── 3. Select elements ────────────────────────────────────────────────────
     _CC_KEYS = ("phonecountry", "phone-country", "countrycode", "phone_country")
     try:
-        selects = page.locator("select:not([disabled])")
+        selects = scope.locator("select:not([disabled])")
         for i in range(min(await selects.count(), 15)):
             try:
                 sel = selects.nth(i)
@@ -1222,7 +1260,7 @@ async def _fill_wizard_step(
 
     # ── 4. Fieldset radio groups ──────────────────────────────────────────────
     try:
-        fieldsets = page.locator("fieldset")
+        fieldsets = scope.locator("fieldset")
         for i in range(min(await fieldsets.count(), 15)):
             try:
                 fs = fieldsets.nth(i)
@@ -1257,7 +1295,7 @@ async def _fill_wizard_step(
                         rv = await radios.nth(j).get_attribute("value") or ""
                         rl = ""
                         if rid:
-                            lbl_el = page.locator(f"label[for='{rid}']")
+                            lbl_el = scope.locator(f"label[for='{rid}']")
                             if await lbl_el.count():
                                 rl = (await lbl_el.first.text_content() or "").strip()
                         opts.append(rl or rv)
@@ -1285,7 +1323,7 @@ async def _fill_wizard_step(
     # Retry aria-invalid fieldsets (LinkedIn validation marks them after Next click)
     try:
         for retry_sel in ("fieldset[aria-invalid='true']", "fieldset.has-error"):
-            inv_fsets = page.locator(retry_sel)
+            inv_fsets = scope.locator(retry_sel)
             for k in range(await inv_fsets.count()):
                 try:
                     inv_fs = inv_fsets.nth(k)
@@ -1300,7 +1338,7 @@ async def _fill_wizard_step(
                         continue
                     rid = await inv_radios.first.get_attribute("id") or ""
                     if rid:
-                        lbl_el = page.locator(f"label[for='{rid}']")
+                        lbl_el = scope.locator(f"label[for='{rid}']")
                         if await lbl_el.count():
                             await lbl_el.first.click()
                             continue
@@ -1317,7 +1355,7 @@ async def _fill_wizard_step(
         re.I,
     )
     try:
-        checkboxes = page.locator("input[type='checkbox']:not([disabled])")
+        checkboxes = scope.locator("input[type='checkbox']:not([disabled])")
         for i in range(min(await checkboxes.count(), 20)):
             try:
                 cb = checkboxes.nth(i)
@@ -1342,7 +1380,7 @@ async def _fill_wizard_step(
                     cb_id = await cb.get_attribute("id") or ""
                     clicked = False
                     if cb_id:
-                        lbl_el = page.locator(f"label[for='{cb_id}']")
+                        lbl_el = scope.locator(f"label[for='{cb_id}']")
                         if await lbl_el.count():
                             await lbl_el.first.click()
                             clicked = True
@@ -1366,7 +1404,7 @@ async def _fill_wizard_step(
         "input[type='number']:not([disabled])"
     )
     try:
-        inputs = page.locator(_TEXT_INPUT_SEL)
+        inputs = scope.locator(_TEXT_INPUT_SEL)
         for i in range(min(await inputs.count(), 25)):
             try:
                 inp = inputs.nth(i)
@@ -1413,7 +1451,7 @@ async def _fill_wizard_step(
 
     # ── 7. Textareas ──────────────────────────────────────────────────────────
     try:
-        textareas = page.locator("textarea:not([disabled])")
+        textareas = scope.locator("textarea:not([disabled])")
         for i in range(min(await textareas.count(), 10)):
             try:
                 ta = textareas.nth(i)
@@ -1441,7 +1479,7 @@ async def _fill_wizard_step(
 
     # ── 8. Combobox / typeahead ───────────────────────────────────────────────
     try:
-        combos = page.locator(
+        combos = scope.locator(
             "[role='combobox']:not([disabled]),"
             ".artdeco-combobox__input:not([disabled])"
         )
@@ -1930,11 +1968,24 @@ async def _upload_resume(page: Page, cfg: dict, lang: str = "en") -> bool:
         log.warning("_upload_resume: no resume file found — skipping")
         return False
     inputs = page.locator("input[type='file']")
-    if await inputs.count():
-        await inputs.first.set_input_files(str(resume))
-        await asyncio.sleep(1.0)
-        _emit("apply_step", {"url": "", "step": f"  ✎ Resume: uploaded '{resume.name}'"})
-        return True
+    try:
+        _input_count = await inputs.count()
+    except Exception:
+        return False
+    for i in range(_input_count):
+        try:
+            inp = inputs.nth(i)
+            # Only upload to VISIBLE file inputs — LinkedIn has hidden inputs
+            # (profile photo, etc.) that will close the Easy Apply modal if
+            # we accidentally set_input_files on them.
+            if not await inp.is_visible():
+                continue
+            await inp.set_input_files(str(resume))
+            await asyncio.sleep(1.0)
+            _emit("apply_step", {"url": "", "step": f"  ✎ Resume: uploaded '{resume.name}'"})
+            return True
+        except Exception:
+            pass
     return False
 
 
@@ -2608,17 +2659,27 @@ async def fill_easy_apply(
         await page.wait_for_selector(
             "input[type='text']:not([disabled]), input[type='tel']:not([disabled]), "
             "input[type='email']:not([disabled]), select:not([disabled])",
-            timeout=8000, state="visible",
+            timeout=10_000, state="visible",
         )
         await page.wait_for_timeout(500)
     except Exception:
-        await page.wait_for_timeout(2000)
+        # Form not ready yet — give the React app time to hydrate
+        await page.wait_for_timeout(4_000)
 
     # Handle "unfinished application" dialog that LinkedIn shows before the wizard starts
     await _dismiss_unfinished_application_dialog(page)
 
-    await _handle_email_dropdown(page, profile, job["url"])
-    await _fill_profile_fields(page, profile)
+    try:
+        await _handle_email_dropdown(page, profile, job["url"])
+        await _fill_profile_fields(page, profile)
+    except Exception as _pre_exc:
+        _pmsg = str(_pre_exc).lower()
+        if any(x in _pmsg or x in type(_pre_exc).__name__.lower()
+               for x in ["targetclosed", "target page", "context destroyed", "target closed"]):
+            # Page closed during pre-fill — caller (_apply_linkedin) will detect
+            # the popup and retry on it; propagate so it can do so.
+            raise
+        log.warning("Pre-fill error (non-fatal): %s", _pre_exc)
 
     _resume_lang = job.get("_resume_lang") or _detect_job_language(job)
     cfg["_resume_lang"] = _resume_lang  # propagate so fill_field_smart picks the right resume
@@ -2627,6 +2688,7 @@ async def fill_easy_apply(
     step_n = 0
     prior_answers: list[dict] = []
     _resume_selected = False  # cache: only scan for resume once it's confirmed selected
+    _submit_clicked = False   # only trust page-close as success if we actually clicked Submit
     for step_n in range(12):
         # Refresh wizard scope on every step — modal changes between pages
         try:
@@ -2685,31 +2747,59 @@ async def fill_easy_apply(
             _stuck_count = 0
         _prev_page_labels = visible_labels
 
-        # Single ordered pass covering all field types with shared prior_answers context
+        # ── Verify modal still open before filling ────────────────────────────
+        # If the modal closed before we started (e.g. click_apply_button had a
+        # false-positive _is_ea_modal match), detect it early and bail cleanly.
+        _modal_open_now = False
+        try:
+            _modal_open_now = bool(await page.locator(
+                ".jobs-easy-apply-modal, .jobs-easy-apply-content, "
+                "[data-test-modal], .artdeco-modal"
+            ).count())
+        except Exception:
+            pass
+        if not _modal_open_now and step_n == 0:
+            # Wait up to 5 s for the EA modal to appear before giving up
+            _emit("apply_step", {"url": job["url"],
+                "step": f"  ⏳ Waiting for EA modal to open (step {step_n+1})…"})
+            try:
+                await page.wait_for_selector(
+                    ".jobs-easy-apply-modal, .jobs-easy-apply-content, "
+                    "[data-test-modal][aria-label*='apply' i]",
+                    state="visible", timeout=5_000,
+                )
+                _modal_open_now = True
+                _emit("apply_step", {"url": job["url"], "step": "  ✓ EA modal appeared"})
+            except Exception:
+                _emit("apply_step", {"url": job["url"],
+                    "step": "  ⚠️ EA modal not found — cannot fill wizard"})
+                break
+
+        # Single ordered pass — scoped to the modal (_ws) to avoid accidentally
+        # clicking anything on the LinkedIn background page behind the modal.
         _n_filled = await _fill_wizard_step(
             page, resume_text, profile, job.get("description", ""), cfg,
-            prior_answers=prior_answers
+            prior_answers=prior_answers,
+            scope=_ws,
         )
         if _n_filled:
             _emit("apply_step", {"url": job["url"],
                   "step": f"  ✎ Filled {_n_filled} field(s) on page {step_n+1}"})
 
-        _sub_exact = _ws.get_by_label("Submit application", exact=True)
-        submit = _sub_exact if await _sub_exact.count() else _ws.locator(
-            "button:has-text('Submit application'), button:has-text('Submit')"
+        # Small wait so React can re-render the footer buttons after field fill
+        await asyncio.sleep(0.5)
+
+        # ── Find Submit and Next buttons ─────────────────────────────────────
+        # Use specific aria-label CSS selectors — these are EA-wizard-unique so
+        # page-level search is safe and avoids React portal issues (the action
+        # buttons are often rendered outside the modal container in the DOM).
+
+        submit = page.locator("button[aria-label='Submit application']")
+
+        nxt = page.locator(
+            "button[aria-label='Continue to next step'], "
+            "button[aria-label='Review your application']"
         )
-        _nxt_exact = _ws.get_by_label("Continue to next step", exact=True)
-        _rev_exact = _ws.get_by_label("Review your application", exact=True)
-        if await _nxt_exact.count() and await _nxt_exact.first.is_visible():
-            nxt = _nxt_exact
-        elif await _rev_exact.count() and await _rev_exact.first.is_visible():
-            nxt = _rev_exact
-        else:
-            nxt = _ws.locator(
-                "button:has-text('Next'), button:has-text('Continue'), "
-                "button:has-text('Review'), button:has-text('Weiter'), "
-                "button:has-text('Fortfahren')"
-            )
 
         # Trigger blur/change so LinkedIn shows validation errors BEFORE we click
         try:
@@ -2750,10 +2840,22 @@ async def fill_easy_apply(
                 except Exception:
                     pass
 
-        if await submit.count():
+        _submit_count = 0
+        try:
+            _submit_count = await submit.count()
+        except Exception:
+            pass
+        _nxt_count = 0
+        try:
+            _nxt_count = await nxt.count() if nxt is not None else 0
+        except Exception:
+            pass
+
+        if _submit_count:
             _emit("apply_step", {"url": job["url"], "step": "Submitting application…"})
             await submit.first.scroll_into_view_if_needed()
             await asyncio.sleep(0.5)
+            _submit_clicked = True
             await submit.first.click()
             await asyncio.sleep(random.uniform(0.8, 1.5))
             await _dismiss_post_submit_dialogs(page)
@@ -2765,35 +2867,34 @@ async def fill_easy_apply(
             except Exception:
                 pass
             return {"success": True, "manual": False, "note": "", "apply_type": apply_type}
-        elif await nxt.count():
-            if not await nxt.count():
+        elif _nxt_count or True:  # always enter — fallback to modal-scoped search
+            if not _nxt_count:
+                # Broaden to text-based search — still page-level but specific labels
                 nxt = page.locator(
-                    "button[aria-label='Continue to next step'],"
-                    "button[aria-label='Review your application'],"
-                    "button:has-text('Next'),button:has-text('Continue'),"
-                    "button:has-text('Review'),button:has-text('Weiter'),"
-                    "button:has-text('Fortfahren'),button:has-text('Submit')"
+                    "button[aria-label='Continue to next step'], "
+                    "button[aria-label='Review your application'], "
+                    "button[aria-label='Submit application']"
                 )
                 if not await nxt.count():
                     # Claude vision fallback — find and click the right button
                     try:
                         from applier.smart_filler import _claude_decide, _execute_actions
                         _nav_acts = await _claude_decide(page, profile, resume_text,
-                                                         job.get('description',''), task='submit')
+                                                         job.get('description', ''), task='submit')
                         if _nav_acts:
                             await _execute_actions(page, _nav_acts, cfg)
                             await asyncio.sleep(1.5)
                             continue
                     except Exception:
                         pass
-                    log.warning("No Next button found at step %d", step_n + 1)
+                    log.warning("No Next/Submit button found at step %d", step_n + 1)
                     break
             nxt_text = (await nxt.first.text_content() or "Next").strip()
             _emit("apply_step", {"url": job["url"], "step": f"Page {step_n + 1} → clicking '{nxt_text}'"})
             await nxt.first.scroll_into_view_if_needed()
             await asyncio.sleep(0.5)
             await nxt.first.click()
-            await asyncio.sleep(random.uniform(0.8, 1.5))
+            await asyncio.sleep(random.uniform(1.0, 2.0))
             _step_errs = await _get_page_errors(page)
             if _step_errs:
                 for _se in _step_errs:
@@ -2810,15 +2911,13 @@ async def fill_easy_apply(
                         break
                     await asyncio.sleep(0.8)
                     try:
-                        _nxt_r = _ws.get_by_label("Continue to next step", exact=True)
-                        if not (await _nxt_r.count() and await _nxt_r.first.is_visible()):
-                            _nxt_r = _ws.locator(
-                                "button:has-text('Next'), button:has-text('Continue'), "
-                                "button:has-text('Weiter'), button:has-text('Fortfahren')"
-                            )
-                        if await _nxt_r.count() and await _nxt_r.first.is_visible():
+                        _nxt_r = page.locator(
+                            "button[aria-label='Continue to next step'], "
+                            "button[aria-label='Review your application']"
+                        )
+                        if await _nxt_r.count():
                             await _nxt_r.first.click()
-                            await asyncio.sleep(random.uniform(0.8, 1.5))
+                            await asyncio.sleep(random.uniform(1.0, 2.0))
                     except Exception:
                         pass
                     _step_errs = await _get_page_errors(page)
@@ -2836,10 +2935,16 @@ async def fill_easy_apply(
             except Exception as _nav_err:
                 _nav_msg = str(_nav_err).lower()
                 if any(x in _nav_msg for x in ["closed", "target page", "context", "destroyed"]):
-                    _emit("apply_step", {"url": job["url"],
-                        "step": "✓ Page closed after navigation — application submitted"})
-                    return {"success": True, "manual": False,
-                            "note": "Auto-submitted on Review", "apply_type": apply_type}
+                    if _submit_clicked:
+                        _emit("apply_step", {"url": job["url"],
+                            "step": "✓ Page closed after submit — application submitted"})
+                        return {"success": True, "manual": False,
+                                "note": "Auto-submitted on Review", "apply_type": apply_type}
+                    else:
+                        _emit("apply_step", {"url": job["url"],
+                            "step": "⚠️ Modal closed before submit was clicked — marking manual"})
+                        return {"success": False, "manual": True,
+                                "note": "Easy Apply modal closed before submission"}
                 raise
         else:
             try:

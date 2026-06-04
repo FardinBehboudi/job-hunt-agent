@@ -231,7 +231,9 @@ async def _verify_submission(page: Page) -> bool:
             });
             return empty;
         }""")
-        if required_empty == 0:
+        if required_empty == 0 and score > 0:
+            # Only boost if other signals already lean positive — "no required fields"
+            # alone is unreliable (many custom sites don't use the required attribute).
             score += 1
         elif required_empty > 2:
             score -= 2
@@ -682,6 +684,34 @@ async def _fill_remaining_questions(
     except Exception:
         pass
 
+    # ── File uploads (resume / CV) ────────────────────────────────────────────
+    try:
+        file_inputs = page.locator("input[type='file']:not([disabled])")
+        for i in range(min(await file_inputs.count(), 5)):
+            try:
+                fi = file_inputs.nth(i)
+                if not await fi.is_visible():
+                    continue
+                # Detect accepted types — prefer PDF, fallback to any
+                accept = (await fi.get_attribute("accept") or "").lower()
+                if accept and "pdf" not in accept and "doc" not in accept and "*" not in accept:
+                    continue  # not a document upload (e.g. profile photo)
+                label = await _get_label(page, fi)
+                label_low = label.lower()
+                # Skip if it looks like a photo/avatar upload
+                if any(w in label_low for w in ("photo", "picture", "avatar", "bild", "foto")):
+                    continue
+                resume_path = _resume_path(cfg)
+                if not resume_path:
+                    continue
+                await fi.set_input_files(str(resume_path))
+                await asyncio.sleep(0.5)
+                _emit("apply_step", {"url": url, "step": f"  📎 Uploaded resume: {resume_path.name}"})
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     # ── Consent / GDPR checkboxes ─────────────────────────────────────────────
     try:
         _CONSENT = re.compile(
@@ -1000,7 +1030,16 @@ async def _run_ats_form(
     # Wrap job with the frame's URL if we switched context
     _job_ctx = dict(job, url=getattr(ctx, "url", url))
 
+    _last_url = page.url
+    _stuck_count = 0  # consecutive steps where URL didn't change and action was "next"
+
     for step in range(max_steps):
+        # Guard: if page navigated completely away (closed tab / redirect to unrelated domain)
+        try:
+            _cur_url = page.url
+        except Exception:
+            log.warning("Page closed mid-form at step %d", step)
+            break
         _emit("apply_step", {"url": url, "step": f"  📋 Form step {step + 1}/{max_steps}…"})
 
         # 1. Fill all visible fields (use the frame context)
@@ -1074,9 +1113,28 @@ async def _run_ats_form(
             ctx = await _get_form_frame(page)
             _job_ctx = dict(job, url=getattr(ctx, "url", url))
 
-        # Check for confirmation page after any action
-        if await _verify_submission(page):
-            return {"success": True, "manual": False, "apply_type": apply_type}
+        # After a "next" click only do a cheap URL check — never run vision on
+        # intermediate steps (it causes false positives on multi-step forms).
+        if action == "next":
+            url_now = page.url.lower()
+            _confirm_url_kw = [
+                "thank", "thanks", "danke", "success", "erfolgreich",
+                "confirm", "bestatig", "submitted", "bewerbung-eingegangen",
+                "application-sent", "applied", "complete", "finished",
+            ]
+            if any(kw in url_now for kw in _confirm_url_kw):
+                return {"success": True, "manual": False, "apply_type": apply_type}
+            # Stuck detection: if URL hasn't changed for 2 consecutive "next" clicks,
+            # validation errors are likely blocking us — break so vision fallback can try.
+            if page.url == _last_url:
+                _stuck_count += 1
+                if _stuck_count >= 2:
+                    _emit("apply_step", {"url": url,
+                          "step": "  ⚠ Form appears stuck (same URL after 2 next clicks) — handing off"})
+                    break
+            else:
+                _stuck_count = 0
+            _last_url = page.url
 
     return {"success": False, "manual": True, "note": f"{apply_type}: could not confirm submission"}
 

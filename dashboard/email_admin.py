@@ -32,7 +32,7 @@ def api_pending():
 
 @email_admin_bp.route("/api/logs")
 def api_logs():
-    limit = int(request.args.get("limit", 100))
+    limit = int(request.args.get("limit", 1000))
     offset = int(request.args.get("offset", 0))
     rows = db.get_email_logs(limit=limit, offset=offset)
     return jsonify(rows)
@@ -138,6 +138,17 @@ def api_restore(staging_id: int):
         return jsonify({"ok": True})
     except Exception as exc:
         log.error("Restore failed id=%d: %s", staging_id, exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@email_admin_bp.route("/api/backup", methods=["POST"])
+def api_backup():
+    try:
+        from dedup.db import backup_db
+        dest = backup_db()
+        return jsonify({"ok": True, "file": dest.name})
+    except Exception as exc:
+        log.error("Manual backup failed: %s", exc)
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
@@ -360,6 +371,21 @@ _EMAIL_ADMIN_HTML = """
 
 <!-- Logs -->
 <div id="ea-logs" class="ea-section">
+  <div class="ea-bar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+    <input id="ea-log-search" type="text" placeholder="Search sender or subject…"
+      oninput="eaRenderLogs()"
+      style="background:#0d1117;border:1px solid #30363d;color:#e2e8f0;border-radius:6px;
+             padding:6px 10px;font-size:0.82rem;width:240px;outline:none;">
+    <input id="ea-log-date-from" type="date" oninput="eaRenderLogs()"
+      style="background:#0d1117;border:1px solid #30363d;color:#e2e8f0;border-radius:6px;
+             padding:5px 8px;font-size:0.82rem;outline:none;">
+    <span style="color:#64748b;font-size:0.8rem;align-self:center;">→</span>
+    <input id="ea-log-date-to" type="date" oninput="eaRenderLogs()"
+      style="background:#0d1117;border:1px solid #30363d;color:#e2e8f0;border-radius:6px;
+             padding:5px 8px;font-size:0.82rem;outline:none;">
+    <button class="ea-btn" onclick="eaClearLogFilters()" style="font-size:0.78rem;">✕ Clear</button>
+    <span id="ea-log-count" style="color:#64748b;font-size:0.78rem;align-self:center;margin-left:4px;"></span>
+  </div>
   <div class="ea-table-wrap" id="ea-logs-wrap">
     <div class="ea-empty">Loading…</div>
   </div>
@@ -382,6 +408,7 @@ _EMAIL_ADMIN_HTML = """
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
       <button class="ea-btn primary" onclick="eaSaveSettings()">Save Settings</button>
       <button class="ea-btn" onclick="eaRunNow()" id="ea-run-btn">🔄 Check Emails Now</button>
+      <button class="ea-btn" onclick="eaBackupNow()" id="ea-backup-btn" title="Save a copy to uploads/backups/">💾 Backup DB Now</button>
     </div>
     <div id="ea-settings-msg" style="font-size:0.82rem;color:#34d399;display:none"></div>
   </div>
@@ -393,6 +420,7 @@ _EMAIL_ADMIN_JS = """
 const EA_FOLDERS = """ + json.dumps(VALID_FOLDERS) + """;
 let _eaPendingData = [];
 let _eaFilter = 'all';
+let _eaLogsData = [];
 
 function eaToast(msg, type) {
   const t = document.getElementById('ea-toast');
@@ -742,14 +770,45 @@ async function eaRestoreFromData(btn) {
 }
 
 async function eaLoadLogs() {
-  const r = await fetch('/email-admin/api/logs');
-  const data = await r.json();
-  if (!data.length) {
+  const r = await fetch('/email-admin/api/logs?limit=1000');
+  _eaLogsData = await r.json();
+  eaRenderLogs();
+}
+
+function eaClearLogFilters() {
+  document.getElementById('ea-log-search').value = '';
+  document.getElementById('ea-log-date-from').value = '';
+  document.getElementById('ea-log-date-to').value = '';
+  eaRenderLogs();
+}
+
+function eaRenderLogs() {
+  const q = (document.getElementById('ea-log-search')?.value || '').toLowerCase();
+  const dateFrom = document.getElementById('ea-log-date-from')?.value || '';
+  const dateTo   = document.getElementById('ea-log-date-to')?.value   || '';
+
+  const filtered = _eaLogsData.filter(r => {
+    if (q) {
+      const hay = ((r.sender||'') + ' ' + (r.subject||'')).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (dateFrom || dateTo) {
+      const d = r.moved_at ? r.moved_at.slice(0,10) : '';
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo   && d > dateTo)   return false;
+    }
+    return true;
+  });
+
+  const countEl = document.getElementById('ea-log-count');
+  if (countEl) countEl.textContent = filtered.length + ' of ' + _eaLogsData.length;
+
+  if (!filtered.length) {
     document.getElementById('ea-logs-wrap').innerHTML =
-      '<div class="ea-empty">No move history yet</div>';
+      '<div class="ea-empty">' + (_eaLogsData.length ? 'No matching logs' : 'No move history yet') + '</div>';
     return;
   }
-  const rows = data.map(r => {
+  const rows = filtered.map(r => {
     const isAuto = (r.move_source === 'auto');
     const sourceIcon = isAuto
       ? '<span title="Auto-filed by agent" style="margin-right:4px">🤖</span>'
@@ -856,6 +915,20 @@ async function eaCheckFailedCount() {
       if (btn) btn.style.borderColor = '';
     }
   } catch(_) {}
+}
+
+async function eaBackupNow() {
+  const btn = document.getElementById('ea-backup-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Backing up…';
+  try {
+    const r = await fetch('/email-admin/api/backup', {method:'POST'});
+    const d = await r.json();
+    if (d.ok) eaToast('Backup saved: ' + d.file);
+    else eaToast('Backup failed: ' + (d.error||'unknown'), 'error');
+  } catch(e) { eaToast('Request failed: '+e.message, 'error'); }
+  btn.disabled = false;
+  btn.textContent = '💾 Backup DB Now';
 }
 
 // Load pending and skipped counts on init
