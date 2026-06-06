@@ -905,6 +905,11 @@ def apply(job: dict, archive_path: Path, cfg: dict | None = None) -> bool:
             try:
                 result = await handler(page, job, cfg, resume_text, prof)
                 results.append(result["success"])
+                # Save session after successful navigation so future runs stay logged in
+                try:
+                    await context.storage_state(path=str(_SESSION_FILE))
+                except Exception:
+                    pass
             finally:
                 await browser.close()
 

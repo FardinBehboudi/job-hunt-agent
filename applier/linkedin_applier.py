@@ -132,6 +132,9 @@ def _normalize_location(value: str, options: list[str]) -> str:
 
 def _get_salary_answer(field_type: str, label: str, salary: str, options: list[str]) -> str:
     if field_type in ("textarea", "text"):
+        # Some forms use type="text" but expect a decimal/integer salary number
+        if re.search(r"per\s*year|gross|brutto|decimal|number|\beur\b|\b€\b|annual", label, re.I):
+            return re.sub(r"[^\d]", "", salary.split(".")[0]) or salary
         return "Open to discussion based on total compensation and scope of the role."
     if field_type == "number":
         return re.sub(r"[^\d]", "", salary.split(".")[0]) or salary
@@ -172,6 +175,7 @@ _FAST_PATH_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"comfort.*commut|willing.*commut|commut.*comfort", re.I), "willing_to_relocate"),
     (re.compile(r"relocat", re.I), "willing_to_relocate"),
     (re.compile(r"travel", re.I), "willing_to_travel"),
+    (re.compile(r"start.*date|earliest.*start|preferred.*start|when.*start|frühest.*eintrittstermin|eintrittsdatum", re.I), "notice_period"),
     (re.compile(r"first.?name|vorname", re.I), "first_name"),
     (re.compile(r"last.?name|surname|nachname", re.I), "last_name"),
     (re.compile(r"full.?name|name", re.I), "full_name"),
@@ -231,6 +235,21 @@ def answer_custom_question(
         result = _generate_cover_letter(question_text, profile, resume_text, job_desc)
         if result:
             return result
+
+    # Starting date / availability — return a date string based on notice period
+    _DATE_KW = re.compile(r"start.*date|earliest.*start|preferred.*start|when.*start|eintrittsdatum|frühest", re.I)
+    if _DATE_KW.search(question_text) and field_type in ("text", "textarea"):
+        import datetime
+        _notice = str(profile.get("notice_period", "2 months")).lower()
+        _months = 2
+        if "1 month" in _notice or "one month" in _notice:
+            _months = 1
+        elif "3 month" in _notice:
+            _months = 3
+        elif "immed" in _notice or "sofort" in _notice:
+            _months = 0
+        _start_dt = datetime.date.today() + datetime.timedelta(days=_months * 30)
+        return _start_dt.strftime("%m/%d/%Y")
 
     _SALARY_KW = re.compile(r"\bsalary\b|\bcompensation\b|\bpay\b|\bwage\b|\bctc\b|\brate\b|\bgehalt\b|vergütung", re.I)
     if _SALARY_KW.search(question_text):
@@ -575,7 +594,10 @@ async def _get_page_errors(page: Page) -> list[str]:
             ".artdeco-inline-feedback--error, "
             "[data-test-form-element-error-message], "
             ".fb-form-element__error-field, "
-            "[aria-live='assertive']"
+            "[aria-live='assertive'], "
+            ".sr-form-field__error, "          # SmartRecruiters
+            "[data-testid='error-message'], "
+            ".jobs-easy-apply-form-element .artdeco-inline-feedback"
         )
         count = await error_locs.count()
         for i in range(min(count, 5)):
@@ -1377,6 +1399,18 @@ async def _fill_wizard_step(
                         cb_lbl = (await par.first.text_content() or "").strip()
                 if not cb_lbl:
                     continue
+                # Skip LinkedIn Premium "top choice" and pronoun checkboxes.
+                # Top-choice: checking reveals a required textarea causing infinite loops.
+                # Pronouns: LinkedIn profile already handles these; checking all is wrong.
+                _SKIP_CB_RE = re.compile(
+                    r"top.choice|mark.*(job|this).*top|top.*pick|"
+                    r"premium.*feature|standout|highlight.*application|"
+                    r"she/her|he/him|they/them|prefer not to say|"
+                    r"pronoun",
+                    re.I
+                )
+                if _SKIP_CB_RE.search(cb_lbl):
+                    continue
                 if _CONSENT_RE.search(cb_lbl):
                     should_check = True
                 else:
@@ -1419,15 +1453,19 @@ async def _fill_wizard_step(
                 inp = inputs.nth(i)
                 if not await inp.is_visible():
                     continue
-                # Skip already-filled
+                # Skip already-filled UNLESS it's a salary/numeric field with wrong content
                 existing = await inp.input_value()
-                if existing.strip():
-                    continue
                 lbl = await _get_field_label(page, inp)
                 if not lbl:
                     continue
                 inp_type = (await inp.get_attribute("type") or "text").lower()
                 eff_type = "number" if is_numeric_question(lbl, inp_type) else inp_type
+                # For salary/numeric fields: if existing is non-numeric text, we must replace
+                _is_salary_field = bool(re.search(
+                    r"\bsalary\b|\bgehalt\b|\bcompensation\b|\bper\s*year\b|\bgross\b", lbl, re.I
+                ))
+                if existing.strip() and not (_is_salary_field and not re.search(r"^\d", existing.strip())):
+                    continue
                 # Check memory first
                 answer = ""
                 try:
@@ -1448,6 +1486,13 @@ async def _fill_wizard_step(
                             pass
                 if not answer:
                     continue
+                # Clear existing content first if we're replacing salary field
+                if existing.strip() and _is_salary_field:
+                    try:
+                        await inp.triple_click()
+                        await inp.fill("")
+                    except Exception:
+                        pass
                 ok = await fill_field_smart(page, inp, answer, label=lbl, cfg=cfg)
                 if ok:
                     prior_answers.append({"question": lbl, "answer": answer})
@@ -2765,11 +2810,13 @@ async def fill_easy_apply(
     cfg["_resume_lang"] = _resume_lang  # propagate so fill_field_smart picks the right resume
     _prev_page_labels: list[str] = []
     _stuck_count = 0
+    _prev_progress_pct: str = ""   # track progress bar to detect infinite loops
+    _progress_stuck_count = 0
     step_n = 0
     prior_answers: list[dict] = []
     _resume_selected = False  # cache: only scan for resume once it's confirmed selected
     _submit_clicked = False   # only trust page-close as success if we actually clicked Submit
-    for step_n in range(12):
+    for step_n in range(25):
         # Refresh wizard scope on every step — modal changes between pages
         try:
             _modal_visible = await _modal_el.is_visible()
@@ -2802,6 +2849,46 @@ async def fill_easy_apply(
         except Exception:
             pass
 
+        _dbg(f"STEP {step_n} | visible_labels={visible_labels[:8]}")
+        # Save a screenshot of each wizard step for debugging
+        try:
+            _shot_path = Path(__file__).resolve().parent.parent / "uploads" / f"step_{step_n:02d}.png"
+            _shot_path.write_bytes(await page.screenshot(full_page=False))
+        except Exception:
+            pass
+
+        # ── Progress bar stuck detection ─────────────────────────────────────
+        # If the progress bar percentage doesn't change for 2 consecutive steps,
+        # the form is looping (e.g. a required field was missed). Break and go manual.
+        try:
+            # Find the progress percentage text inside the modal (e.g. "75%")
+            _pct_txt = await page.evaluate("""() => {
+                const modal = document.querySelector(
+                    '.jobs-easy-apply-modal, .artdeco-modal[role="dialog"], .artdeco-modal'
+                );
+                if (!modal) return '';
+                for (const el of modal.querySelectorAll('*')) {
+                    if (el.children.length === 0) {
+                        const t = (el.textContent || '').trim();
+                        if (/^\\d{1,3}%$/.test(t)) return t;
+                    }
+                }
+                return '';
+            }""")
+            _pct_txt = (_pct_txt or "").strip()
+        except Exception:
+            _pct_txt = ""
+        if _pct_txt:
+            _dbg(f"STEP {step_n} | progress_bar='{_pct_txt}'")
+            if _pct_txt == _prev_progress_pct:
+                _progress_stuck_count += 1
+                if _progress_stuck_count >= 2:
+                    _dbg(f"PROGRESS_STUCK | progress stayed at '{_pct_txt}' for {_progress_stuck_count} steps — breaking")
+                    log.warning("Form progress stuck at %s for %d steps — going manual", _pct_txt, _progress_stuck_count)
+                    break
+            else:
+                _progress_stuck_count = 0
+                _prev_progress_pct = _pct_txt
         if visible_labels and visible_labels == _prev_page_labels:
             _stuck_count += 1
             if _stuck_count == 1:
