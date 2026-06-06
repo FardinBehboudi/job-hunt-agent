@@ -11850,6 +11850,7 @@ def api_applications_manual():
 
 
 if __name__ == "__main__":
-
+    import logging as _logging
+    _logging.getLogger("werkzeug").setLevel(_logging.ERROR)
     app.run(host="127.0.0.1", port=5000, debug=False)
 

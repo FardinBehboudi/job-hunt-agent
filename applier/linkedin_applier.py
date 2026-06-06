@@ -1766,19 +1766,39 @@ async def _fill_profile_fields(page: Page, profile: dict) -> None:
         ("Work permit",      "input[aria-label*='work authorization' i], input[aria-label*='work permit' i], input[aria-label*='visa' i], input[aria-label*='right to work' i]", profile["work_permit"]),
         ("Location",         "input[aria-label*='current city' i], input[aria-label*='current location' i], input[aria-label*='location' i]",                          profile["current_location"]),
     ]
+    # When an artdeco modal is open, clicking a background-page input closes the modal.
+    # Only fill fill_map items whose element is INSIDE the modal.
+    _modal_open_el = None
+    try:
+        _m = page.locator(".artdeco-modal, .jobs-easy-apply-modal").first
+        if await _m.count() and await _m.is_visible():
+            _modal_open_el = await _m.element_handle()
+    except Exception:
+        pass
+
     for label, selector, value in fill_map:
         if not value:
             continue
         try:
             loc = page.locator(selector)
-            if await loc.count():
-                el = loc.first
-                if await el.is_visible():
-                    existing = await el.input_value()
-                    if not existing.strip():
-                        await _type_slowly(page, selector, str(value))
-                        await _handle_autocomplete(page, el, str(value))
-                        _emit("apply_step", {"url": url, "step": f"  ✎ {label}: {value}"})
+            if not await loc.count():
+                continue
+            el = loc.first
+            if not await el.is_visible():
+                continue
+            # Skip if modal is open and this element is NOT inside it
+            if _modal_open_el:
+                in_modal = await page.evaluate(
+                    "([modal, el]) => modal.contains(el)",
+                    [_modal_open_el, await el.element_handle()]
+                )
+                if not in_modal:
+                    continue
+            existing = await el.input_value()
+            if not existing.strip():
+                await _type_slowly(page, selector, str(value))
+                await _handle_autocomplete(page, el, str(value))
+                _emit("apply_step", {"url": url, "step": f"  ✎ {label}: {value}"})
         except Exception:
             pass
 
@@ -2651,9 +2671,40 @@ async def fill_easy_apply(
     except Exception:
         _modal_visible = False
 
+    # Fix: if modal not yet visible (timing gap between clicker and fill_easy_apply),
+    # wait up to 5s for it to appear before falling back to page scope.
+    if not _modal_visible:
+        try:
+            await page.wait_for_selector(MODAL_SEL, state="visible", timeout=5_000)
+            _modal_visible = await _modal_el.is_visible()
+        except Exception:
+            pass
     _ws = _modal_el if _modal_visible else page
-    log.info("Wizard scope: %s | full_page=%s",
-             "modal" if _modal_visible else "full-page", _full_page_apply)
+    _DBG_LOG = Path(__file__).resolve().parent.parent / "uploads" / "debug_applier.log"
+    def _dbg(msg: str) -> None:
+        try:
+            import datetime
+            line = f"[{datetime.datetime.now().strftime('%H:%M:%S.%f')}] {msg}"
+            with open(_DBG_LOG, "a", encoding="utf-8") as _f:
+                _f.write(line + "\n")
+                _f.flush()
+            _emit("apply_step", {"url": job.get("url", ""), "step": f"[DBG] {msg}"})
+        except Exception:
+            pass
+    # Detailed selector breakdown at start
+    _sel_breakdown = {}
+    for _s in [".jobs-easy-apply-modal", ".jobs-easy-apply-content",
+               ".artdeco-modal__content", ".artdeco-modal[role='dialog']",
+               ".artdeco-modal[aria-modal='true']", ".artdeco-modal",
+               "[data-test-modal]"]:
+        try:
+            _c = await page.locator(_s).count()
+            if _c:
+                _v = await page.locator(_s).first.is_visible()
+                _sel_breakdown[_s] = f"count={_c},vis={_v}"
+        except Exception:
+            pass
+    _dbg(f"=== START | modal_visible={_modal_visible} | sel_breakdown={_sel_breakdown}")
 
     try:
         await page.wait_for_selector(
@@ -2670,8 +2721,28 @@ async def fill_easy_apply(
     await _dismiss_unfinished_application_dialog(page)
 
     try:
+        _pre_modal = await page.locator(".artdeco-modal, .jobs-easy-apply-modal").count()
+        # Find the email select and trace its modal ancestor
+        _email_container = await page.evaluate("""() => {
+            for (const s of document.querySelectorAll('select')) {
+                const opts = Array.from(s.options).map(o => o.text);
+                if (opts.some(o => o.includes('@'))) {
+                    const path = [];
+                    let el = s.parentElement;
+                    while (el && el !== document.body && path.length < 8) {
+                        path.push(el.tagName + '.' + (el.className||'').split(' ').slice(0,3).join('.'));
+                        el = el.parentElement;
+                    }
+                    return {found: true, path: path, url: location.href};
+                }
+            }
+            return {found: false, url: location.href};
+        }""")
+        _dbg(f"PRE-prefill | artdeco-modal count={_pre_modal} | email-container={_email_container}")
         await _handle_email_dropdown(page, profile, job["url"])
         await _fill_profile_fields(page, profile)
+        _post_modal = await page.locator(".artdeco-modal, .jobs-easy-apply-modal").count()
+        _dbg(f"POST-prefill | artdeco-modal count={_post_modal}")
     except Exception as _pre_exc:
         _pmsg = str(_pre_exc).lower()
         if any(x in _pmsg or x in type(_pre_exc).__name__.lower()
@@ -2747,32 +2818,22 @@ async def fill_easy_apply(
             _stuck_count = 0
         _prev_page_labels = visible_labels
 
-        # ── Verify modal still open before filling ────────────────────────────
-        # If the modal closed before we started (e.g. click_apply_button had a
-        # false-positive _is_ea_modal match), detect it early and bail cleanly.
-        _modal_open_now = False
-        try:
-            _modal_open_now = bool(await page.locator(
-                ".jobs-easy-apply-modal, .jobs-easy-apply-content, "
-                "[data-test-modal], .artdeco-modal"
-            ).count())
-        except Exception:
-            pass
-        if not _modal_open_now and step_n == 0:
-            # Wait up to 5 s for the EA modal to appear before giving up
-            _emit("apply_step", {"url": job["url"],
-                "step": f"  ⏳ Waiting for EA modal to open (step {step_n+1})…"})
+        # ── Wait for form inputs to be ready (works for all modal types) ────────
+        # Don't check modal CSS classes — JazzHR/ATS overlays use different DOM
+        # structures. Just wait for actual form inputs to appear (like e0dedde).
+        if step_n == 0:
             try:
                 await page.wait_for_selector(
-                    ".jobs-easy-apply-modal, .jobs-easy-apply-content, "
-                    "[data-test-modal][aria-label*='apply' i]",
-                    state="visible", timeout=5_000,
+                    "input[type='text']:not([disabled]), "
+                    "input[type='tel']:not([disabled]), "
+                    "input[type='email']:not([disabled]), "
+                    "select:not([disabled])",
+                    state="visible", timeout=8_000,
                 )
-                _modal_open_now = True
-                _emit("apply_step", {"url": job["url"], "step": "  ✓ EA modal appeared"})
             except Exception:
+                # No form inputs appeared — nothing to fill
                 _emit("apply_step", {"url": job["url"],
-                    "step": "  ⚠️ EA modal not found — cannot fill wizard"})
+                    "step": "  ⚠️ No form inputs found — cannot fill wizard"})
                 break
 
         # Single ordered pass — scoped to the modal (_ws) to avoid accidentally
@@ -2789,11 +2850,33 @@ async def fill_easy_apply(
         # Small wait so React can re-render the footer buttons after field fill
         await asyncio.sleep(0.5)
 
-        # ── Find Submit and Next buttons ─────────────────────────────────────
-        # Use specific aria-label CSS selectors — these are EA-wizard-unique so
-        # page-level search is safe and avoids React portal issues (the action
-        # buttons are often rendered outside the modal container in the DOM).
+        # ── DIAGNOSTICS — dump ALL visible buttons via Playwright (pierces shadow DOM) ──
+        try:
+            _dbg_modal_count = await page.locator(".artdeco-modal").count()
+            _dbg_modal_vis   = await page.locator(".artdeco-modal").first.is_visible() if _dbg_modal_count else False
+            _dbg(f"STEP {step_n} | modal_count={_dbg_modal_count} modal_vis={_dbg_modal_vis}")
+            # Dump every visible button — text + aria-label
+            _all_btns_info = []
+            for _b in await page.locator("button").all():
+                try:
+                    if await _b.is_visible():
+                        _bt = (await _b.text_content() or "").strip().replace("\n", " ")[:35]
+                        _bl = (await _b.get_attribute("aria-label") or "")[:35]
+                        _all_btns_info.append(f"'{_bt}'|aria='{_bl}'")
+                except Exception:
+                    pass
+            _dbg(f"STEP {step_n} | ALL_VISIBLE_BUTTONS={_all_btns_info}")
+            # Specific checks
+            for _sel in ["button[aria-label='Continue to next step']",
+                         "button[aria-label='Review your application']",
+                         "button[aria-label='Submit application']"]:
+                _c = await page.locator(_sel).count()
+                if _c: _dbg(f"STEP {step_n} | FOUND: {_sel} count={_c}")
+        except Exception as _de:
+            _dbg(f"STEP {step_n} | diagnostics error: {_de}")
+        # ─────────────────────────────────────────────────────────────────────
 
+        # ── Find Submit and Next buttons ─────────────────────────────────────
         submit = page.locator("button[aria-label='Submit application']")
 
         nxt = page.locator(
@@ -2801,162 +2884,143 @@ async def fill_easy_apply(
             "button[aria-label='Review your application']"
         )
 
-        # Trigger blur/change so LinkedIn shows validation errors BEFORE we click
-        try:
-            await page.evaluate("""
-                () => { document.querySelectorAll(
-                    'input:not([type=hidden]):not([type=file]):not([disabled]),'
-                    +'textarea:not([disabled]),select:not([disabled])'
-                ).forEach(f => { if (f.offsetParent) {
-                    f.dispatchEvent(new Event('blur',   {bubbles:true}));
-                    f.dispatchEvent(new Event('change', {bubbles:true}));
-                    f.dispatchEvent(new Event('input',  {bubbles:true}));
-                }})}
-            """)
-            await asyncio.sleep(0.4)
-        except Exception:
-            pass
+        # ── Click Next/Submit via JS BEFORE any blur/change events ──────────
+        # Firing blur/change causes LinkedIn's React to tear down and rebuild the
+        # modal footer, removing the Next button from the DOM entirely. So we must
+        # JS-click the button BEFORE firing blur/change. LinkedIn will show
+        # validation errors after the click if fields are missing — we handle those
+        # in the post-click validation block below.
+        _pre_nxt_aria = None
+        _click_done = False
 
-        # Pre-click validation check
-        _pre_errors = await _get_page_errors(page)
-        if _pre_errors:
-            _emit("apply_step", {"url": job["url"],
-                  "step": f"  ⚠️ Validation: {'; '.join(_pre_errors[:2])[:120]}"})
-            _fixed_pre = await _retry_invalid_fields(
-                page, resume_text, profile, job.get("description", ""),
-                prior_answers=prior_answers, cfg=cfg
-            )
-            if _fixed_pre:
-                await asyncio.sleep(0.5)
-                try:
-                    await page.evaluate("""
-                        () => { document.querySelectorAll('input,textarea,select')
-                            .forEach(f => { if(f.offsetParent){
-                                f.dispatchEvent(new Event('blur',{bubbles:true}));
-                                f.dispatchEvent(new Event('change',{bubbles:true}));
-                            }}); }
-                    """)
-                    await asyncio.sleep(0.3)
-                except Exception:
-                    pass
+        # Find which button is present (Submit takes priority over Next).
+        # The button lives in Shadow DOM so document.querySelector() won't find it —
+        # we must use Playwright's locator (which pierces shadow DOM) to get an
+        # element handle, then call .click() via element_handle.evaluate() which
+        # executes JS directly on the node without triggering navigation-wait.
+        for _aria in ["Submit application", "Continue to next step", "Review your application"]:
+            try:
+                _l_btn = page.locator(f"button[aria-label='{_aria}']")
+                if not await _l_btn.count():
+                    continue
+                _eh = await _l_btn.first.element_handle(timeout=2000)
+                if _eh is None:
+                    continue
+                await _eh.evaluate("el => el.click()")
+                _pre_nxt_aria = _aria
+                _click_done = True
+                _dbg(f"EARLY_CLICK | step={step_n} | element_handle.click on aria='{_aria}'")
+                break
+            except Exception as _eje:
+                _dbg(f"EARLY_CLICK_ERR | aria='{_aria}' | {str(_eje)[:120]}")
+
+        if not _click_done:
+            _dbg(f"EARLY_CLICK_FAILED | step={step_n} | no button found pre-blur")
 
         _submit_count = 0
-        try:
-            _submit_count = await submit.count()
-        except Exception:
-            pass
-        _nxt_count = 0
-        try:
-            _nxt_count = await nxt.count() if nxt is not None else 0
-        except Exception:
-            pass
-
-        if _submit_count:
-            _emit("apply_step", {"url": job["url"], "step": "Submitting application…"})
-            await submit.first.scroll_into_view_if_needed()
-            await asyncio.sleep(0.5)
-            _submit_clicked = True
-            await submit.first.click()
-            await asyncio.sleep(random.uniform(0.8, 1.5))
-            await _dismiss_post_submit_dialogs(page)
-            try:
-                from applier.memory import get_memory
-                get_memory().save_application_result(
-                    job.get("url",""), "linkedin", True, prior_answers
-                )
-            except Exception:
-                pass
-            return {"success": True, "manual": False, "note": "", "apply_type": apply_type}
-        elif _nxt_count or True:  # always enter — fallback to modal-scoped search
-            if not _nxt_count:
-                # Broaden to text-based search — still page-level but specific labels
-                nxt = page.locator(
-                    "button[aria-label='Continue to next step'], "
-                    "button[aria-label='Review your application'], "
-                    "button[aria-label='Submit application']"
-                )
-                if not await nxt.count():
-                    # Claude vision fallback — find and click the right button
-                    try:
-                        from applier.smart_filler import _claude_decide, _execute_actions
-                        _nav_acts = await _claude_decide(page, profile, resume_text,
-                                                         job.get('description', ''), task='submit')
-                        if _nav_acts:
-                            await _execute_actions(page, _nav_acts, cfg)
-                            await asyncio.sleep(1.5)
-                            continue
-                    except Exception:
-                        pass
-                    log.warning("No Next/Submit button found at step %d", step_n + 1)
-                    break
-            nxt_text = (await nxt.first.text_content() or "Next").strip()
-            _emit("apply_step", {"url": job["url"], "step": f"Page {step_n + 1} → clicking '{nxt_text}'"})
-            await nxt.first.scroll_into_view_if_needed()
-            await asyncio.sleep(0.5)
-            await nxt.first.click()
-            await asyncio.sleep(random.uniform(1.0, 2.0))
-            _step_errs = await _get_page_errors(page)
-            if _step_errs:
-                for _se in _step_errs:
-                    _emit("apply_step", {"url": job["url"], "step": f"  ⚠️ Validation: {_se[:100]}"})
-                # Fix-and-retry: re-fill error fields and click Next again (up to 2 cycles)
-                for _fix_n in range(2):
-                    _fixed = await _retry_invalid_fields(
-                        page, resume_text, profile, job.get("description", ""),
-                        prior_answers=prior_answers, cfg=cfg
+        # ── If early JS click failed, check if we already submitted ──────────
+        if not _click_done:
+            _dbg(f"No clickable Next/Submit button found at step {step_n}")
+            if _submit_clicked:
+                # Post-submit dialog (e.g. LinkedIn's "Update your profile?" prompt)
+                _dbg(f"Submit was already clicked — treating as success at step {step_n}")
+                await _dismiss_post_submit_dialogs(page)
+                try:
+                    from applier.memory import get_memory
+                    get_memory().save_application_result(
+                        job.get("url", ""), "linkedin", True, prior_answers
                     )
-                    _emit("apply_step", {"url": job["url"],
-                          "step": f"  🔧 Re-filled {_fixed} errored field(s)"})
-                    if not _fixed:
-                        break
-                    await asyncio.sleep(0.8)
+                except Exception:
+                    pass
+                return {"success": True, "manual": False, "note": "", "apply_type": apply_type}
+            log.warning("No Next/Submit button found at step %d", step_n + 1)
+            break
+
+        # If Submit was clicked, mark it
+        if _pre_nxt_aria == "Submit application":
+            _submit_clicked = True
+
+        await asyncio.sleep(random.uniform(1.0, 2.0))
+        _dbg(f"AFTER_SLEEP | step={step_n} | url={page.url[:80]}")
+
+        # Detect modal closure right after clicking Next — happens when a JazzHR /
+        # third-party single-step overlay submits and closes itself on the LinkedIn page.
+        _modal_still_open = False
+        try:
+            _modal_count_after = await page.locator(
+                ".jobs-easy-apply-modal, .jobs-easy-apply-content, "
+                "[data-test-modal], .artdeco-modal, [role='dialog'][aria-modal='true']"
+            ).count()
+            _modal_still_open = bool(_modal_count_after)
+            _dbg(f"MODAL_CHECK | step={step_n} | count={_modal_count_after} open={_modal_still_open}")
+        except Exception as _mce:
+            _dbg(f"MODAL_CHECK_ERR | {_mce}")
+        if not _modal_still_open and "linkedin.com" in page.url:
+            _dbg(f"SINGLE_STEP_RETURN | modal closed after Next on step {step_n}")
+            _emit("apply_step", {"url": job["url"],
+                "step": "✓ Modal closed after Next — application submitted"})
+            return {"success": True, "manual": False,
+                    "note": "Single-step ATS overlay submitted", "apply_type": apply_type}
+
+        _step_errs = await _get_page_errors(page)
+        if _step_errs:
+            for _se in _step_errs:
+                _emit("apply_step", {"url": job["url"], "step": f"  ⚠️ Validation: {_se[:100]}"})
+            # Fix-and-retry: re-fill error fields and JS-click Next again (up to 2 cycles)
+            for _fix_n in range(2):
+                _fixed = await _retry_invalid_fields(
+                    page, resume_text, profile, job.get("description", ""),
+                    prior_answers=prior_answers, cfg=cfg
+                )
+                _emit("apply_step", {"url": job["url"],
+                      "step": f"  🔧 Re-filled {_fixed} errored field(s)"})
+                if not _fixed:
+                    break
+                await asyncio.sleep(0.8)
+                for _re_aria in ["Continue to next step", "Review your application", "Submit application"]:
                     try:
-                        _nxt_r = page.locator(
-                            "button[aria-label='Continue to next step'], "
-                            "button[aria-label='Review your application']"
-                        )
-                        if await _nxt_r.count():
-                            await _nxt_r.first.click()
+                        _re_clicked = await page.evaluate(f"""() => {{
+                            const btn = document.querySelector("button[aria-label='{_re_aria}']");
+                            if (btn) {{ btn.click(); return true; }}
+                            return false;
+                        }}""")
+                        if _re_clicked:
                             await asyncio.sleep(random.uniform(1.0, 2.0))
+                            break
                     except Exception:
                         pass
-                    _step_errs = await _get_page_errors(page)
-                    if not _step_errs:
-                        _emit("apply_step", {"url": job["url"],
-                              "step": "  ✅ Validation errors resolved"})
-                        _stuck_count = 0
-                        break
-                    for _se in _step_errs:
-                        _emit("apply_step", {"url": job["url"],
-                              "step": f"  ⚠️ Still: {_se[:80]}"})
-            try:
+                _step_errs = await _get_page_errors(page)
+                if not _step_errs:
+                    _emit("apply_step", {"url": job["url"],
+                          "step": "  ✅ Validation errors resolved"})
+                    _stuck_count = 0
+                    break
+                for _se in _step_errs:
+                    _emit("apply_step", {"url": job["url"],
+                          "step": f"  ⚠️ Still: {_se[:80]}"})
+        _dbg(f"INTER_STEP | step={step_n} | about to check modal for inter-step prefill")
+        try:
+            # Only re-run pre-fill between steps if the modal is still open.
+            _inter_modal = await page.locator(MODAL_SEL).count()
+            _dbg(f"INTER_STEP | step={step_n} | inter_modal_count={_inter_modal}")
+            if _inter_modal:
                 await _handle_email_dropdown(page, profile, job["url"])
                 await _fill_profile_fields(page, profile)
-            except Exception as _nav_err:
-                _nav_msg = str(_nav_err).lower()
-                if any(x in _nav_msg for x in ["closed", "target page", "context", "destroyed"]):
-                    if _submit_clicked:
-                        _emit("apply_step", {"url": job["url"],
-                            "step": "✓ Page closed after submit — application submitted"})
-                        return {"success": True, "manual": False,
-                                "note": "Auto-submitted on Review", "apply_type": apply_type}
-                    else:
-                        _emit("apply_step", {"url": job["url"],
-                            "step": "⚠️ Modal closed before submit was clicked — marking manual"})
-                        return {"success": False, "manual": True,
-                                "note": "Easy Apply modal closed before submission"}
+        except Exception as _nav_err:
+            _nav_msg = str(_nav_err).lower()
+            _dbg(f"INTER_STEP_ERR | step={step_n} | err={str(_nav_err)[:100]}")
+            if any(x in _nav_msg for x in ["closed", "target page", "context", "destroyed"]):
+                if _submit_clicked:
+                    _emit("apply_step", {"url": job["url"],
+                        "step": "✓ Page closed after submit — application submitted"})
+                    return {"success": True, "manual": False,
+                            "note": "Auto-submitted on Review", "apply_type": apply_type}
+                else:
+                    _emit("apply_step", {"url": job["url"],
+                        "step": "⚠️ Modal closed before submit was clicked — marking manual"})
+                    return {"success": False, "manual": True,
+                            "note": "Easy Apply modal closed before submission"}
                 raise
-        else:
-            try:
-                btns = [(await b.text_content() or "").strip()
-                        for b in await page.query_selector_all("button")]
-                log.warning("Wizard stuck at step %d — buttons: %s", step_n + 1, [t for t in btns if t])
-                debug_path = Path("uploads") / f"debug_wizard_{job_id}_step{step_n}.png"
-                debug_path.write_bytes(await page.screenshot(full_page=True))
-                log.warning("Wizard debug screenshot: %s", debug_path)
-            except Exception:
-                pass
-            break
 
     log.warning("DEBUG pre-manual: URL=%s", page.url)
     log.warning("DEBUG pre-manual: Page title=%s", await page.title())

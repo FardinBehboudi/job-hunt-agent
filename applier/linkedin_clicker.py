@@ -81,6 +81,7 @@ _MODAL_SEL = (
     ".jobs-easy-apply-modal, "
     ".jobs-easy-apply-content, "
     "[data-test-modal], "
+    ".artdeco-modal__content, "
     ".artdeco-modal[role='dialog'], "
     ".artdeco-modal[aria-modal='true']"
 )
@@ -125,26 +126,73 @@ async def _is_ea_modal(page: Page) -> bool:
             return True
     except Exception:
         pass
-    # Navigation buttons — only count if they're inside a modal container.
-    # "Next" alone is too broad: LinkedIn's job page has a carousel button with
-    # aria-label="Next" that would cause a false positive here.
+    # Navigation buttons — scope to .artdeco-modal so we don't match LinkedIn's
+    # sidebar "Next" pagination button (which exists on the job-detail page too).
     try:
-        for sel in (
-            # EA-specific submit/review buttons are unambiguous
-            "button[aria-label='Submit application']",
-            "button[aria-label='Review your application']",
-            # "Continue to next step" is EA-specific
-            "button[aria-label='Continue to next step']",
-            # Generic "Next" only trusted when inside a modal container
-            ".artdeco-modal button:has-text('Next')",
-            "[data-test-modal] button:has-text('Next')",
-            ".jobs-easy-apply-modal button:has-text('Next')",
-        ):
-            el = await page.query_selector(sel)
-            if el and await el.is_visible():
-                return True
+        modal_scope = await page.query_selector(".artdeco-modal")
+        if not modal_scope:
+            modal_scope = await page.query_selector("[role='dialog']")
+        if modal_scope:
+            for label in ("Next", "Submit application", "Review your application",
+                          "Continue to next step"):
+                found = await page.evaluate(
+                    """([el, lbl]) => {
+                        for (const b of el.querySelectorAll('button')) {
+                            if (!b.offsetParent) continue;
+                            const t = (b.getAttribute('aria-label') || b.innerText || '').trim();
+                            if (t.toLowerCase() === lbl.toLowerCase()) return true;
+                        }
+                        return false;
+                    }""",
+                    [modal_scope, label]
+                )
+                if found:
+                    return True
     except Exception:
         pass
+
+    # ── role=dialog / aria-modal fallback (e.g. JazzHR overlays inside LinkedIn) ──
+    # These modals don't use LinkedIn's artdeco CSS classes but ARE valid apply wizards.
+    try:
+        result = await page.evaluate("""() => {
+            const DIALOG_SELS = ["[role='dialog']", "[aria-modal='true']"];
+            const PREMIUM_KW  = /premium|stand out|subscription|upgrade|trial/i;
+            const APPLY_KW    = /apply to|apply for|easy apply/i;
+
+            for (const dSel of DIALOG_SELS) {
+                for (const dlg of document.querySelectorAll(dSel)) {
+                    if (!dlg.offsetParent && getComputedStyle(dlg).display === 'none') continue;
+
+                    // Check heading text
+                    const h = dlg.querySelector('h1,h2,h3,[class*=headline],[class*=header]');
+                    if (h) {
+                        const txt = h.innerText || '';
+                        if (PREMIUM_KW.test(txt)) continue;  // skip premium overlays
+                        if (APPLY_KW.test(txt))   return true;
+                    }
+
+                    // Form inputs inside the dialog = strong apply-wizard signal
+                    const inp = dlg.querySelector(
+                        'input:not([type=hidden]):not([type=file]):not([disabled]),' +
+                        'select:not([disabled])'
+                    );
+                    if (inp && inp.offsetParent !== null) return true;
+
+                    // "Next" button inside the dialog
+                    for (const btn of dlg.querySelectorAll('button')) {
+                        if (!btn.offsetParent) continue;
+                        const label = (btn.getAttribute('aria-label') || btn.innerText || '').trim();
+                        if (/^next$/i.test(label)) return true;
+                    }
+                }
+            }
+            return false;
+        }""")
+        if result:
+            return True
+    except Exception:
+        pass
+
     return False
 
 _EA_CSS = [
@@ -528,15 +576,43 @@ async def click_apply_button(
             await page.wait_for_timeout(1_500)
 
     if _modal_opened:
-        # Give React up to 3 s to hydrate the form content before deciding
-        # whether this is an EA modal or a Premium/upsell overlay.
-        for _wait_ms in (500, 1000, 1500):
+        # Poll up to 6 s for the modal to reveal itself as EA or Premium.
+        # JazzHR / third-party ATS overlays take 3-5 s to render form fields.
+        _confirmed_premium = False
+        for _wait_ms in (500, 1000, 1500, 1500, 1500):
             await page.wait_for_timeout(_wait_ms)
             if await _is_ea_modal(page):
                 print(f"[clicker] Easy Apply modal open (via {_detect_via})", flush=True)
                 return "easy_apply"
-        # After 3 s still not EA — only NOW dismiss (probably a Premium overlay)
-        print("[clicker] Non-EA overlay detected — dismissing and retrying", flush=True)
+            # Check if it's positively a Premium/upsell overlay (dismiss immediately)
+            try:
+                _confirmed_premium = await page.evaluate("""() => {
+                    const PREMIUM_KW = /premium|stand out|subscription|upgrade|trial|reactivate/i;
+                    for (const sel of [
+                        '.artdeco-modal__header h2',
+                        '.artdeco-modal__headline',
+                        '[data-test-modal-header]',
+                    ]) {
+                        const h = document.querySelector(sel);
+                        if (h && h.offsetParent !== null && PREMIUM_KW.test(h.innerText || ''))
+                            return true;
+                    }
+                    return false;
+                }""")
+            except Exception:
+                pass
+            if _confirmed_premium:
+                break
+
+        if _confirmed_premium:
+            print("[clicker] Premium overlay confirmed — dismissing and retrying", flush=True)
+        else:
+            # Modal opened but didn't resolve as EA or Premium within 6 s.
+            # This happens for JazzHR/Greenhouse/Lever overlays that use
+            # non-artdeco DOM structures. Treat as EA — benefit of the doubt.
+            print(f"[clicker] Modal unresolved after 6 s — assuming EA (via {_detect_via})", flush=True)
+            return "easy_apply"
+
         await dismiss_overlays(page)
         await page.wait_for_timeout(1_500)
         try:
