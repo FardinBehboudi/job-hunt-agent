@@ -266,12 +266,21 @@ def answer_custom_question(
                             if opt.lower() in ("true", "yes", "1", "ja", "oui"):
                                 return opt
                         return options[0] if options else "Yes"
-                # Text/textarea fallback — distinguish "are you eligible?" from "do you need sponsorship?"
+                # Text/textarea: return a proper sentence, not bare "Yes"
+                if field_type in ("text", "textarea"):
+                    if re.search(r"need|require|sponsor", question_text, re.I):
+                        return "No, I am a German citizen and do not require visa sponsorship."
+                    return "Yes, I am legally authorized to work in Germany without requiring visa sponsorship."
+                # checkbox/other
                 if re.search(r"need|require|sponsor", question_text, re.I):
-                    return "No, I am a German citizen and do not require visa sponsorship."
-                return "Yes"  # eligible / authorized to work
+                    return "No"
+                return "Yes"
             if isinstance(val, bool):
-                if field_type == "radio" and options:
+                # For text/textarea: fall through to Claude so it generates a proper sentence.
+                # Only use bare Yes/No for structured fields (radio, select, checkbox).
+                if field_type in ("text", "textarea"):
+                    continue  # fall through to Claude API call
+                if field_type in ("radio", "select") and options:
                     return options[0] if val else (options[1] if len(options) > 1 else "No")
                 return "Yes" if val else "No"
             val = str(val)
@@ -291,7 +300,7 @@ def answer_custom_question(
     try:
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            return options[0] if options else "Yes"
+            return options[0] if options else ""
         client = anthropic.Anthropic(api_key=api_key)
         opts_txt = (", ".join(f'"{o}"' for o in options[:8])) if options else "free text"
         _prior_ctx = ""
@@ -2977,16 +2986,16 @@ async def fill_easy_apply(
                 if not _fixed:
                     break
                 await asyncio.sleep(0.8)
+                # Retry click via element_handle (shadow DOM safe)
                 for _re_aria in ["Continue to next step", "Review your application", "Submit application"]:
                     try:
-                        _re_clicked = await page.evaluate(f"""() => {{
-                            const btn = document.querySelector("button[aria-label='{_re_aria}']");
-                            if (btn) {{ btn.click(); return true; }}
-                            return false;
-                        }}""")
-                        if _re_clicked:
-                            await asyncio.sleep(random.uniform(1.0, 2.0))
-                            break
+                        _re_btn = page.locator(f"button[aria-label='{_re_aria}']")
+                        if await _re_btn.count():
+                            _re_eh = await _re_btn.first.element_handle(timeout=2000)
+                            if _re_eh:
+                                await _re_eh.evaluate("el => el.click()")
+                                await asyncio.sleep(random.uniform(1.0, 2.0))
+                                break
                     except Exception:
                         pass
                 _step_errs = await _get_page_errors(page)
