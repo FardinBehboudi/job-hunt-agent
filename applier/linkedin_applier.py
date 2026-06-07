@@ -133,7 +133,7 @@ def _normalize_location(value: str, options: list[str]) -> str:
 def _get_salary_answer(field_type: str, label: str, salary: str, options: list[str]) -> str:
     if field_type in ("textarea", "text"):
         # Some forms use type="text" but expect a decimal/integer salary number
-        if re.search(r"per\s*year|gross|brutto|decimal|number|\beur\b|\b€\b|annual", label, re.I):
+        if re.search(r"per\s*year|gross|brutto|decimal|number|\beur\b|\b€\b|annual|salary|gehalt|expectation|erwartung", label, re.I):
             return re.sub(r"[^\d]", "", salary.split(".")[0]) or salary
         return "Open to discussion based on total compensation and scope of the role."
     if field_type == "number":
@@ -1406,7 +1406,7 @@ async def _fill_wizard_step(
                     r"top.choice|mark.*(job|this).*top|top.*pick|"
                     r"premium.*feature|standout|highlight.*application|"
                     r"she/her|he/him|they/them|prefer not to say|"
-                    r"pronoun",
+                    r"pronoun|other.*specify",
                     re.I
                 )
                 if _SKIP_CB_RE.search(cb_lbl):
@@ -1466,11 +1466,17 @@ async def _fill_wizard_step(
                 ))
                 if existing.strip() and not (_is_salary_field and not re.search(r"^\d", existing.strip())):
                     continue
-                # Check memory first
+                # Check memory first (skip cached answer for numeric/salary fields if non-numeric)
                 answer = ""
                 try:
                     from applier.memory import get_memory
-                    answer = get_memory().get_answer(lbl, platform="linkedin") or ""
+                    cached = get_memory().get_answer(lbl, platform="linkedin") or ""
+                    if cached and (eff_type == "number" or _is_salary_field):
+                        if re.search(r"^\d", cached.strip()):
+                            answer = cached
+                        # else: cached non-numeric answer for numeric field — discard
+                    else:
+                        answer = cached
                 except Exception:
                     pass
                 if not answer:

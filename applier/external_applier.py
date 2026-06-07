@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 # ── Cookie / privacy consent popup dismissal ──────────────────────────────────
 _CONSENT_ACCEPT_RE = re.compile(
-    r"^(accept all|accept all cookies|alle akzeptieren|accept cookies|"
+    r"^(accept|accept all|accept all cookies|alle akzeptieren|accept cookies|"
     r"alle cookies akzeptieren|i accept|agree|agree all|agree to all|"
     r"allow all|allow cookies|allow all cookies|ok|got it|"
     r"verstanden|zustimmen|einverstanden|accepter tout|tout accepter|"
@@ -106,6 +106,12 @@ _PLATFORM_PATTERNS: list[tuple[str, str]] = [
     (r"stepstone\.de",              "stepstone"),
     (r"xing\.com",                  "xing"),
     (r"indeed\.com",                "indeed"),
+    (r"csod\.com|cornerstone",      "csod"),
+    (r"rexx-systems\.com",          "rexx"),
+    (r"softgarden\.io|softgarden\.de", "softgarden"),
+    (r"erecruiter\.net",            "erecruiter"),
+    (r"pinpoint\.com",              "pinpoint"),
+    (r"rippling\.com",              "rippling"),
 ]
 
 _PAGE_HINTS: list[tuple[str, str]] = [
@@ -159,6 +165,10 @@ def _detect_platform_by_url(url: str) -> str:
         "teamtailor":     [".teamtailor.com", "career.teamtailor.com"],
         "jazzhr":         ["resumatorjobs.com", "jazz.co/"],
         "stepstone":      ["stepstone.de/stellenangebote", "stepstone.de/job"],
+        "csod":           ["csod.com/ux/ats", "csod.com/careers", "cornerstone"],
+        "softgarden":     ["softgarden.io", "softgarden.de"],
+        "rexx":           ["rexx-systems.com"],
+        "rippling":       ["rippling.com/jobs", "app.rippling.com"],
     }
     for platform, domains in _URL_PATTERNS.items():
         if any(d in url_lower for d in domains):
@@ -200,9 +210,11 @@ async def _verify_submission(page: Page) -> bool:
             "successfully submitted", "application submitted",
             "we'll be in touch", "we will be in touch",
             "your application has been", "bewerbung eingegangen",
-            "vielen dank", "danke für", "erfolgreich", "bewerbung erhalten",
+            "vielen dank", "danke für ihre bewerbung", "bewerbung erhalten",
             "we have received", "wir haben deine bewerbung",
             "application complete", "you have applied",
+            "erfolgreich beworben", "erfolgreich eingereicht",
+            "bewerbung erfolgreich", "ihre bewerbung wurde",
         ]
         _negative_phrases = [
             "please fill", "required field", "pflichtfeld",
@@ -1101,17 +1113,31 @@ async def _run_ats_form(
                     if await _verify_submission(page):
                         return {"success": True, "manual": False, "apply_type": apply_type}
 
-            # If there are still form fields, the ATS moved us to the next step
+            # If there are still form fields, we either navigated to an apply form
+            # (job listing → apply button click) or moved to the next wizard step.
+            # Either way: keep filling instead of giving up.
             still_form = await ctx.locator(
                 "input:not([type=hidden]):not([disabled]), "
                 "textarea:not([disabled]), select:not([disabled])"
             ).count()
             if not still_form:
-                break  # No form = likely confirmation page without recognisable signals
+                # Check top-level page too
+                try:
+                    still_form = await page.locator(
+                        "input:not([type=hidden]):not([disabled]), "
+                        "textarea:not([disabled]), select:not([disabled])"
+                    ).count()
+                except Exception:
+                    pass
+            if not still_form:
+                break  # No form anywhere = likely confirmation page
 
             # Re-resolve frame — multi-step forms sometimes swap iframes
             ctx = await _get_form_frame(page)
             _job_ctx = dict(job, url=getattr(ctx, "url", url))
+            _emit("apply_step", {"url": url,
+                  "step": f"  ↻ Submit navigated to new form — continuing fill…"})
+            continue  # go back to top of loop and fill the new page
 
         # After a "next" click only do a cheap URL check — never run vision on
         # intermediate steps (it causes false positives on multi-step forms).
@@ -1512,6 +1538,12 @@ PLATFORM_HANDLERS: dict = {
     "jazzhr":         _apply_generic_browser_use,
     "jobvite":        _apply_generic_browser_use,
     "stepstone":      _apply_generic_browser_use,
+    "csod":           _apply_generic_browser_use,
+    "softgarden":     _apply_generic_browser_use,
+    "rexx":           _apply_generic_browser_use,
+    "rippling":       _apply_generic_browser_use,
+    "erecruiter":     _apply_generic_browser_use,
+    "pinpoint":       _apply_generic_browser_use,
     # Special cases
     "workday":        _apply_workday,
     "taleo":          _apply_taleo,
@@ -1536,7 +1568,12 @@ async def _route_to_handler(
         log.info("Routing to %s handler (URL: %s)", platform, new_url)
         return await handler(page, dict(job, url=new_url), cfg, resume_text, profile)
 
-    # Unknown / custom ATS — two-tier fallback:
+    # Unknown / custom ATS — try to land on the actual form first.
+    # Many portals open on a job-description page; we must click their Apply button
+    # before any form-fill logic runs.
+    await _click_apply_on_listing(page)
+
+    # Two-tier fallback:
     # Tier 1: CSS-selector form runner (_run_ats_form).  Fast, works on any standard
     #         HTML form (most custom company portals use standard elements).
     # Tier 2: Claude vision smart apply.  Slower but handles React/Angular SPAs and
@@ -1546,7 +1583,7 @@ async def _route_to_handler(
     try:
         _css_result = await _run_ats_form(
             page, dict(job, url=page.url), cfg, resume_text, profile,
-            apply_type="External (custom)", max_steps=7,
+            apply_type="External (custom)", max_steps=12,
         )
         if _css_result.get("success"):
             return _css_result
@@ -1572,6 +1609,68 @@ async def _route_to_handler(
           "step": f"⚠️ Going to manual: could not complete external apply ({platform})"})
     return {"success": False, "manual": True,
             "note": f"External apply — unknown platform: {platform}"}
+
+
+async def _click_apply_on_listing(page: Page) -> bool:
+    """
+    If we're on a job-description / listing page (no form fields visible),
+    find and click the Apply / Bewerben button to navigate to the actual form.
+    Returns True if a button was clicked.
+    """
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=8_000)
+    except Exception:
+        pass
+    await asyncio.sleep(1.5)
+
+    # Count visible form fields — if already on a form, do nothing
+    try:
+        form_count = await page.locator(
+            "input:not([type=hidden]):not([disabled]),"
+            "textarea:not([disabled]),select:not([disabled])"
+        ).count()
+        if form_count >= 2:
+            return False  # already on a form
+    except Exception:
+        pass
+
+    # Click the first visible Apply/Bewerben button
+    _APPLY_SELS = [
+        "a:has-text('Jetzt bewerben')",
+        "button:has-text('Jetzt bewerben')",
+        "a:has-text('jetzt bewerben')",
+        "button:has-text('jetzt bewerben')",
+        "a:has-text('Bewerben')",
+        "button:has-text('Bewerben')",
+        "a:has-text('Apply now')",
+        "button:has-text('Apply now')",
+        "a:has-text('Apply')",
+        "button:has-text('Apply')",
+        "a:has-text('Jetzt bewerben')",
+        "[data-testid*='apply' i]",
+        "[class*='apply-btn' i]",
+        "[class*='bewerbung' i]",
+    ]
+    for sel in _APPLY_SELS:
+        try:
+            loc = page.locator(sel)
+            if await loc.count() and await loc.first.is_visible():
+                btn_text = (await loc.first.text_content() or "").strip()
+                log.info("_click_apply_on_listing: clicking '%s'", btn_text[:40])
+                _emit("apply_step", {"url": page.url,
+                      "step": f"  🔗 Job listing detected — clicking '{btn_text[:40]}'"})
+                await loc.first.scroll_into_view_if_needed()
+                await asyncio.sleep(0.4)
+                await loc.first.click()
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+                except Exception:
+                    pass
+                await asyncio.sleep(2.0)
+                return True
+        except Exception:
+            pass
+    return False
 
 
 # ── Public entry point ────────────────────────────────────────────────────────

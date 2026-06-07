@@ -20,7 +20,10 @@ log = logging.getLogger(__name__)
 def _get_client():
     try:
         import anthropic
-        return anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return None
+        return anthropic.Anthropic(api_key=api_key)
     except Exception:
         return None
 
@@ -192,7 +195,10 @@ async def _execute_actions(page, actions: list[dict], cfg: dict) -> int:
             if idx >= len(visible):
                 continue
             el = visible[idx]
-            tag = (await el.get_property("tagName")).json_value().lower()
+            try:
+                tag = (await el.evaluate("e => e.tagName.toLowerCase()"))
+            except Exception:
+                tag = "input"
             typ = ((await el.get_attribute("type")) or "").lower()
             lbl = (await el.get_attribute("aria-label") or
                    await el.get_attribute("placeholder") or
