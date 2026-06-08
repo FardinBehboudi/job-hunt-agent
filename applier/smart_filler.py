@@ -20,7 +20,10 @@ log = logging.getLogger(__name__)
 def _get_client():
     try:
         import anthropic
-        return anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return None
+        return anthropic.Anthropic(api_key=api_key)
     except Exception:
         return None
 
@@ -192,7 +195,10 @@ async def _execute_actions(page, actions: list[dict], cfg: dict) -> int:
             if idx >= len(visible):
                 continue
             el = visible[idx]
-            tag = (await el.get_property("tagName")).json_value().lower()
+            try:
+                tag = (await el.evaluate("e => e.tagName.toLowerCase()"))
+            except Exception:
+                tag = "input"
             typ = ((await el.get_attribute("type")) or "").lower()
             lbl = (await el.get_attribute("aria-label") or
                    await el.get_attribute("placeholder") or
@@ -227,7 +233,7 @@ async def _execute_actions(page, actions: list[dict], cfg: dict) -> int:
             else:  # fill — use universal handler from linkedin_applier
                 try:
                     from applier.linkedin_applier import fill_field_smart
-                    ok = await fill_field_smart(page, el, value, label=lbl, cfg={})
+                    ok = await fill_field_smart(page, el, value, label=lbl, cfg=cfg)
                     if ok:
                         executed += 1
                     else:
@@ -251,11 +257,16 @@ async def _execute_actions(page, actions: list[dict], cfg: dict) -> int:
 
 
 async def _upload_resume_smart(page, idx: int, visible: list, cfg: dict) -> bool:
-    """Find and fill file input with resume path."""
+    """Find and fill file input with resume path (respects job language via cfg['_resume_lang'])."""
     try:
-        resume_path = cfg.get("resume_path") or cfg.get("paths", {}).get("resume_en", "")
+        from applier.linkedin_applier import _resume_path as _rp
+        _lang = cfg.get("_resume_lang", "en")
+        resume_path = cfg.get("resume_path") or ""
         if not resume_path:
-            from applier.linkedin_applier import _resume_path as _rp
+            r = _rp(cfg, _lang)
+            resume_path = str(r) if r else ""
+        if not resume_path:
+            # last resort: EN fallback
             r = _rp(cfg, "en")
             resume_path = str(r) if r else ""
         if not resume_path or not Path(resume_path).exists():
@@ -307,23 +318,35 @@ async def _check_page_errors(page) -> list[str]:
 
 
 async def _find_and_click_submit(page) -> bool:
-    """Try multiple strategies to find and click a submit button."""
+    """Try multiple strategies to find and click a submit/apply/next button."""
     strategies = [
         page.locator("button[type=submit]"),
         page.locator("input[type=submit]"),
+        page.locator("button:has-text('Submit application')"),
         page.locator("button:has-text('Submit')"),
+        page.locator("button:has-text('Apply now')"),
         page.locator("button:has-text('Apply')"),
         page.locator("button:has-text('Send application')"),
+        page.locator("button:has-text('Send')"),
         page.locator("button:has-text('Complete application')"),
+        page.locator("button:has-text('Complete')"),
+        page.locator("button:has-text('Finish')"),
+        page.locator("button:has-text('Next')"),
+        page.locator("button:has-text('Continue')"),
+        page.locator("button:has-text('Weiter')"),
         page.locator("button:has-text('Jetzt bewerben')"),
         page.locator("button:has-text('Bewerbung absenden')"),
-        page.locator("button:has-text('Bewerben')"),
-        page.locator("button:has-text('Ja, das passt zu mir')"),
         page.locator("button:has-text('Bewerbung senden')"),
+        page.locator("button:has-text('Bewerben')"),
+        page.locator("button:has-text('Absenden')"),
+        page.locator("button:has-text('Einreichen')"),
+        page.locator("button:has-text('Ja, das passt zu mir')"),
         page.locator("a:has-text('Bewerben')"),
         page.locator("a:has-text('Apply now')"),
         page.locator("[data-test-submit-button]"),
-        page.locator("[class*=submit]"),
+        page.locator("[data-testid*='submit' i]"),
+        page.locator("[data-testid*='apply-btn' i]"),
+        page.locator("[class*=submit-btn]"),
     ]
     for loc in strategies:
         try:
@@ -415,13 +438,30 @@ async def smart_fill_form(page, profile: dict, resume_text: str,
         _emit("apply_step", {"url": url, "step": f"  ✎ Filled {n} field(s)"})
         await asyncio.sleep(0.8)
 
-        # 4. Check for remaining errors
+        # 4. Check for remaining errors AND empty required fields
         errors = await _check_page_errors(page)
+        empty_required = 0
+        try:
+            empty_required = await page.evaluate("""() => {
+                let n = 0;
+                document.querySelectorAll(
+                    'input[required]:not([type=hidden]):not([disabled]),'
+                    'textarea[required]:not([disabled]),select[required]:not([disabled])'
+                ).forEach(f => { if (f.offsetParent && !f.value.trim()) n++; });
+                return n;
+            }""")
+        except Exception:
+            pass
+
+        if not errors and not empty_required:
+            break  # page is clean and complete — proceed to submit
+
         if errors:
             _emit("apply_step", {"url": url,
                   "step": f"  ⚠️ Still {len(errors)} error(s): {errors[0][:80]}"})
-        else:
-            break  # clean, move on
+        if empty_required:
+            _emit("apply_step", {"url": url,
+                  "step": f"  ⚠️ {empty_required} empty required field(s) — re-filling…"})
 
     # 5. Try to find and click Next/Submit
     submitted = await _find_and_click_submit(page)
@@ -438,11 +478,32 @@ async def smart_fill_form(page, profile: dict, resume_text: str,
             _emit("apply_step", {"url": url, "step": "  ✅ Smart apply: submission confirmed"})
             try:
                 from applier.memory import get_memory
-                _plat2 = page.url.split("/")[2].replace("www.","").split(".")[0]
+                _plat2 = page.url.split("/")[2].replace("www.", "").split(".")[0]
                 get_memory().save_application_result(url, _plat2, True, [])
             except Exception:
                 pass
             return {"success": True, "manual": False, "note": "Submitted via smart fill"}
+
+        # Post-submit validation errors — fix and retry once
+        post_errors = await _check_page_errors(page)
+        if post_errors:
+            _emit("apply_step", {"url": url,
+                  "step": f"  ⚠️ Post-submit errors: {post_errors[0][:80]} — retrying fill"})
+            actions2 = await _claude_decide(page, profile, resume_text, job_desc, task="fill")
+            if actions2:
+                await _execute_actions(page, actions2, cfg)
+                await asyncio.sleep(0.8)
+            submitted2 = await _find_and_click_submit(page)
+            if submitted2:
+                await asyncio.sleep(2)
+                try:
+                    from applier.external_applier import _verify_submission as _verify_ext2
+                    if await _verify_ext2(page):
+                        _emit("apply_step", {"url": url, "step": "  ✅ Smart apply: submission confirmed (retry)"})
+                        return {"success": True, "manual": False, "note": "Submitted via smart fill (retry)"}
+                except Exception:
+                    pass
+
         _emit("apply_step", {"url": url, "step": "  ⚠️ Submit clicked but not confirmed — sending to manual"})
         return {"success": False, "manual": True, "note": "Submit clicked but submission not confirmed"}
 
@@ -473,7 +534,8 @@ async def smart_apply_page(page, job: dict, profile: dict,
         for sel in [
             "button:has-text('Next')", "button:has-text('Continue')",
             "button:has-text('Weiter')", "button:has-text('Next step')",
-            "[class*=next]", "[aria-label*=next i]",
+            "button:has-text('Nächster Schritt')", "button:has-text('Fortfahren')",
+            "[aria-label*='next step' i]", "[data-testid*='next-btn' i]",
         ]:
             try:
                 loc = page.locator(sel)

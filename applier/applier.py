@@ -75,7 +75,7 @@ def _log_to_json(job: dict, apply_type: str, resume_used: str) -> None:
             "apply_type": apply_type,
             "resume_used": Path(resume_used).name if resume_used else "",
             "timestamp":  datetime.utcnow().isoformat() + "Z",
-            "status":     "applied",
+            "status":     "pending_confirmation",
         })
         _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         _LOG_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -146,6 +146,13 @@ def _profile(cfg: dict) -> dict:
 
 async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
     job_id = job.get("scraped_id", job.get("id", "unknown"))
+    # Must be initialised before the try block so the except clause can always read it,
+    # even if an exception fires before the popup listener is registered.
+    _popup_page = None
+    async def _on_popup(popup):
+        nonlocal _popup_page
+        _popup_page = popup
+        log.info("[applier] Popup detected: %s", popup.url)
     try:
         await page.goto(job["url"], wait_until="domcontentloaded", timeout=30_000)
 
@@ -220,9 +227,45 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
         if n_dismissed:
             await page.wait_for_timeout(500)
 
-        click_result = await click_apply_button(page)
-        outcome = click_result
-        log.info("click_apply_button result: %s", outcome)
+        # Register popup listener before clicking — some LinkedIn Easy Apply flows
+        # open the wizard in a popup and close the original tab (window.close()).
+        page.on("popup", _on_popup)
+
+        try:
+            click_result = await click_apply_button(page)
+            outcome = click_result
+            log.info("click_apply_button result: %s", outcome)
+        except Exception as _click_exc:
+            _cex = str(_click_exc).lower()
+            if _popup_page is not None and any(
+                x in _cex or x in type(_click_exc).__name__.lower()
+                for x in ["targetclosed", "target page", "context destroyed", "target closed"]
+            ):
+                # Original page was closed by LinkedIn's window.close() during popup open.
+                # The popup was already captured — treat as easy_apply.
+                log.info("[applier] Original page closed by LinkedIn during click — popup captured, continuing as easy_apply")
+                outcome = "easy_apply"
+            else:
+                raise
+
+        # Brief pause so any async popup event fires before we check _popup_page.
+        # Use asyncio.sleep (not page.wait_for_timeout) so it works even if the
+        # original page was closed by LinkedIn's window.close().
+        if _popup_page is None:
+            await asyncio.sleep(2.0)
+
+        # If a popup opened, use it as the active page for the rest of the flow
+        if _popup_page is not None:
+            _emit("apply_step", {"url": job.get("url", ""),
+                "step": f"  🪟 Popup detected — switching to popup ({_popup_page.url[:80]})"})
+            page = _popup_page
+            # Wait for the popup to load before continuing
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+            except Exception:
+                pass
+            if outcome not in ("easy_apply", "external"):
+                outcome = "easy_apply"
 
         if outcome == "already":
             _emit("apply_step", {"url": job.get("url", ""), "step": "Already applied — skipping"})
@@ -280,6 +323,18 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
             return await follow_external_apply(page, job, profile, resume_text, cfg)
 
         _easy_result = await fill_easy_apply(page, job, profile, resume_text, cfg)
+
+        # If original page was closed during fill but a popup was captured mid-flight,
+        # retry fill on the popup page.
+        if not _easy_result.get("success") and _popup_page is not None and _popup_page is not page:
+            _emit("apply_step", {"url": job.get("url", ""),
+                "step": f"  🪟 Popup captured during fill — retrying on popup"})
+            try:
+                await _popup_page.wait_for_load_state("domcontentloaded", timeout=10_000)
+            except Exception:
+                pass
+            _easy_result = await fill_easy_apply(_popup_page, job, profile, resume_text, cfg)
+
         # If form filling failed, check if job is actually expired
         if _easy_result.get("manual"):
             try:
@@ -310,20 +365,27 @@ async def _apply_linkedin(page: Page, job: dict, cfg: dict, resume_text: str, pr
         _exc_type = type(exc).__name__.lower()
         if any(x in _exc_str or x in _exc_type for x in
                ["targetclosed", "target page", "context destroyed", "target closed"]):
-            # Page closed — only valid success signal for Easy Apply modal
-            # For external apply this would be a false positive
+            # Original page closed (LinkedIn's window.close()) — if popup was captured
+            # during fill, retry fill_easy_apply on the popup before giving up.
             _apply_url = job.get("url", "")
-            _is_easy_apply = "linkedin.com" in _apply_url
-            if _is_easy_apply:
+            if _popup_page is not None:
                 _emit("apply_step", {"url": _apply_url,
-                    "step": "✓ Page closed after submit — application likely submitted"})
-                return {"success": True, "manual": False,
-                        "note": "Submitted (page closed)", "apply_type": "Easy Apply"}
-            else:
-                _emit("apply_step", {"url": _apply_url,
-                    "step": "⚠️ External page closed — sending to manual queue"})
-                return {"success": False, "manual": True,
-                        "note": "External page closed before confirmation"}
+                    "step": f"  🪟 Page closed — popup captured, retrying fill on popup"})
+                try:
+                    await _popup_page.wait_for_load_state("domcontentloaded", timeout=10_000)
+                    await asyncio.sleep(1.0)
+                except Exception:
+                    pass
+                try:
+                    return await fill_easy_apply(_popup_page, job, profile, resume_text, cfg)
+                except Exception as _popup_exc:
+                    log.warning("fill_easy_apply on popup failed: %s", _popup_exc)
+                    return {"success": False, "manual": True,
+                            "note": "Popup apply failed: " + str(_popup_exc)[:80]}
+            _emit("apply_step", {"url": _apply_url,
+                "step": "⚠️ Page closed unexpectedly before submission confirmed — marking manual"})
+            return {"success": False, "manual": True,
+                    "note": "Page closed before submission was confirmed"}
         log.error("_apply_linkedin error: %s\n%s", exc, traceback.format_exc())
         return {"success": False, "manual": False, "note": str(exc)}
 
@@ -665,14 +727,6 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     await browser.close()
                     _db.update_apply_session(session_id, datetime.utcnow().isoformat(),
                                              0, 0, len(jobs))
-                    try:
-                        from applier.memory import get_memory
-                        get_memory().save_application_result(
-                            job.get('url',''), 'linkedin', False, [],
-                            failure_note=str(_warmup_exc if '_warmup_exc' in dir() else 'crash')
-                        )
-                    except Exception:
-                        pass
                     _emit("session_done", {"success": 0, "manual": 0, "failed": len(jobs)})
                     return
                 log.info("Session verified — ready to apply")
@@ -717,6 +771,14 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     if attempt > 1:
                         _emit("apply_step", {"url": url, "step": f"↺ Retry attempt {attempt}/{MAX_RETRIES}..."})
                         await asyncio.sleep(3)
+                        # If the original page was closed by LinkedIn (window.close()),
+                        # create a fresh page from the same context for the retry.
+                        try:
+                            if page.is_closed():
+                                log.info("[retry] Original page is closed — opening a fresh page")
+                                page = await context.new_page()
+                        except Exception:
+                            pass
                         try:
                             await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
                             await asyncio.sleep(2)
@@ -727,7 +789,7 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                         break
                     if result.get("expired"):
                         break  # no point retrying expired jobs
-                    if result.get("manual") and result.get("note") in ("CAPTCHA", "LinkedIn session expired"):
+                    if result.get("manual") and any(kw in (result.get("note") or "") for kw in ("CAPTCHA", "session expired")):
                         break  # no point retrying these
                     if result.get("manual"):
                         if attempt < MAX_RETRIES:
@@ -754,11 +816,11 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                     success_count += 1
                     applied_count += 1
                     if not is_debug:
-                        _db.log_application(job, status="Applied ✓", applied_by="Agent",
+                        _db.log_application(job, status="Pending Confirmation", applied_by="Agent",
                                             apply_type=result.get("apply_type", ""))
                         _log_to_json(job, result.get("apply_type", ""), _used_resume)
                     else:
-                        log.info("DEBUG job — skipping DB write (Applied ✓)")
+                        log.info("DEBUG job — skipping DB write (Pending Confirmation)")
                     log.info("Applied: %s @ %s", title, company)
                 elif result.get("expired"):
                     failed_count += 1
@@ -843,6 +905,11 @@ def apply(job: dict, archive_path: Path, cfg: dict | None = None) -> bool:
             try:
                 result = await handler(page, job, cfg, resume_text, prof)
                 results.append(result["success"])
+                # Save session after successful navigation so future runs stay logged in
+                try:
+                    await context.storage_state(path=str(_SESSION_FILE))
+                except Exception:
+                    pass
             finally:
                 await browser.close()
 

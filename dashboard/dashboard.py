@@ -1522,6 +1522,17 @@ td { padding: 10px 14px; vertical-align: middle; }
 
       </div>
 
+      <!-- Notes detail modal -->
+      <div id="iv-notes-overlay" onclick="if(event.target===this)document.getElementById('iv-notes-overlay').style.display='none'"
+        style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px 28px;max-width:560px;width:92%;box-shadow:0 8px 32px rgba(0,0,0,0.5);position:relative;">
+          <button onclick="document.getElementById('iv-notes-overlay').style.display='none'"
+            style="position:absolute;top:12px;right:14px;background:none;border:none;color:#8b949e;font-size:1.2rem;cursor:pointer;">✕</button>
+          <div id="iv-notes-header" style="font-size:0.8rem;color:#38bdf8;font-weight:600;margin-bottom:10px;padding-right:24px;"></div>
+          <div id="iv-notes-body" style="font-size:0.85rem;color:#c9d1d9;line-height:1.7;white-space:pre-wrap;word-break:break-word;"></div>
+        </div>
+      </div>
+
 
 
       <!-- Priority To-Do (manually managed) -->
@@ -8735,6 +8746,9 @@ document.addEventListener('keydown', e => {
 
     });
 
+    const ivOv = document.getElementById('iv-notes-overlay');
+    if (ivOv && ivOv.style.display === 'flex') ivOv.style.display = 'none';
+
     // Confirm modal: pressing Escape is same as Cancel
     const cm = document.getElementById('modal-confirm');
 
@@ -8849,8 +8863,11 @@ function renderManualInterviews() {
 
     // Notes: for auto events use description; for manual use format/notes
     const notesRaw  = iv._auto ? (iv._description || '') : (iv.format || iv.notes || '');
+    const header    = [iv.company, iv.role].filter(Boolean).join(' — ');
     const notesCell = notesRaw
-      ? `<td style="font-size:0.78rem;color:#8b949e;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(notesRaw)}">${esc(notesRaw)}</td>`
+      ? `<td style="font-size:0.78rem;color:#8b949e;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border-bottom:1px dotted #444;"
+             title="Click to expand"
+             onclick="ivShowNotes(${JSON.stringify(header)},${JSON.stringify(notesRaw)})">${esc(notesRaw)}</td>`
       : `<td style="color:#4b5563;">—</td>`;
 
     return `<tr class="${isPast ? 'past-row' : ''}" id="iv-row-${iv._auto ? 'a'+iv._event_id : iv.id}">
@@ -8868,6 +8885,13 @@ function renderManualInterviews() {
 }
 
 
+
+function ivShowNotes(header, body) {
+  document.getElementById('iv-notes-header').textContent = header;
+  document.getElementById('iv-notes-body').textContent   = body;
+  const ov = document.getElementById('iv-notes-overlay');
+  ov.style.display = 'flex';
+}
 
 function openInterviewModal(id) {
 
@@ -11107,19 +11131,20 @@ def _linkedin_login_worker():
 
                 await page.goto("https://www.linkedin.com/login", timeout=30_000)
 
-                await page.fill("#username", email)
-
-                await page.fill("#password", password)
-
-                await page.click("button[type='submit']")
-
-
-
-                _li_login_state["message"] = (
-
-                    "Credentials submitted — approve the LinkedIn notification on your phone…"
-
-                )
+                # Fill credentials if the login form is present
+                try:
+                    await page.wait_for_selector("#username", timeout=5000)
+                    await page.fill("#username", email)
+                    await page.fill("#password", password)
+                    await page.click("button[type='submit']")
+                    _li_login_state["message"] = (
+                        "Credentials submitted — approve the LinkedIn notification or complete any verification in the browser…"
+                    )
+                except Exception:
+                    # Challenge page or already logged in — let user handle it
+                    _li_login_state["message"] = (
+                        "LinkedIn requires manual verification — please complete it in the browser window"
+                    )
 
 
 
@@ -11826,6 +11851,7 @@ def api_applications_manual():
 
 
 if __name__ == "__main__":
-
+    import logging as _logging
+    _logging.getLogger("werkzeug").setLevel(_logging.ERROR)
     app.run(host="127.0.0.1", port=5000, debug=False)
 

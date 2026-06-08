@@ -132,6 +132,9 @@ def _normalize_location(value: str, options: list[str]) -> str:
 
 def _get_salary_answer(field_type: str, label: str, salary: str, options: list[str]) -> str:
     if field_type in ("textarea", "text"):
+        # Some forms use type="text" but expect a decimal/integer salary number
+        if re.search(r"per\s*year|gross|brutto|decimal|number|\beur\b|\b€\b|annual|salary|gehalt|expectation|erwartung", label, re.I):
+            return re.sub(r"[^\d]", "", salary.split(".")[0]) or salary
         return "Open to discussion based on total compensation and scope of the role."
     if field_type == "number":
         return re.sub(r"[^\d]", "", salary.split(".")[0]) or salary
@@ -172,6 +175,7 @@ _FAST_PATH_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"comfort.*commut|willing.*commut|commut.*comfort", re.I), "willing_to_relocate"),
     (re.compile(r"relocat", re.I), "willing_to_relocate"),
     (re.compile(r"travel", re.I), "willing_to_travel"),
+    (re.compile(r"start.*date|earliest.*start|preferred.*start|when.*start|frühest.*eintrittstermin|eintrittsdatum", re.I), "notice_period"),
     (re.compile(r"first.?name|vorname", re.I), "first_name"),
     (re.compile(r"last.?name|surname|nachname", re.I), "last_name"),
     (re.compile(r"full.?name|name", re.I), "full_name"),
@@ -220,6 +224,33 @@ def answer_custom_question(
     if _ACCOMM_KW.search(question_text) and field_type in ("text", "textarea"):
         return "I don't require any special accommodations to participate in the interview process."
 
+    # Cover letter / motivation letter → dedicated Sonnet generator
+    _COVER_KW = re.compile(
+        r"cover\s*letter|motivation\s*letter|anschreiben|motivationsschreiben|"
+        r"motivational\s*letter|letter\s+of\s+motivation|bewerbungsschreiben|"
+        r"why\s+(do\s+you\s+want|are\s+you\s+applying|this\s+role|this\s+company|this\s+position)",
+        re.I
+    )
+    if _COVER_KW.search(question_text) and field_type in ("text", "textarea"):
+        result = _generate_cover_letter(question_text, profile, resume_text, job_desc)
+        if result:
+            return result
+
+    # Starting date / availability — return a date string based on notice period
+    _DATE_KW = re.compile(r"start.*date|earliest.*start|preferred.*start|when.*start|eintrittsdatum|frühest", re.I)
+    if _DATE_KW.search(question_text) and field_type in ("text", "textarea"):
+        import datetime
+        _notice = str(profile.get("notice_period", "2 months")).lower()
+        _months = 2
+        if "1 month" in _notice or "one month" in _notice:
+            _months = 1
+        elif "3 month" in _notice:
+            _months = 3
+        elif "immed" in _notice or "sofort" in _notice:
+            _months = 0
+        _start_dt = datetime.date.today() + datetime.timedelta(days=_months * 30)
+        return _start_dt.strftime("%m/%d/%Y")
+
     _SALARY_KW = re.compile(r"\bsalary\b|\bcompensation\b|\bpay\b|\bwage\b|\bctc\b|\brate\b|\bgehalt\b|vergütung", re.I)
     if _SALARY_KW.search(question_text):
         _sal = str(profile.get("salary_expectation", "75000"))
@@ -254,12 +285,21 @@ def answer_custom_question(
                             if opt.lower() in ("true", "yes", "1", "ja", "oui"):
                                 return opt
                         return options[0] if options else "Yes"
-                # Text/textarea fallback — distinguish "are you eligible?" from "do you need sponsorship?"
+                # Text/textarea: return a proper sentence, not bare "Yes"
+                if field_type in ("text", "textarea"):
+                    if re.search(r"need|require|sponsor", question_text, re.I):
+                        return "No, I am a German citizen and do not require visa sponsorship."
+                    return "Yes, I am legally authorized to work in Germany without requiring visa sponsorship."
+                # checkbox/other
                 if re.search(r"need|require|sponsor", question_text, re.I):
-                    return "No, I am a German citizen and do not require visa sponsorship."
-                return "Yes"  # eligible / authorized to work
+                    return "No"
+                return "Yes"
             if isinstance(val, bool):
-                if field_type == "radio" and options:
+                # For text/textarea: fall through to Claude so it generates a proper sentence.
+                # Only use bare Yes/No for structured fields (radio, select, checkbox).
+                if field_type in ("text", "textarea"):
+                    continue  # fall through to Claude API call
+                if field_type in ("radio", "select") and options:
                     return options[0] if val else (options[1] if len(options) > 1 else "No")
                 return "Yes" if val else "No"
             val = str(val)
@@ -279,7 +319,7 @@ def answer_custom_question(
     try:
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            return options[0] if options else "Yes"
+            return options[0] if options else ""
         client = anthropic.Anthropic(api_key=api_key)
         opts_txt = (", ".join(f'"{o}"' for o in options[:8])) if options else "free text"
         _prior_ctx = ""
@@ -450,7 +490,7 @@ async def _reliable_fill(page: Page, element, value: str) -> None:
             except Exception:
                 pass
         try:
-            await element.dispatchEvent("blur")
+            await element.dispatch_event("blur")
         except Exception:
             pass
     except Exception:
@@ -510,6 +550,36 @@ async def _get_label(page: Page, element) -> str:
         parent_label = element.locator("xpath=ancestor::label[1]")
         if await parent_label.count():
             return (await parent_label.first.text_content() or "").strip()
+        # Fallback: nearest preceding sibling or parent text (for custom-styled forms)
+        txt = await element.evaluate("""el => {
+            // Check aria-labelledby
+            const lblId = el.getAttribute('aria-labelledby');
+            if (lblId) {
+                const ref = document.getElementById(lblId);
+                if (ref) return ref.innerText.trim();
+            }
+            // Walk up max 4 levels looking for a label-like sibling or heading
+            let node = el.parentElement;
+            for (let i = 0; i < 4 && node; i++, node = node.parentElement) {
+                // preceding sibling label/span/p/div with text
+                let sib = node.previousElementSibling;
+                while (sib) {
+                    const t = sib.innerText ? sib.innerText.trim() : '';
+                    if (t && t.length < 120 && !sib.querySelector('input,select,textarea'))
+                        return t;
+                    sib = sib.previousElementSibling;
+                }
+                // first text child of parent that isn't too long
+                const direct = Array.from(node.childNodes)
+                    .filter(n => n.nodeType === 3)
+                    .map(n => n.textContent.trim())
+                    .find(t => t.length > 1 && t.length < 100);
+                if (direct) return direct;
+            }
+            return '';
+        }""")
+        if txt:
+            return txt.strip()
     except Exception:
         pass
     return ""
@@ -524,7 +594,10 @@ async def _get_page_errors(page: Page) -> list[str]:
             ".artdeco-inline-feedback--error, "
             "[data-test-form-element-error-message], "
             ".fb-form-element__error-field, "
-            "[aria-live='assertive']"
+            "[aria-live='assertive'], "
+            ".sr-form-field__error, "          # SmartRecruiters
+            "[data-testid='error-message'], "
+            ".jobs-easy-apply-form-element .artdeco-inline-feedback"
         )
         count = await error_locs.count()
         for i in range(min(count, 5)):
@@ -547,11 +620,9 @@ async def _retry_invalid_fields(
     prior_answers: list[dict],
     cfg: dict | None = None,
 ) -> int:
+    """Walk the DOM to find fields paired with visible validation errors, then
+    clear and re-fill each one.  Returns the number of fields re-filled."""
     cfg = cfg or {}
-    """
-    Walk the DOM to find fields paired with visible validation errors, then
-    clear and re-fill each one.  Returns the number of fields re-filled.
-    """
     try:
         errored_fields = await page.evaluate("""() => {
             const ERROR_SELS = [
@@ -730,35 +801,51 @@ async def _react_fill(page: Page, el, value: str) -> bool:
 
 async def _fill_typeahead(page: Page, el, value: str) -> bool:
     """Fill a typeahead/combobox: type value, wait for dropdown, click option."""
+    _DROPDOWN_SEL = (
+        ".artdeco-combobox__option, [role='option'], "
+        "[class*='typeahead'] li, [class*='dropdown'] li, "
+        "[class*='suggestions'] li, [class*='autocomplete'] li"
+    )
     try:
+        # Skip if already correct
+        existing = await el.input_value()
+        if existing.strip().lower() == value.strip().lower():
+            return True
         await el.click()
         await asyncio.sleep(0.2)
         await el.fill("")
         await asyncio.sleep(0.1)
-        # Type slowly to trigger search
-        for chunk in [value[:3], value[3:]]:
+        # Type in two chunks so autocomplete sees progressive input
+        chunks = [value[:4], value[4:]] if len(value) > 4 else [value]
+        for chunk in chunks:
             if chunk:
-                await el.type(chunk, delay=60)
-                await asyncio.sleep(0.4)
-        # Wait for dropdown
-        dropdown = page.locator(
-            ".artdeco-combobox__option, [role=option], "
-            "[class*=typeahead] li, [class*=dropdown] li, "
-            "[class*=suggestions] li"
-        )
-        await page.wait_for_timeout(600)
+                await el.type(chunk, delay=55)
+                await asyncio.sleep(0.45)
+        # Wait up to ~1 s for dropdown
+        await page.wait_for_timeout(800)
+        dropdown = page.locator(_DROPDOWN_SEL)
         if await dropdown.count():
-            # Click best matching option
-            for i in range(min(await dropdown.count(), 8)):
+            v_lower = value.lower()
+            for i in range(min(await dropdown.count(), 10)):
                 opt = dropdown.nth(i)
+                if not await opt.is_visible():
+                    continue
                 opt_text = (await opt.text_content() or "").strip().lower()
-                if value.lower() in opt_text or opt_text in value.lower():
+                if v_lower in opt_text or opt_text in v_lower:
                     await opt.click()
                     return True
-            # Click first option as fallback
-            await dropdown.first.click()
-            return True
-        return False
+            # No fuzzy match — click first visible option
+            for i in range(min(await dropdown.count(), 5)):
+                if await dropdown.nth(i).is_visible():
+                    await dropdown.nth(i).click()
+                    return True
+        # Fallback: ArrowDown selects top suggestion, Enter confirms
+        await el.press("ArrowDown")
+        await asyncio.sleep(0.3)
+        await el.press("Enter")
+        await asyncio.sleep(0.3)
+        current = await el.input_value()
+        return bool(current.strip())
     except Exception:
         return False
 
@@ -890,11 +977,12 @@ async def fill_field_smart(
 
     try:
         if field_type == "file":
-            # Resume upload
-            resume_path = cfg.get("paths", {}).get("resume_en", "")
-            if resume_path and Path(resume_path).exists():
-                await el.set_input_files(resume_path)
-                _emit("apply_answer", {"label": label[:60] or "Resume", "answer": Path(resume_path).name})
+            # Resume upload — honour the job's language (de/en), fall back to EN
+            _lang = cfg.get("_resume_lang", "en")
+            resume = _resume_path(cfg, _lang)
+            if resume and resume.exists():
+                await el.set_input_files(str(resume))
+                _emit("apply_answer", {"label": label[:60] or "Resume", "answer": resume.name})
                 return True
             return False
 
@@ -933,8 +1021,9 @@ async def fill_field_smart(
 
         if field_type == "number":
             import re as _re
-            num_val = _re.sub(r"[^\d]", "", str(value).split(".")[0]) or "1"
-            value = num_val
+            # Take the first number — conservative for ranges like "2-3 years" → "2"
+            nums = _re.findall(r'\d+', str(value))
+            value = nums[0] if nums else "1"
 
         # text / textarea / email / tel — try multiple strategies
         filled = False
@@ -1000,7 +1089,507 @@ async def fill_field_smart(
         return False
 
 
-async def _fill_all_visible_fields(
+async def _click_radio_answer(page: Page, radios, answer: str, opts: list[str]) -> bool:
+    """Click the radio whose label/value best matches `answer`.
+
+    Tries four strategies in order:
+      1. LinkedIn data-test-text-selectable-option label
+      2. label[for=id] click
+      3. Direct force-click on the radio input
+      4. JS click + change-event dispatch (last resort)
+
+    Returns True as soon as the radio is confirmed checked.
+    """
+    r_count = await radios.count()
+    for j in range(r_count):
+        try:
+            val = (await radios.nth(j).get_attribute("value") or "").strip()
+            radio_id = (await radios.nth(j).get_attribute("id") or "").strip()
+            lbl_text = ""
+            if radio_id:
+                lbl_el = page.locator(f"label[for='{radio_id}']")
+                if await lbl_el.count():
+                    lbl_text = (await lbl_el.first.text_content() or "").strip()
+            target = lbl_text or val
+            if not target:
+                continue
+            if not (answer.lower() in target.lower() or target.lower() in answer.lower()):
+                continue
+
+            # 1. LinkedIn data-test-text-selectable-option attribute
+            for _dt_val in (answer, val):
+                if not _dt_val:
+                    continue
+                _dt_lbl = page.locator(
+                    f"label[data-test-text-selectable-option__label='{_dt_val}']"
+                )
+                if await _dt_lbl.count():
+                    await _dt_lbl.first.scroll_into_view_if_needed()
+                    await _dt_lbl.first.click(force=True)
+                    await asyncio.sleep(0.3)
+                    try:
+                        if await radios.nth(j).is_checked():
+                            return True
+                    except Exception:
+                        return True
+
+            # 2. label[for=id]
+            if radio_id:
+                lbl_el = page.locator(f"label[for='{radio_id}']")
+                if await lbl_el.count():
+                    await lbl_el.first.scroll_into_view_if_needed()
+                    await lbl_el.first.click()
+                    await asyncio.sleep(0.3)
+                    try:
+                        if await radios.nth(j).is_checked():
+                            return True
+                    except Exception:
+                        pass
+
+            # 3. Direct click with force
+            await radios.nth(j).scroll_into_view_if_needed()
+            await radios.nth(j).click(force=True)
+            await asyncio.sleep(0.3)
+            try:
+                if await radios.nth(j).is_checked():
+                    return True
+            except Exception:
+                pass
+
+            # 4. JS click + change event
+            try:
+                handle = await radios.nth(j).element_handle()
+                await page.evaluate("""(el) => {
+                    el.click();
+                    el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", handle)
+                await asyncio.sleep(0.3)
+                return True
+            except Exception:
+                pass
+        except Exception:
+            continue
+
+    # Last resort: click first radio for affirmative answers
+    if answer.lower() in {"yes", "ja", "true", "1"}:
+        try:
+            await radios.first.click(force=True)
+            return True
+        except Exception:
+            pass
+    return False
+
+
+async def _fill_wizard_step(
+    page: Page,
+    resume_text: str,
+    profile: dict,
+    job_desc: str,
+    cfg: dict,
+    prior_answers: list[dict] | None = None,
+    scope=None,
+) -> int:
+    """Single comprehensive pass over all visible form fields on the current wizard step.
+
+    `scope` should be the modal Locator (_ws) when available — this restricts all
+    DOM searches to inside the EA modal so we never accidentally interact with the
+    LinkedIn background page and close the modal.
+
+    Processing order (phone country code must precede the phone number field):
+      1. Phone country-code <select>
+      2. File inputs (resume)
+      3. All other <select> elements
+      4. Fieldset radio groups (full LinkedIn-aware multi-strategy click)
+      5. Checkboxes
+      6. Text-like inputs: text, email, tel, url, number
+      7. Textareas
+      8. Combobox / typeahead
+
+    Mutually-exclusive selectors per category prevent any element being processed twice.
+    Returns the count of fields filled.
+    """
+    if prior_answers is None:
+        prior_answers = []
+    filled = 0
+    # All locator searches use `scope` (the modal element) to avoid accidentally
+    # interacting with the LinkedIn background page and closing the modal.
+    scope = scope or page
+
+    _PLACEHOLDER_OPTS = {
+        "", "select", "select an option", "select an option...", "select one",
+        "---", "please select", "choose one", "choose an option",
+        "bitte wählen", "auswählen", "keine angabe",
+    }
+
+    # ── 1. Phone country-code select ─────────────────────────────────────────
+    await _fill_phone_country_code(page, profile)
+
+    # ── 2. File inputs (resume) ───────────────────────────────────────────────
+    try:
+        fi_locs = scope.locator("input[type='file']:not([disabled])")
+        for i in range(await fi_locs.count()):
+            try:
+                fi = fi_locs.nth(i)
+                if not await fi.is_visible():
+                    continue
+                lbl = await _get_field_label(page, fi)
+                ok = await fill_field_smart(page, fi, "resume", label=lbl, cfg=cfg)
+                if ok:
+                    filled += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── 3. Select elements ────────────────────────────────────────────────────
+    _CC_KEYS = ("phonecountry", "phone-country", "countrycode", "phone_country")
+    try:
+        selects = scope.locator("select:not([disabled])")
+        for i in range(min(await selects.count(), 15)):
+            try:
+                sel = selects.nth(i)
+                if not await sel.is_visible():
+                    continue
+                # Skip phone-country selects — already handled in step 1
+                _sid = (await sel.get_attribute("id") or "").lower()
+                _sname = (await sel.get_attribute("name") or "").lower()
+                if any(k in _sid or k in _sname for k in _CC_KEYS):
+                    continue
+                # Skip if already has a non-placeholder value
+                try:
+                    sel_text = (await sel.evaluate(
+                        "el => (el.options[el.selectedIndex] || {}).text || ''"
+                    )).strip().lower()
+                    if sel_text and sel_text not in _PLACEHOLDER_OPTS:
+                        continue
+                except Exception:
+                    pass
+                lbl = await _get_field_label(page, sel)
+                opts = [o.strip() for o in await sel.locator("option").all_text_contents()
+                        if o.strip().lower() not in _PLACEHOLDER_OPTS]
+                if not opts:
+                    continue
+                answer = answer_custom_question(
+                    lbl or "select", "select", opts,
+                    resume_text, profile, job_desc, prior_answers=prior_answers
+                )
+                if answer:
+                    ok = await fill_field_smart(page, sel, answer, label=lbl, cfg=cfg)
+                    if ok:
+                        try:
+                            from applier.memory import get_memory
+                            get_memory().save_qa(lbl or "select", answer, platform="linkedin")
+                        except Exception:
+                            pass
+                        prior_answers.append({"question": lbl or "select", "answer": answer})
+                        filled += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── 4. Fieldset radio groups ──────────────────────────────────────────────
+    try:
+        fieldsets = scope.locator("fieldset")
+        for i in range(min(await fieldsets.count(), 15)):
+            try:
+                fs = fieldsets.nth(i)
+                if not await fs.is_visible():
+                    continue
+                radios = fs.locator("input[type='radio']")
+                r_count = await radios.count()
+                if not r_count:
+                    continue
+                # Skip already-answered groups
+                any_checked = False
+                for j in range(r_count):
+                    try:
+                        if await radios.nth(j).is_checked():
+                            any_checked = True
+                            break
+                    except Exception:
+                        pass
+                if any_checked:
+                    continue
+                # Question from legend
+                legend = fs.locator("legend")
+                question = (
+                    (await legend.first.text_content() or "").strip()
+                    if await legend.count() else ""
+                )
+                # Option labels (prefer label text over raw value attribute)
+                opts: list[str] = []
+                for j in range(r_count):
+                    try:
+                        rid = await radios.nth(j).get_attribute("id") or ""
+                        rv = await radios.nth(j).get_attribute("value") or ""
+                        rl = ""
+                        if rid:
+                            lbl_el = scope.locator(f"label[for='{rid}']")
+                            if await lbl_el.count():
+                                rl = (await lbl_el.first.text_content() or "").strip()
+                        opts.append(rl or rv)
+                    except Exception:
+                        pass
+                if not opts:
+                    opts = ["Yes", "No"]
+                answer = answer_custom_question(
+                    question or "Yes/No", "radio", opts,
+                    resume_text, profile, job_desc, prior_answers=prior_answers
+                )
+                clicked = await _click_radio_answer(page, radios, answer, opts)
+                if clicked:
+                    _emit("apply_answer", {"label": (question or "radio")[:60], "answer": answer[:80]})
+                    prior_answers.append({"question": question or "radio", "answer": answer})
+                    filled += 1
+                else:
+                    log.warning("Radio group %r — no option matched %r",
+                                (question or "?")[:50], answer)
+            except Exception as _fse:
+                log.debug("Fieldset %d error: %s", i, _fse)
+    except Exception:
+        pass
+
+    # Retry aria-invalid fieldsets (LinkedIn validation marks them after Next click)
+    try:
+        for retry_sel in ("fieldset[aria-invalid='true']", "fieldset.has-error"):
+            inv_fsets = scope.locator(retry_sel)
+            for k in range(await inv_fsets.count()):
+                try:
+                    inv_fs = inv_fsets.nth(k)
+                    inv_radios = inv_fs.locator("input[type='radio']")
+                    if not await inv_radios.count():
+                        continue
+                    already = any(
+                        await inv_radios.nth(m).is_checked()
+                        for m in range(await inv_radios.count())
+                    )
+                    if already:
+                        continue
+                    rid = await inv_radios.first.get_attribute("id") or ""
+                    if rid:
+                        lbl_el = scope.locator(f"label[for='{rid}']")
+                        if await lbl_el.count():
+                            await lbl_el.first.click()
+                            continue
+                    await inv_radios.first.click(force=True)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # ── 5. Checkboxes ─────────────────────────────────────────────────────────
+    _CONSENT_RE = re.compile(
+        r"\bagree\b|\bconfirm\b|\bauthorize\b|\bauthorise\b|\bconsent\b|\backnowledge\b"
+        r"|\bdatenschutz\b|\beinverstanden\b",
+        re.I,
+    )
+    try:
+        checkboxes = scope.locator("input[type='checkbox']:not([disabled])")
+        for i in range(min(await checkboxes.count(), 20)):
+            try:
+                cb = checkboxes.nth(i)
+                if not await cb.is_visible() or await cb.is_checked():
+                    continue
+                cb_lbl = await _get_field_label(page, cb)
+                if not cb_lbl:
+                    par = cb.locator("xpath=ancestor::label[1]")
+                    if await par.count():
+                        cb_lbl = (await par.first.text_content() or "").strip()
+                if not cb_lbl:
+                    continue
+                # Skip LinkedIn Premium "top choice" and pronoun checkboxes.
+                # Top-choice: checking reveals a required textarea causing infinite loops.
+                # Pronouns: LinkedIn profile already handles these; checking all is wrong.
+                _SKIP_CB_RE = re.compile(
+                    r"top.choice|mark.*(job|this).*top|top.*pick|"
+                    r"premium.*feature|standout|highlight.*application|"
+                    r"she/her|he/him|they/them|prefer not to say|"
+                    r"pronoun|other.*specify",
+                    re.I
+                )
+                if _SKIP_CB_RE.search(cb_lbl):
+                    continue
+                if _CONSENT_RE.search(cb_lbl):
+                    should_check = True
+                else:
+                    ans = answer_custom_question(
+                        cb_lbl, "checkbox", ["Yes", "No"],
+                        resume_text, profile, job_desc, prior_answers=prior_answers
+                    )
+                    should_check = ans.lower() in ("yes", "true", "1", "check", "checked", "ja")
+                if should_check:
+                    cb_id = await cb.get_attribute("id") or ""
+                    clicked = False
+                    if cb_id:
+                        lbl_el = scope.locator(f"label[for='{cb_id}']")
+                        if await lbl_el.count():
+                            await lbl_el.first.click()
+                            clicked = True
+                    if not clicked:
+                        await cb.click()
+                    await asyncio.sleep(0.2)
+                    _emit("apply_answer", {"label": cb_lbl[:60], "answer": "checked"})
+                    prior_answers.append({"question": cb_lbl, "answer": "Yes (checked)"})
+                    filled += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── 6. Text-like inputs (text, email, tel, url, number) ───────────────────
+    _TEXT_INPUT_SEL = (
+        "input[type='text']:not([aria-label*='search' i]):not([disabled]),"
+        "input[type='email']:not([disabled]),"
+        "input[type='tel']:not([disabled]),"
+        "input[type='url']:not([disabled]),"
+        "input[type='number']:not([disabled])"
+    )
+    try:
+        inputs = scope.locator(_TEXT_INPUT_SEL)
+        for i in range(min(await inputs.count(), 25)):
+            try:
+                inp = inputs.nth(i)
+                if not await inp.is_visible():
+                    continue
+                # Skip already-filled UNLESS it's a salary/numeric field with wrong content
+                existing = await inp.input_value()
+                lbl = await _get_field_label(page, inp)
+                if not lbl:
+                    continue
+                inp_type = (await inp.get_attribute("type") or "text").lower()
+                eff_type = "number" if is_numeric_question(lbl, inp_type) else inp_type
+                # For salary/numeric fields: if existing is non-numeric text, we must replace
+                _is_salary_field = bool(re.search(
+                    r"\bsalary\b|\bgehalt\b|\bcompensation\b|\bper\s*year\b|\bgross\b", lbl, re.I
+                ))
+                if existing.strip() and not (_is_salary_field and not re.search(r"^\d", existing.strip())):
+                    continue
+                # Check memory first (skip cached answer for numeric/salary fields if non-numeric)
+                answer = ""
+                try:
+                    from applier.memory import get_memory
+                    cached = get_memory().get_answer(lbl, platform="linkedin") or ""
+                    if cached and (eff_type == "number" or _is_salary_field):
+                        if re.search(r"^\d", cached.strip()):
+                            answer = cached
+                        # else: cached non-numeric answer for numeric field — discard
+                    else:
+                        answer = cached
+                except Exception:
+                    pass
+                if not answer:
+                    answer = answer_custom_question(
+                        lbl, eff_type, [], resume_text, profile, job_desc,
+                        prior_answers=prior_answers
+                    )
+                    if answer:
+                        try:
+                            from applier.memory import get_memory
+                            get_memory().save_qa(lbl, answer, platform="linkedin")
+                        except Exception:
+                            pass
+                if not answer:
+                    continue
+                # Clear existing content first if we're replacing salary field
+                if existing.strip() and _is_salary_field:
+                    try:
+                        await inp.triple_click()
+                        await inp.fill("")
+                    except Exception:
+                        pass
+                ok = await fill_field_smart(page, inp, answer, label=lbl, cfg=cfg)
+                if ok:
+                    prior_answers.append({"question": lbl, "answer": answer})
+                    filled += 1
+                    await asyncio.sleep(0.15)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── 7. Textareas ──────────────────────────────────────────────────────────
+    try:
+        textareas = scope.locator("textarea:not([disabled])")
+        for i in range(min(await textareas.count(), 10)):
+            try:
+                ta = textareas.nth(i)
+                if not await ta.is_visible():
+                    continue
+                existing = await ta.input_value()
+                if existing.strip():
+                    continue
+                lbl = await _get_field_label(page, ta)
+                if not lbl:
+                    continue
+                answer = answer_custom_question(
+                    lbl, "textarea", [], resume_text, profile, job_desc,
+                    prior_answers=prior_answers
+                )
+                if answer:
+                    ok = await fill_field_smart(page, ta, answer, label=lbl, cfg=cfg)
+                    if ok:
+                        prior_answers.append({"question": lbl, "answer": answer})
+                        filled += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── 8. Combobox / typeahead ───────────────────────────────────────────────
+    try:
+        combos = scope.locator(
+            "[role='combobox']:not([disabled]),"
+            ".artdeco-combobox__input:not([disabled])"
+        )
+        for i in range(min(await combos.count(), 10)):
+            try:
+                cb = combos.nth(i)
+                if not await cb.is_visible():
+                    continue
+                existing = await cb.input_value()
+                if existing.strip():
+                    continue
+                lbl = await _get_field_label(page, cb)
+                if not lbl:
+                    continue
+                answer = answer_custom_question(
+                    lbl, "text", [], resume_text, profile, job_desc,
+                    prior_answers=prior_answers
+                )
+                if answer:
+                    ok = await fill_field_smart(page, cb, answer, label=lbl, cfg=cfg)
+                    if ok:
+                        prior_answers.append({"question": lbl, "answer": answer})
+                        filled += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── Post-fill diagnostic: log any still-empty required fields ─────────────
+    try:
+        empty_req = await page.evaluate("""() =>
+            Array.from(document.querySelectorAll(
+                'input[required]:not([type=hidden]):not([type=file]):not([disabled]),'
+                + 'textarea[required]:not([disabled]),'
+                + 'select[required]:not([disabled])'
+            )).filter(el => el.offsetParent && !el.value.trim())
+              .map(el => el.getAttribute('aria-label')
+                       || el.getAttribute('placeholder')
+                       || el.id || '?')
+        """)
+        if empty_req:
+            log.debug("Empty required fields after fill pass: %s", empty_req[:5])
+    except Exception:
+        pass
+
+    return filled
+
+
+# ── (legacy – superseded by _fill_wizard_step) ────────────────────────────────
+async def _fill_all_visible_fields_LEGACY(
     page: Page,
     resume_text: str,
     profile: dict,
@@ -1008,10 +1597,7 @@ async def _fill_all_visible_fields(
     cfg: dict,
     prior_answers: list[dict] | None = None,
 ) -> int:
-    """
-    Comprehensive pass: find ALL visible unfilled fields, answer them,
-    fill them using fill_field_smart(). Returns count filled.
-    """
+    """Kept as reference only — not called. Use _fill_wizard_step instead."""
     if prior_answers is None:
         prior_answers = []
     filled_count = 0
@@ -1144,6 +1730,15 @@ async def _fill_profile_fields(page: Page, profile: dict) -> None:
                     except Exception:
                         continue
                     try:
+                        # Skip if already filled — preserve LinkedIn's pre-fills
+                        try:
+                            existing = await el.input_value()
+                            if existing.strip():
+                                _emit("apply_step", {"url": url,
+                                    "step": f"  ✓ {label} pre-filled: {existing[:30]}"})
+                                return
+                        except Exception:
+                            pass
                         await el.click()
                         await asyncio.sleep(0.15)
                         await page.keyboard.press("Control+a")
@@ -1198,6 +1793,9 @@ async def _fill_profile_fields(page: Page, profile: dict) -> None:
             page.locator("input[type='email'], input[name='email'], input[id*='email' i], input[autocomplete='email']"),
         ])
 
+    # Fill phone country-code SELECT first (LinkedIn renders it before the number field)
+    await _fill_phone_country_code(page, profile)
+
     phone_value = profile["phone"]
     try:
         cc_label = page.locator("label").filter(
@@ -1228,19 +1826,39 @@ async def _fill_profile_fields(page: Page, profile: dict) -> None:
         ("Work permit",      "input[aria-label*='work authorization' i], input[aria-label*='work permit' i], input[aria-label*='visa' i], input[aria-label*='right to work' i]", profile["work_permit"]),
         ("Location",         "input[aria-label*='current city' i], input[aria-label*='current location' i], input[aria-label*='location' i]",                          profile["current_location"]),
     ]
+    # When an artdeco modal is open, clicking a background-page input closes the modal.
+    # Only fill fill_map items whose element is INSIDE the modal.
+    _modal_open_el = None
+    try:
+        _m = page.locator(".artdeco-modal, .jobs-easy-apply-modal").first
+        if await _m.count() and await _m.is_visible():
+            _modal_open_el = await _m.element_handle()
+    except Exception:
+        pass
+
     for label, selector, value in fill_map:
         if not value:
             continue
         try:
             loc = page.locator(selector)
-            if await loc.count():
-                el = loc.first
-                if await el.is_visible():
-                    existing = await el.input_value()
-                    if not existing.strip():
-                        await _type_slowly(page, selector, str(value))
-                        await _handle_autocomplete(page, el, str(value))
-                        _emit("apply_step", {"url": url, "step": f"  ✎ {label}: {value}"})
+            if not await loc.count():
+                continue
+            el = loc.first
+            if not await el.is_visible():
+                continue
+            # Skip if modal is open and this element is NOT inside it
+            if _modal_open_el:
+                in_modal = await page.evaluate(
+                    "([modal, el]) => modal.contains(el)",
+                    [_modal_open_el, await el.element_handle()]
+                )
+                if not in_modal:
+                    continue
+            existing = await el.input_value()
+            if not existing.strip():
+                await _type_slowly(page, selector, str(value))
+                await _handle_autocomplete(page, el, str(value))
+                _emit("apply_step", {"url": url, "step": f"  ✎ {label}: {value}"})
         except Exception:
             pass
 
@@ -1430,11 +2048,24 @@ async def _upload_resume(page: Page, cfg: dict, lang: str = "en") -> bool:
         log.warning("_upload_resume: no resume file found — skipping")
         return False
     inputs = page.locator("input[type='file']")
-    if await inputs.count():
-        await inputs.first.set_input_files(str(resume))
-        await asyncio.sleep(1.0)
-        _emit("apply_step", {"url": "", "step": f"  ✎ Resume: uploaded '{resume.name}'"})
-        return True
+    try:
+        _input_count = await inputs.count()
+    except Exception:
+        return False
+    for i in range(_input_count):
+        try:
+            inp = inputs.nth(i)
+            # Only upload to VISIBLE file inputs — LinkedIn has hidden inputs
+            # (profile photo, etc.) that will close the Easy Apply modal if
+            # we accidentally set_input_files on them.
+            if not await inp.is_visible():
+                continue
+            await inp.set_input_files(str(resume))
+            await asyncio.sleep(1.0)
+            _emit("apply_step", {"url": "", "step": f"  ✎ Resume: uploaded '{resume.name}'"})
+            return True
+        except Exception:
+            pass
     return False
 
 
@@ -1878,7 +2509,7 @@ async def _answer_visible_questions(page: Page, resume_text: str, profile: dict,
                                     pass
                     if _sel_ok:
                         try:
-                            await sel.dispatchEvent("change")
+                            await sel.dispatch_event("change")
                         except Exception:
                             pass
                         _emit("apply_answer", {"label": (label_text or "select")[:60], "answer": answer[:80]})
@@ -1888,6 +2519,195 @@ async def _answer_visible_questions(page: Page, resume_text: str, profile: dict,
 
     except Exception:
         pass
+
+
+# ── Wizard lifecycle helpers ───────────────────────────────────────────────────
+
+async def _dismiss_unfinished_application_dialog(page: Page) -> bool:
+    """Handle LinkedIn's 'unfinished application' dialog (Continue / Discard).
+
+    Clicks 'Continue' to preserve any data LinkedIn already pre-filled
+    (name, email, phone).  Returns True if the dialog was found and handled.
+
+    Only call this ONCE per job, right after the Easy Apply modal opens —
+    the dialog never appears mid-wizard, so no need to poll inside the step loop.
+    """
+    try:
+        # Poll twice (1 s total) — covers the case where the dialog takes a moment to render
+        for _ms in range(2):
+            discard = page.locator(
+                "button[aria-label*='Discard' i], button:has-text('Discard')"
+            )
+            if await discard.count() and await discard.first.is_visible():
+                # Dialog confirmed — click Continue to keep LinkedIn's pre-fills
+                for cont_sel in [
+                    "button[aria-label*='Continue' i]",
+                    "button:has-text('Continue')",
+                ]:
+                    btn = page.locator(cont_sel)
+                    if await btn.count() and await btn.first.is_visible():
+                        await btn.first.click()
+                        await asyncio.sleep(1.0)
+                        log.info("Unfinished-application dialog dismissed — clicked Continue")
+                        _emit("apply_step", {"url": "", "step": "  ↩ Continuing previous application"})
+                        return True
+                # Continue button not found — click Discard to start fresh
+                await discard.first.click()
+                await asyncio.sleep(1.0)
+                log.info("Unfinished-application dialog dismissed — clicked Discard (no Continue found)")
+                _emit("apply_step", {"url": "", "step": "  ↩ Starting fresh application (discarded previous)"})
+                return True
+            await asyncio.sleep(0.5)
+    except Exception:
+        pass
+    return False
+
+
+async def _dismiss_post_submit_dialogs(page: Page) -> None:
+    """Dismiss the post-submission dialogs LinkedIn shows after a successful submit.
+
+    Handles:
+    - "Your application was sent" confirmation modal → click Done
+    - "Follow [Company]" auto-checked checkbox → uncheck it
+    - Generic profile-update / upsell overlays → dismiss
+    """
+    await asyncio.sleep(1.2)
+
+    # 1. Click the "Done" button that closes the "application sent" modal
+    for sel in [
+        "button[aria-label='Done']",
+        "button:has-text('Done')",
+        "button[data-control-name='submit_unify_apply_close_btn']",
+    ]:
+        try:
+            btn = page.locator(sel)
+            if await btn.count() and await btn.first.is_visible():
+                await btn.first.click()
+                await asyncio.sleep(0.5)
+                _emit("apply_step", {"url": "", "step": "  ✓ Closed post-submit confirmation"})
+                break
+        except Exception:
+            pass
+
+    # 2. Uncheck "Follow [Company]" — LinkedIn auto-checks it, we don't want spam
+    try:
+        follow_chk = page.locator(
+            "input[type='checkbox'][aria-label*='follow' i], "
+            "input[type='checkbox'][id*='follow-company' i]"
+        )
+        if await follow_chk.count() and await follow_chk.first.is_visible():
+            if await follow_chk.first.is_checked():
+                await follow_chk.first.click()
+                await asyncio.sleep(0.3)
+                log.debug("Unchecked 'Follow company' post-submit")
+    except Exception:
+        pass
+
+    # 3. Dismiss any remaining overlay (profile update prompt, upsell, etc.)
+    for sel in [
+        "button[aria-label='Dismiss']",
+        ".artdeco-modal__dismiss",
+        "button[data-test-modal-close-btn]",
+    ]:
+        try:
+            btn = page.locator(sel)
+            if await btn.count() and await btn.first.is_visible():
+                await btn.first.click()
+                await asyncio.sleep(0.4)
+        except Exception:
+            pass
+
+
+async def _fill_phone_country_code(page: Page, profile: dict) -> None:
+    """Fill the phone country-code <select> that LinkedIn renders before the phone field.
+
+    Derives the target dial code from the profile phone number prefix (e.g. '+49').
+    Falls back to '+49' (Germany) if the prefix cannot be parsed.
+    """
+    try:
+        phone = profile.get("phone", "")
+        if phone.startswith("+"):
+            m = re.match(r"(\+\d{1,3})", phone)
+            target_code = m.group(1) if m else "+49"
+        else:
+            target_code = "+49"  # default: Germany
+
+        cc_sel = page.locator(
+            "select[id*='phoneCountry' i], select[id*='phone-country' i], "
+            "select[name*='phoneCountry' i], select[id*='countryCode' i], "
+            "select[aria-label*='country code' i], select[aria-label*='phone country' i], "
+            "select[data-test-phone-country-code]"
+        )
+        if not await cc_sel.count():
+            return
+        sel_el = cc_sel.first
+        if not await sel_el.is_visible():
+            return
+
+        opts = await sel_el.locator("option").all_text_contents()
+        for opt in opts:
+            if target_code in opt:
+                try:
+                    await sel_el.select_option(label=opt)
+                    await sel_el.dispatch_event("change")
+                    _emit("apply_step", {"url": "", "step": f"  ✎ Phone country code: {opt.strip()[:30]}"})
+                    return
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _generate_cover_letter(
+    question_text: str,
+    profile: dict,
+    resume_text: str,
+    job_desc: str,
+) -> str:
+    """Generate a job-specific cover letter using claude-sonnet-4-6.
+
+    Uses the answer cache so Sonnet is only called once per unique question label.
+    """
+    _ck = _cache_key(question_text, "cover_letter", [])
+    if _ck in _answer_cache:
+        log.debug("Cover letter cache hit for: %r", question_text[:50])
+        return _answer_cache[_ck]
+
+    try:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return ""
+        client = anthropic.Anthropic(api_key=api_key)
+        system = (
+            f"You ARE {profile.get('first_name', '')} {profile.get('last_name', '')} "
+            "writing a genuine, concise job application cover letter. "
+            "Write in first person. Exactly 3 short paragraphs:\n"
+            "1. Why this specific role/company excites you, connecting to your background.\n"
+            "2. 2-3 concrete skills or achievements from your experience that match the job.\n"
+            "3. A brief professional closing (no 'I look forward to hearing from you' clichés).\n"
+            "Maximum 220 words. No 'Dear Hiring Manager' salutation. No placeholder text. "
+            "No meta-commentary about the letter itself."
+        )
+        user = (
+            f"Question/label: {question_text}\n\n"
+            f"Job description:\n{job_desc[:900]}\n\n"
+            f"My profile:\n{_profile_summary(profile)}\n\n"
+            f"My resume:\n{resume_text[:900]}"
+        )
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=450,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        answer = resp.content[0].text.strip()
+        _answer_cache[_ck] = answer
+        _save_answer_cache_entry(_ck, answer)
+        log.info("Cover letter generated (%d chars)", len(answer))
+        return answer
+    except Exception as exc:
+        log.warning("Cover letter generation failed: %s", exc)
+        return ""
 
 
 # ── Easy Apply wizard ──────────────────────────────────────────────────────────
@@ -1911,30 +2731,98 @@ async def fill_easy_apply(
     except Exception:
         _modal_visible = False
 
+    # Fix: if modal not yet visible (timing gap between clicker and fill_easy_apply),
+    # wait up to 5s for it to appear before falling back to page scope.
+    if not _modal_visible:
+        try:
+            await page.wait_for_selector(MODAL_SEL, state="visible", timeout=5_000)
+            _modal_visible = await _modal_el.is_visible()
+        except Exception:
+            pass
     _ws = _modal_el if _modal_visible else page
-    log.info("Wizard scope: %s | full_page=%s",
-             "modal" if _modal_visible else "full-page", _full_page_apply)
+    _DBG_LOG = Path(__file__).resolve().parent.parent / "uploads" / "debug_applier.log"
+    def _dbg(msg: str) -> None:
+        try:
+            import datetime
+            line = f"[{datetime.datetime.now().strftime('%H:%M:%S.%f')}] {msg}"
+            with open(_DBG_LOG, "a", encoding="utf-8") as _f:
+                _f.write(line + "\n")
+                _f.flush()
+            _emit("apply_step", {"url": job.get("url", ""), "step": f"[DBG] {msg}"})
+        except Exception:
+            pass
+    # Detailed selector breakdown at start
+    _sel_breakdown = {}
+    for _s in [".jobs-easy-apply-modal", ".jobs-easy-apply-content",
+               ".artdeco-modal__content", ".artdeco-modal[role='dialog']",
+               ".artdeco-modal[aria-modal='true']", ".artdeco-modal",
+               "[data-test-modal]"]:
+        try:
+            _c = await page.locator(_s).count()
+            if _c:
+                _v = await page.locator(_s).first.is_visible()
+                _sel_breakdown[_s] = f"count={_c},vis={_v}"
+        except Exception:
+            pass
+    _dbg(f"=== START | modal_visible={_modal_visible} | sel_breakdown={_sel_breakdown}")
 
     try:
         await page.wait_for_selector(
             "input[type='text']:not([disabled]), input[type='tel']:not([disabled]), "
             "input[type='email']:not([disabled]), select:not([disabled])",
-            timeout=8000, state="visible",
+            timeout=10_000, state="visible",
         )
         await page.wait_for_timeout(500)
     except Exception:
-        await page.wait_for_timeout(2000)
+        # Form not ready yet — give the React app time to hydrate
+        await page.wait_for_timeout(4_000)
 
-    await _handle_email_dropdown(page, profile, job["url"])
-    await _fill_profile_fields(page, profile)
+    # Handle "unfinished application" dialog that LinkedIn shows before the wizard starts
+    await _dismiss_unfinished_application_dialog(page)
 
-    _resume_lang = job.get("_resume_lang", "en")
+    try:
+        _pre_modal = await page.locator(".artdeco-modal, .jobs-easy-apply-modal").count()
+        # Find the email select and trace its modal ancestor
+        _email_container = await page.evaluate("""() => {
+            for (const s of document.querySelectorAll('select')) {
+                const opts = Array.from(s.options).map(o => o.text);
+                if (opts.some(o => o.includes('@'))) {
+                    const path = [];
+                    let el = s.parentElement;
+                    while (el && el !== document.body && path.length < 8) {
+                        path.push(el.tagName + '.' + (el.className||'').split(' ').slice(0,3).join('.'));
+                        el = el.parentElement;
+                    }
+                    return {found: true, path: path, url: location.href};
+                }
+            }
+            return {found: false, url: location.href};
+        }""")
+        _dbg(f"PRE-prefill | artdeco-modal count={_pre_modal} | email-container={_email_container}")
+        await _handle_email_dropdown(page, profile, job["url"])
+        await _fill_profile_fields(page, profile)
+        _post_modal = await page.locator(".artdeco-modal, .jobs-easy-apply-modal").count()
+        _dbg(f"POST-prefill | artdeco-modal count={_post_modal}")
+    except Exception as _pre_exc:
+        _pmsg = str(_pre_exc).lower()
+        if any(x in _pmsg or x in type(_pre_exc).__name__.lower()
+               for x in ["targetclosed", "target page", "context destroyed", "target closed"]):
+            # Page closed during pre-fill — caller (_apply_linkedin) will detect
+            # the popup and retry on it; propagate so it can do so.
+            raise
+        log.warning("Pre-fill error (non-fatal): %s", _pre_exc)
+
+    _resume_lang = job.get("_resume_lang") or _detect_job_language(job)
+    cfg["_resume_lang"] = _resume_lang  # propagate so fill_field_smart picks the right resume
     _prev_page_labels: list[str] = []
     _stuck_count = 0
+    _prev_progress_pct: str = ""   # track progress bar to detect infinite loops
+    _progress_stuck_count = 0
     step_n = 0
     prior_answers: list[dict] = []
-    prior_answers: list[dict] = []
-    for step_n in range(12):
+    _resume_selected = False  # cache: only scan for resume once it's confirmed selected
+    _submit_clicked = False   # only trust page-close as success if we actually clicked Submit
+    for step_n in range(25):
         # Refresh wizard scope on every step — modal changes between pages
         try:
             _modal_visible = await _modal_el.is_visible()
@@ -1943,9 +2831,10 @@ async def fill_easy_apply(
         _ws = _modal_el if _modal_visible else page
 
         await _maybe_attach_support_docs(page)
-        _selected = await _select_or_upload_resume(page, cfg)
-        if not _selected:
-            await _upload_resume(page, cfg, _resume_lang)
+        if not _resume_selected:
+            _resume_selected = await _select_or_upload_resume(page, cfg)
+            if not _resume_selected:
+                _resume_selected = await _upload_resume(page, cfg, _resume_lang)
 
         _BORING_LABELS = {"select language", "select an option", "upload resume",
                           "upload a resume", "change resume"}
@@ -1966,6 +2855,46 @@ async def fill_easy_apply(
         except Exception:
             pass
 
+        _dbg(f"STEP {step_n} | visible_labels={visible_labels[:8]}")
+        # Save a screenshot of each wizard step for debugging
+        try:
+            _shot_path = Path(__file__).resolve().parent.parent / "uploads" / f"step_{step_n:02d}.png"
+            _shot_path.write_bytes(await page.screenshot(full_page=False))
+        except Exception:
+            pass
+
+        # ── Progress bar stuck detection ─────────────────────────────────────
+        # If the progress bar percentage doesn't change for 2 consecutive steps,
+        # the form is looping (e.g. a required field was missed). Break and go manual.
+        try:
+            # Find the progress percentage text inside the modal (e.g. "75%")
+            _pct_txt = await page.evaluate("""() => {
+                const modal = document.querySelector(
+                    '.jobs-easy-apply-modal, .artdeco-modal[role="dialog"], .artdeco-modal'
+                );
+                if (!modal) return '';
+                for (const el of modal.querySelectorAll('*')) {
+                    if (el.children.length === 0) {
+                        const t = (el.textContent || '').trim();
+                        if (/^\\d{1,3}%$/.test(t)) return t;
+                    }
+                }
+                return '';
+            }""")
+            _pct_txt = (_pct_txt or "").strip()
+        except Exception:
+            _pct_txt = ""
+        if _pct_txt:
+            _dbg(f"STEP {step_n} | progress_bar='{_pct_txt}'")
+            if _pct_txt == _prev_progress_pct:
+                _progress_stuck_count += 1
+                if _progress_stuck_count >= 2:
+                    _dbg(f"PROGRESS_STUCK | progress stayed at '{_pct_txt}' for {_progress_stuck_count} steps — breaking")
+                    log.warning("Form progress stuck at %s for %d steps — going manual", _pct_txt, _progress_stuck_count)
+                    break
+            else:
+                _progress_stuck_count = 0
+                _prev_progress_pct = _pct_txt
         if visible_labels and visible_labels == _prev_page_labels:
             _stuck_count += 1
             if _stuck_count == 1:
@@ -1991,173 +2920,209 @@ async def fill_easy_apply(
             _stuck_count = 0
         _prev_page_labels = visible_labels
 
-        # Use comprehensive field handler (handles all types + validation)
-        _n_filled = await _fill_all_visible_fields(
+        # ── Wait for form inputs to be ready (works for all modal types) ────────
+        # Don't check modal CSS classes — JazzHR/ATS overlays use different DOM
+        # structures. Just wait for actual form inputs to appear (like e0dedde).
+        if step_n == 0:
+            try:
+                await page.wait_for_selector(
+                    "input[type='text']:not([disabled]), "
+                    "input[type='tel']:not([disabled]), "
+                    "input[type='email']:not([disabled]), "
+                    "select:not([disabled])",
+                    state="visible", timeout=8_000,
+                )
+            except Exception:
+                # No form inputs appeared — nothing to fill
+                _emit("apply_step", {"url": job["url"],
+                    "step": "  ⚠️ No form inputs found — cannot fill wizard"})
+                break
+
+        # Single ordered pass — scoped to the modal (_ws) to avoid accidentally
+        # clicking anything on the LinkedIn background page behind the modal.
+        _n_filled = await _fill_wizard_step(
             page, resume_text, profile, job.get("description", ""), cfg,
-            prior_answers=prior_answers
+            prior_answers=prior_answers,
+            scope=_ws,
         )
         if _n_filled:
             _emit("apply_step", {"url": job["url"],
                   "step": f"  ✎ Filled {_n_filled} field(s) on page {step_n+1}"})
-        # Also run legacy handler for any missed fields
-        await _answer_visible_questions(page, resume_text, profile, job.get("description", ""))
 
-        _sub_exact = _ws.get_by_label("Submit application", exact=True)
-        submit = _sub_exact if await _sub_exact.count() else _ws.locator(
-            "button:has-text('Submit application'), button:has-text('Submit')"
-        )
-        _nxt_exact = _ws.get_by_label("Continue to next step", exact=True)
-        _rev_exact = _ws.get_by_label("Review your application", exact=True)
-        if await _nxt_exact.count() and await _nxt_exact.first.is_visible():
-            nxt = _nxt_exact
-        elif await _rev_exact.count() and await _rev_exact.first.is_visible():
-            nxt = _rev_exact
-        else:
-            nxt = _ws.locator(
-                "button:has-text('Next'), button:has-text('Continue'), "
-                "button:has-text('Review'), button:has-text('Weiter'), "
-                "button:has-text('Fortfahren')"
-            )
+        # Small wait so React can re-render the footer buttons after field fill
+        await asyncio.sleep(0.5)
 
-        # Trigger blur/change so LinkedIn shows validation errors BEFORE we click
+        # ── DIAGNOSTICS — dump ALL visible buttons via Playwright (pierces shadow DOM) ──
         try:
-            await page.evaluate("""
-                () => { document.querySelectorAll(
-                    'input:not([type=hidden]):not([type=file]):not([disabled]),'
-                    +'textarea:not([disabled]),select:not([disabled])'
-                ).forEach(f => { if (f.offsetParent) {
-                    f.dispatchEvent(new Event('blur',   {bubbles:true}));
-                    f.dispatchEvent(new Event('change', {bubbles:true}));
-                    f.dispatchEvent(new Event('input',  {bubbles:true}));
-                }})}
-            """)
-            await asyncio.sleep(0.4)
-        except Exception:
-            pass
-
-        # Pre-click validation check
-        _pre_errors = await _get_page_errors(page)
-        if _pre_errors:
-            _emit("apply_step", {"url": job["url"],
-                  "step": f"  ⚠️ Validation: {'; '.join(_pre_errors[:2])[:120]}"})
-            _fixed_pre = await _retry_invalid_fields(
-                page, resume_text, profile, job.get("description", ""), prior_answers=[]
-            )
-            if _fixed_pre:
-                await asyncio.sleep(0.5)
+            _dbg_modal_count = await page.locator(".artdeco-modal").count()
+            _dbg_modal_vis   = await page.locator(".artdeco-modal").first.is_visible() if _dbg_modal_count else False
+            _dbg(f"STEP {step_n} | modal_count={_dbg_modal_count} modal_vis={_dbg_modal_vis}")
+            # Dump every visible button — text + aria-label
+            _all_btns_info = []
+            for _b in await page.locator("button").all():
                 try:
-                    await page.evaluate("""
-                        () => { document.querySelectorAll('input,textarea,select')
-                            .forEach(f => { if(f.offsetParent){
-                                f.dispatchEvent(new Event('blur',{bubbles:true}));
-                                f.dispatchEvent(new Event('change',{bubbles:true}));
-                            }}); }
-                    """)
-                    await asyncio.sleep(0.3)
+                    if await _b.is_visible():
+                        _bt = (await _b.text_content() or "").strip().replace("\n", " ")[:35]
+                        _bl = (await _b.get_attribute("aria-label") or "")[:35]
+                        _all_btns_info.append(f"'{_bt}'|aria='{_bl}'")
                 except Exception:
                     pass
+            _dbg(f"STEP {step_n} | ALL_VISIBLE_BUTTONS={_all_btns_info}")
+            # Specific checks
+            for _sel in ["button[aria-label='Continue to next step']",
+                         "button[aria-label='Review your application']",
+                         "button[aria-label='Submit application']"]:
+                _c = await page.locator(_sel).count()
+                if _c: _dbg(f"STEP {step_n} | FOUND: {_sel} count={_c}")
+        except Exception as _de:
+            _dbg(f"STEP {step_n} | diagnostics error: {_de}")
+        # ─────────────────────────────────────────────────────────────────────
 
-        if await submit.count():
-            _emit("apply_step", {"url": job["url"], "step": "Submitting application…"})
-            await submit.first.scroll_into_view_if_needed()
-            await asyncio.sleep(0.5)
-            await submit.first.click()
-            await asyncio.sleep(random.uniform(1.0, 3.5))
+        # ── Find Submit and Next buttons ─────────────────────────────────────
+        submit = page.locator("button[aria-label='Submit application']")
+
+        nxt = page.locator(
+            "button[aria-label='Continue to next step'], "
+            "button[aria-label='Review your application']"
+        )
+
+        # ── Click Next/Submit via JS BEFORE any blur/change events ──────────
+        # Firing blur/change causes LinkedIn's React to tear down and rebuild the
+        # modal footer, removing the Next button from the DOM entirely. So we must
+        # JS-click the button BEFORE firing blur/change. LinkedIn will show
+        # validation errors after the click if fields are missing — we handle those
+        # in the post-click validation block below.
+        _pre_nxt_aria = None
+        _click_done = False
+
+        # Find which button is present (Submit takes priority over Next).
+        # The button lives in Shadow DOM so document.querySelector() won't find it —
+        # we must use Playwright's locator (which pierces shadow DOM) to get an
+        # element handle, then call .click() via element_handle.evaluate() which
+        # executes JS directly on the node without triggering navigation-wait.
+        for _aria in ["Submit application", "Continue to next step", "Review your application"]:
             try:
-                from applier.memory import get_memory
-                get_memory().save_application_result(
-                    job.get("url",""), "linkedin", True, prior_answers
-                )
-            except Exception:
-                pass
-            return {"success": True, "manual": False, "note": "", "apply_type": apply_type}
-        elif await nxt.count() or True:  # always enter; fallback to page search
-            if not await nxt.count():
-                nxt = page.locator(
-                    "button[aria-label='Continue to next step'],"
-                    "button[aria-label='Review your application'],"
-                    "button:has-text('Next'),button:has-text('Continue'),"
-                    "button:has-text('Review'),button:has-text('Weiter'),"
-                    "button:has-text('Fortfahren'),button:has-text('Submit')"
-                )
-                if not await nxt.count():
-                    # Claude vision fallback — find and click the right button
-                    try:
-                        from applier.smart_filler import _claude_decide, _execute_actions
-                        _nav_acts = await _claude_decide(page, profile, resume_text,
-                                                         job.get('description',''), task='submit')
-                        if _nav_acts:
-                            await _execute_actions(page, _nav_acts, cfg)
-                            await asyncio.sleep(1.5)
-                            continue
-                    except Exception:
-                        pass
-                    log.warning("No Next button found at step %d", step_n + 1)
-                    break
-            nxt_text = (await nxt.first.text_content() or "Next").strip()
-            _emit("apply_step", {"url": job["url"], "step": f"Page {step_n + 1} → clicking '{nxt_text}'"})
-            await nxt.first.scroll_into_view_if_needed()
-            await asyncio.sleep(0.5)
-            await nxt.first.click()
-            await asyncio.sleep(random.uniform(1.0, 3.5))
-            _step_errs = await _get_page_errors(page)
-            if _step_errs:
-                for _se in _step_errs:
-                    _emit("apply_step", {"url": job["url"], "step": f"  ⚠️ Validation: {_se[:100]}"})
-                # Fix-and-retry: re-fill error fields and click Next again (up to 2 cycles)
-                for _fix_n in range(2):
-                    _fixed = await _retry_invalid_fields(
-                        page, resume_text, profile, job.get("description", ""),
-                        prior_answers=[], cfg=cfg
+                _l_btn = page.locator(f"button[aria-label='{_aria}']")
+                if not await _l_btn.count():
+                    continue
+                _eh = await _l_btn.first.element_handle(timeout=2000)
+                if _eh is None:
+                    continue
+                await _eh.evaluate("el => el.click()")
+                _pre_nxt_aria = _aria
+                _click_done = True
+                _dbg(f"EARLY_CLICK | step={step_n} | element_handle.click on aria='{_aria}'")
+                break
+            except Exception as _eje:
+                _dbg(f"EARLY_CLICK_ERR | aria='{_aria}' | {str(_eje)[:120]}")
+
+        if not _click_done:
+            _dbg(f"EARLY_CLICK_FAILED | step={step_n} | no button found pre-blur")
+
+        _submit_count = 0
+        # ── If early JS click failed, check if we already submitted ──────────
+        if not _click_done:
+            _dbg(f"No clickable Next/Submit button found at step {step_n}")
+            if _submit_clicked:
+                # Post-submit dialog (e.g. LinkedIn's "Update your profile?" prompt)
+                _dbg(f"Submit was already clicked — treating as success at step {step_n}")
+                await _dismiss_post_submit_dialogs(page)
+                try:
+                    from applier.memory import get_memory
+                    get_memory().save_application_result(
+                        job.get("url", ""), "linkedin", True, prior_answers
                     )
-                    _emit("apply_step", {"url": job["url"],
-                          "step": f"  🔧 Re-filled {_fixed} errored field(s)"})
-                    if not _fixed:
-                        break
-                    await asyncio.sleep(0.8)
+                except Exception:
+                    pass
+                return {"success": True, "manual": False, "note": "", "apply_type": apply_type}
+            log.warning("No Next/Submit button found at step %d", step_n + 1)
+            break
+
+        # If Submit was clicked, mark it
+        if _pre_nxt_aria == "Submit application":
+            _submit_clicked = True
+
+        await asyncio.sleep(random.uniform(1.0, 2.0))
+        _dbg(f"AFTER_SLEEP | step={step_n} | url={page.url[:80]}")
+
+        # Detect modal closure right after clicking Next — happens when a JazzHR /
+        # third-party single-step overlay submits and closes itself on the LinkedIn page.
+        _modal_still_open = False
+        try:
+            _modal_count_after = await page.locator(
+                ".jobs-easy-apply-modal, .jobs-easy-apply-content, "
+                "[data-test-modal], .artdeco-modal, [role='dialog'][aria-modal='true']"
+            ).count()
+            _modal_still_open = bool(_modal_count_after)
+            _dbg(f"MODAL_CHECK | step={step_n} | count={_modal_count_after} open={_modal_still_open}")
+        except Exception as _mce:
+            _dbg(f"MODAL_CHECK_ERR | {_mce}")
+        if not _modal_still_open and "linkedin.com" in page.url:
+            _dbg(f"SINGLE_STEP_RETURN | modal closed after Next on step {step_n}")
+            _emit("apply_step", {"url": job["url"],
+                "step": "✓ Modal closed after Next — application submitted"})
+            return {"success": True, "manual": False,
+                    "note": "Single-step ATS overlay submitted", "apply_type": apply_type}
+
+        _step_errs = await _get_page_errors(page)
+        if _step_errs:
+            for _se in _step_errs:
+                _emit("apply_step", {"url": job["url"], "step": f"  ⚠️ Validation: {_se[:100]}"})
+            # Fix-and-retry: re-fill error fields and JS-click Next again (up to 2 cycles)
+            for _fix_n in range(2):
+                _fixed = await _retry_invalid_fields(
+                    page, resume_text, profile, job.get("description", ""),
+                    prior_answers=prior_answers, cfg=cfg
+                )
+                _emit("apply_step", {"url": job["url"],
+                      "step": f"  🔧 Re-filled {_fixed} errored field(s)"})
+                if not _fixed:
+                    break
+                await asyncio.sleep(0.8)
+                # Retry click via element_handle (shadow DOM safe)
+                for _re_aria in ["Continue to next step", "Review your application", "Submit application"]:
                     try:
-                        _nxt_r = _ws.get_by_label("Continue to next step", exact=True)
-                        if not (await _nxt_r.count() and await _nxt_r.first.is_visible()):
-                            _nxt_r = _ws.locator(
-                                "button:has-text('Next'), button:has-text('Continue'), "
-                                "button:has-text('Weiter'), button:has-text('Fortfahren')"
-                            )
-                        if await _nxt_r.count() and await _nxt_r.first.is_visible():
-                            await _nxt_r.first.click()
-                            await asyncio.sleep(random.uniform(1.0, 2.5))
+                        _re_btn = page.locator(f"button[aria-label='{_re_aria}']")
+                        if await _re_btn.count():
+                            _re_eh = await _re_btn.first.element_handle(timeout=2000)
+                            if _re_eh:
+                                await _re_eh.evaluate("el => el.click()")
+                                await asyncio.sleep(random.uniform(1.0, 2.0))
+                                break
                     except Exception:
                         pass
-                    _step_errs = await _get_page_errors(page)
-                    if not _step_errs:
-                        _emit("apply_step", {"url": job["url"],
-                              "step": "  ✅ Validation errors resolved"})
-                        _stuck_count = 0
-                        break
-                    for _se in _step_errs:
-                        _emit("apply_step", {"url": job["url"],
-                              "step": f"  ⚠️ Still: {_se[:80]}"})
-            try:
+                _step_errs = await _get_page_errors(page)
+                if not _step_errs:
+                    _emit("apply_step", {"url": job["url"],
+                          "step": "  ✅ Validation errors resolved"})
+                    _stuck_count = 0
+                    break
+                for _se in _step_errs:
+                    _emit("apply_step", {"url": job["url"],
+                          "step": f"  ⚠️ Still: {_se[:80]}"})
+        _dbg(f"INTER_STEP | step={step_n} | about to check modal for inter-step prefill")
+        try:
+            # Only re-run pre-fill between steps if the modal is still open.
+            _inter_modal = await page.locator(MODAL_SEL).count()
+            _dbg(f"INTER_STEP | step={step_n} | inter_modal_count={_inter_modal}")
+            if _inter_modal:
                 await _handle_email_dropdown(page, profile, job["url"])
                 await _fill_profile_fields(page, profile)
-            except Exception as _nav_err:
-                _nav_msg = str(_nav_err).lower()
-                if any(x in _nav_msg for x in ["closed", "target page", "context", "destroyed"]):
+        except Exception as _nav_err:
+            _nav_msg = str(_nav_err).lower()
+            _dbg(f"INTER_STEP_ERR | step={step_n} | err={str(_nav_err)[:100]}")
+            if any(x in _nav_msg for x in ["closed", "target page", "context", "destroyed"]):
+                if _submit_clicked:
                     _emit("apply_step", {"url": job["url"],
-                        "step": "✓ Page closed after navigation — application submitted"})
+                        "step": "✓ Page closed after submit — application submitted"})
                     return {"success": True, "manual": False,
                             "note": "Auto-submitted on Review", "apply_type": apply_type}
+                else:
+                    _emit("apply_step", {"url": job["url"],
+                        "step": "⚠️ Modal closed before submit was clicked — marking manual"})
+                    return {"success": False, "manual": True,
+                            "note": "Easy Apply modal closed before submission"}
                 raise
-        else:
-            try:
-                btns = [(await b.text_content() or "").strip()
-                        for b in await page.query_selector_all("button")]
-                log.warning("Wizard stuck at step %d — buttons: %s", step_n + 1, [t for t in btns if t])
-                debug_path = Path("uploads") / f"debug_wizard_{job_id}_step{step_n}.png"
-                debug_path.write_bytes(await page.screenshot(full_page=True))
-                log.warning("Wizard debug screenshot: %s", debug_path)
-            except Exception:
-                pass
-            break
 
     log.warning("DEBUG pre-manual: URL=%s", page.url)
     log.warning("DEBUG pre-manual: Page title=%s", await page.title())

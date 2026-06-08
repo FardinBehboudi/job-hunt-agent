@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 # ── Cookie / privacy consent popup dismissal ──────────────────────────────────
 _CONSENT_ACCEPT_RE = re.compile(
-    r"^(accept all|accept all cookies|alle akzeptieren|accept cookies|"
+    r"^(accept|accept all|accept all cookies|alle akzeptieren|accept cookies|"
     r"alle cookies akzeptieren|i accept|agree|agree all|agree to all|"
     r"allow all|allow cookies|allow all cookies|ok|got it|"
     r"verstanden|zustimmen|einverstanden|accepter tout|tout accepter|"
@@ -106,6 +106,12 @@ _PLATFORM_PATTERNS: list[tuple[str, str]] = [
     (r"stepstone\.de",              "stepstone"),
     (r"xing\.com",                  "xing"),
     (r"indeed\.com",                "indeed"),
+    (r"csod\.com|cornerstone",      "csod"),
+    (r"rexx-systems\.com",          "rexx"),
+    (r"softgarden\.io|softgarden\.de", "softgarden"),
+    (r"erecruiter\.net",            "erecruiter"),
+    (r"pinpoint\.com",              "pinpoint"),
+    (r"rippling\.com",              "rippling"),
 ]
 
 _PAGE_HINTS: list[tuple[str, str]] = [
@@ -159,6 +165,10 @@ def _detect_platform_by_url(url: str) -> str:
         "teamtailor":     [".teamtailor.com", "career.teamtailor.com"],
         "jazzhr":         ["resumatorjobs.com", "jazz.co/"],
         "stepstone":      ["stepstone.de/stellenangebote", "stepstone.de/job"],
+        "csod":           ["csod.com/ux/ats", "csod.com/careers", "cornerstone"],
+        "softgarden":     ["softgarden.io", "softgarden.de"],
+        "rexx":           ["rexx-systems.com"],
+        "rippling":       ["rippling.com/jobs", "app.rippling.com"],
     }
     for platform, domains in _URL_PATTERNS.items():
         if any(d in url_lower for d in domains):
@@ -200,9 +210,11 @@ async def _verify_submission(page: Page) -> bool:
             "successfully submitted", "application submitted",
             "we'll be in touch", "we will be in touch",
             "your application has been", "bewerbung eingegangen",
-            "vielen dank", "danke für", "erfolgreich", "bewerbung erhalten",
+            "vielen dank", "danke für ihre bewerbung", "bewerbung erhalten",
             "we have received", "wir haben deine bewerbung",
             "application complete", "you have applied",
+            "erfolgreich beworben", "erfolgreich eingereicht",
+            "bewerbung erfolgreich", "ihre bewerbung wurde",
         ]
         _negative_phrases = [
             "please fill", "required field", "pflichtfeld",
@@ -231,7 +243,9 @@ async def _verify_submission(page: Page) -> bool:
             });
             return empty;
         }""")
-        if required_empty == 0:
+        if required_empty == 0 and score > 0:
+            # Only boost if other signals already lean positive — "no required fields"
+            # alone is unreliable (many custom sites don't use the required attribute).
             score += 1
         elif required_empty > 2:
             score -= 2
@@ -330,7 +344,7 @@ async def _ai_decide_form_actions(
             return []
         client = anthropic.Anthropic(api_key=api_key)
         # Upgrade to Sonnet for better form understanding
-        _model = "claude-sonnet-4-20250514"
+        _model = "claude-sonnet-4-6"
         # Inject memory context into system prompt
         _mem_context = ""
         try:
@@ -421,16 +435,21 @@ async def _ai_execute_action(page: Page, action: dict) -> None:
 async def _fill_remaining_questions(
     page: Page, job: dict, resume_text: str, profile: dict
 ) -> None:
+    """Fill all visible unfilled fields on the current ATS page.
+    Handles text/number/textarea, <select>, comboboxes, radio groups, and consent checkboxes.
+    """
     job_desc = job.get("description", "")
     url = job.get("url", "")
     prior: list[dict] = []
 
+    # ── Text / number / email / tel inputs ────────────────────────────────────
     try:
         inputs = page.locator(
             "input[type='text']:not([disabled]), input[type='number']:not([disabled]), "
-            "input[type='email']:not([disabled]), input[type='tel']:not([disabled])"
+            "input[type='email']:not([disabled]), input[type='tel']:not([disabled]), "
+            "input[type='date']:not([disabled])"
         )
-        for i in range(min(await inputs.count(), 20)):
+        for i in range(min(await inputs.count(), 25)):
             try:
                 inp = inputs.nth(i)
                 if not await inp.is_visible():
@@ -438,7 +457,7 @@ async def _fill_remaining_questions(
                 if (await inp.input_value()).strip():
                     continue
                 # Skip combobox inputs — handled separately below
-                _inp_role = (await inp.get_attribute("role") or "").lower()
+                _inp_role  = (await inp.get_attribute("role") or "").lower()
                 _inp_popup = (await inp.get_attribute("aria-haspopup") or "").lower()
                 if _inp_role == "combobox" or _inp_popup in ("listbox", "true"):
                     continue
@@ -446,7 +465,7 @@ async def _fill_remaining_questions(
                 if not label:
                     continue
                 inp_type = (await inp.get_attribute("type") or "text").lower()
-                eff_type = "number" if is_numeric_question(label, inp_type) else "text"
+                eff_type = "number" if is_numeric_question(label, inp_type) else inp_type if inp_type in ("email", "tel") else "text"
                 answer = answer_custom_question(label, eff_type, [], resume_text, profile, job_desc, prior_answers=prior)
                 if eff_type == "number":
                     answer = re.sub(r"[^\d]", "", answer.split(".")[0]) or "1"
@@ -460,6 +479,7 @@ async def _fill_remaining_questions(
     except Exception:
         pass
 
+    # ── Textareas ─────────────────────────────────────────────────────────────
     try:
         for i in range(min(await page.locator("textarea:not([disabled])").count(), 10)):
             try:
@@ -479,9 +499,11 @@ async def _fill_remaining_questions(
     except Exception:
         pass
 
+    # ── <select> dropdowns ────────────────────────────────────────────────────
     try:
-        _PH = {"", "select", "select an option", "---", "please select", "choose one", "bitte wählen"}
-        for i in range(min(await page.locator("select:not([disabled])").count(), 10)):
+        _PH = {"", "select", "select an option", "select an option...", "---",
+               "please select", "choose one", "choose", "bitte wählen", "auswählen"}
+        for i in range(min(await page.locator("select:not([disabled])").count(), 12)):
             try:
                 sel = page.locator("select:not([disabled])").nth(i)
                 if not await sel.is_visible():
@@ -490,7 +512,8 @@ async def _fill_remaining_questions(
                 if cur and cur not in _PH:
                     continue
                 label = await _get_label(page, sel)
-                opts = [o.strip() for o in await sel.locator("option").all_text_contents() if o.strip() and o.strip().lower() not in _PH]
+                opts = [o.strip() for o in await sel.locator("option").all_text_contents()
+                        if o.strip() and o.strip().lower() not in _PH]
                 if not opts:
                     continue
                 answer = answer_custom_question(label or "", "select", opts, resume_text, profile, job_desc, prior_answers=prior)
@@ -498,7 +521,17 @@ async def _fill_remaining_questions(
                     try:
                         await sel.select_option(label=answer)
                     except Exception:
-                        await sel.select_option(value=answer)
+                        # fuzzy match
+                        for opt in opts:
+                            if answer.lower() in opt.lower() or opt.lower() in answer.lower():
+                                try:
+                                    await sel.select_option(label=opt)
+                                    answer = opt
+                                    break
+                                except Exception:
+                                    pass
+                    # FIX: dispatch change so React/Angular forms update their state
+                    await sel.dispatch_event("change")
                     _emit("apply_step", {"url": url, "step": f"  ✎ {(label or 'select')[:40]}: {answer[:40]}"})
                     prior.append({"question": label or "select", "answer": answer})
             except Exception:
@@ -506,13 +539,14 @@ async def _fill_remaining_questions(
     except Exception:
         pass
 
-    # Custom (React/Angular) combobox dropdowns — role="combobox" or aria-haspopup=listbox
+    # ── Combobox / typeahead dropdowns ────────────────────────────────────────
     try:
-        _PH2 = {"", "select", "select an option", "---", "please select", "choose one"}
+        _PH2 = {"", "select", "select an option", "---", "please select", "choose one", "choose"}
         comboboxes = page.locator(
             "input[role='combobox']:not([disabled]), "
             "input[aria-haspopup='listbox']:not([disabled]), "
-            "input[aria-haspopup='true']:not([disabled])"
+            "input[aria-haspopup='true']:not([disabled]), "
+            "input[aria-autocomplete='list']:not([disabled])"
         )
         for i in range(min(await comboboxes.count(), 10)):
             try:
@@ -521,44 +555,74 @@ async def _fill_remaining_questions(
                     continue
                 cur_val = ((await cb_input.input_value()) or "").strip().lower()
                 if cur_val and cur_val not in _PH2:
-                    continue  # already filled
+                    continue
                 label = await _get_label(page, cb_input)
                 if not label:
                     continue
-                # Click to open the dropdown
+
+                # Open the dropdown
                 await cb_input.click()
-                await asyncio.sleep(0.5)
-                # Collect visible option elements
-                opts_loc = page.locator(
-                    "[role='option']:visible, [role='listbox'] [role='option']:visible, "
-                    "li[data-value]:visible"
+                await asyncio.sleep(0.6)
+
+                # FIX: broad option selector without `:visible` — filter with is_visible() per element
+                _opt_loc = page.locator(
+                    "[role='option'], [role='listbox'] [role='option'], "
+                    "li[data-value], [class*='option']:not([class*='no-option']), "
+                    "[class*='dropdown-item'], [class*='list-item']"
                 )
-                opts_count = await opts_loc.count()
-                opts = []
-                for oi in range(min(opts_count, 20)):
-                    txt = (await opts_loc.nth(oi).text_content() or "").strip()
-                    if txt and txt.lower() not in _PH2:
-                        opts.append(txt)
+                opts: list[str] = []
+                for oi in range(min(await _opt_loc.count(), 30)):
+                    try:
+                        opt_el = _opt_loc.nth(oi)
+                        if not await opt_el.is_visible():
+                            continue
+                        txt = (await opt_el.text_content() or "").strip()
+                        if txt and txt.lower() not in _PH2:
+                            opts.append(txt)
+                    except Exception:
+                        pass
+
                 if not opts:
-                    # close by pressing Escape and skip
                     await cb_input.press("Escape")
                     continue
+
                 answer = answer_custom_question(label, "select", opts, resume_text, profile, job_desc, prior_answers=prior)
                 if not answer:
                     await cb_input.press("Escape")
                     continue
-                # Click the matching option
+
+                # Click the matching option (re-query live DOM — not stale snapshot)
                 clicked = False
-                for oi in range(min(await opts_loc.count(), 20)):
-                    opt_el = opts_loc.nth(oi)
-                    txt = (await opt_el.text_content() or "").strip()
-                    if txt.lower() == answer.lower() or answer.lower() in txt.lower():
-                        await opt_el.click()
-                        clicked = True
-                        break
+                for oi in range(min(await _opt_loc.count(), 30)):
+                    try:
+                        opt_el = _opt_loc.nth(oi)
+                        if not await opt_el.is_visible():
+                            continue
+                        txt = (await opt_el.text_content() or "").strip()
+                        if txt.lower() == answer.lower() or answer.lower() in txt.lower():
+                            await opt_el.click()
+                            clicked = True
+                            break
+                    except Exception:
+                        pass
+
                 if not clicked:
-                    await cb_input.press("Escape")
-                    continue
+                    # Fallback: type the answer and let autocomplete pick it
+                    await cb_input.fill(answer[:20])
+                    await asyncio.sleep(0.5)
+                    for oi in range(min(await _opt_loc.count(), 10)):
+                        try:
+                            opt_el = _opt_loc.nth(oi)
+                            if await opt_el.is_visible():
+                                await opt_el.click()
+                                clicked = True
+                                break
+                        except Exception:
+                            pass
+                    if not clicked:
+                        await cb_input.press("Escape")
+                        continue
+
                 _emit("apply_step", {"url": url, "step": f"  ✎ {label[:40]}: {answer[:40]}"})
                 prior.append({"question": label, "answer": answer})
             except Exception:
@@ -566,8 +630,107 @@ async def _fill_remaining_questions(
     except Exception:
         pass
 
+    # ── Radio groups (fieldsets) ──────────────────────────────────────────────
     try:
-        _CONSENT = re.compile(r"\bagree\b|\bconfirm\b|\bauthorize\b|\bconsent\b|\backnowledge\b|\bterms\b|\bprivacy\b", re.I)
+        for i in range(min(await page.locator("fieldset").count(), 12)):
+            try:
+                fs = page.locator("fieldset").nth(i)
+                if not await fs.is_visible():
+                    continue
+                radios = fs.locator("input[type='radio']")
+                r_count = await radios.count()
+                if not r_count:
+                    continue
+                # Skip if already answered
+                any_checked = False
+                for j in range(r_count):
+                    try:
+                        if await radios.nth(j).is_checked():
+                            any_checked = True
+                            break
+                    except Exception:
+                        pass
+                if any_checked:
+                    continue
+
+                legend = fs.locator("legend")
+                question = (await legend.first.text_content() or "").strip() if await legend.count() else ""
+
+                opt_vals: list[str] = []
+                for j in range(r_count):
+                    try:
+                        val = await radios.nth(j).get_attribute("value") or ""
+                        if val:
+                            opt_vals.append(val)
+                    except Exception:
+                        pass
+                if not opt_vals:
+                    opt_vals = ["Yes", "No"]
+
+                answer = answer_custom_question(
+                    question or "Yes/No", "radio", opt_vals,
+                    resume_text, profile, job_desc, prior_answers=prior
+                )
+                # Click the matching radio
+                for j in range(r_count):
+                    try:
+                        val = (await radios.nth(j).get_attribute("value") or "")
+                        if answer.lower() in val.lower() or val.lower() in answer.lower():
+                            rid = await radios.nth(j).get_attribute("id") or ""
+                            if rid:
+                                lbl = page.locator(f"label[for='{rid}']")
+                                if await lbl.count():
+                                    await lbl.first.click()
+                                else:
+                                    await radios.nth(j).click(force=True)
+                            else:
+                                await radios.nth(j).click(force=True)
+                            await asyncio.sleep(0.3)
+                            prior.append({"question": question, "answer": answer})
+                            _emit("apply_step", {"url": url, "step": f"  ✎ {(question or 'radio')[:40]}: {answer[:40]}"})
+                            break
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── File uploads (resume / CV) ────────────────────────────────────────────
+    try:
+        file_inputs = page.locator("input[type='file']:not([disabled])")
+        for i in range(min(await file_inputs.count(), 5)):
+            try:
+                fi = file_inputs.nth(i)
+                if not await fi.is_visible():
+                    continue
+                # Detect accepted types — prefer PDF, fallback to any
+                accept = (await fi.get_attribute("accept") or "").lower()
+                if accept and "pdf" not in accept and "doc" not in accept and "*" not in accept:
+                    continue  # not a document upload (e.g. profile photo)
+                label = await _get_label(page, fi)
+                label_low = label.lower()
+                # Skip if it looks like a photo/avatar upload
+                if any(w in label_low for w in ("photo", "picture", "avatar", "bild", "foto")):
+                    continue
+                resume_path = _resume_path(cfg)
+                if not resume_path:
+                    continue
+                await fi.set_input_files(str(resume_path))
+                await asyncio.sleep(0.5)
+                _emit("apply_step", {"url": url, "step": f"  📎 Uploaded resume: {resume_path.name}"})
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── Consent / GDPR checkboxes ─────────────────────────────────────────────
+    try:
+        _CONSENT = re.compile(
+            r"\bagree\b|\bconfirm\b|\bauthorize\b|\bconsent\b|\backnowledge\b"
+            r"|\bterms\b|\bprivacy\b|\bdatenschutz\b|\beinverstanden\b",
+            re.I
+        )
         for i in range(min(await page.locator("input[type='checkbox']").count(), 15)):
             try:
                 cb = page.locator("input[type='checkbox']").nth(i)
@@ -577,20 +740,439 @@ async def _fill_remaining_questions(
                 if label and _CONSENT.search(label):
                     await cb.click()
                     await asyncio.sleep(0.3)
-                    _emit("apply_step", {"url": url, "step": f"  ✎ Consent checkbox checked: {label[:50]}"})
+                    _emit("apply_step", {"url": url, "step": f"  ✎ Consent checkbox: {label[:50]}"})
             except Exception:
                 pass
     except Exception:
         pass
 
 
+# ── Validation error detection & repair ───────────────────────────────────────
+
+async def _get_ext_error_texts(page: Page) -> list[str]:
+    """Return visible validation error messages on the page."""
+    errors: list[str] = []
+    try:
+        locs = page.locator(
+            "[aria-invalid='true'], "
+            "[class*='error']:not([class*='error-boundary']):not([class*='error-page']), "
+            "[class*='invalid']:not([class*='invalid-feedback'] ~ *), "
+            "[class*='validation-error'], "
+            ".artdeco-inline-feedback--error, "
+            "[data-test-form-element-error-message]"
+        )
+        for i in range(min(await locs.count(), 10)):
+            try:
+                txt = (await locs.nth(i).text_content() or "").strip()
+                if txt and 3 < len(txt) < 200 and txt not in errors:
+                    errors.append(txt)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return errors
+
+
+async def _fix_ext_validation_errors(
+    page: Page,
+    resume_text: str,
+    profile: dict,
+    job_desc: str,
+    prior: list[dict],
+) -> int:
+    """
+    Find fields currently showing validation errors and re-fill them with
+    corrected answers.  Returns the number of fields successfully re-filled.
+    """
+    fixed = 0
+    try:
+        errored = await page.evaluate("""() => {
+            const out = [];
+            const sels = [
+                'input[aria-invalid="true"]:not([type=hidden])',
+                'textarea[aria-invalid="true"]',
+                'select[aria-invalid="true"]',
+                '[class*="error"]:not([class*="error-boundary"]) input:not([type=hidden]):not([disabled])',
+                '[class*="error"]:not([class*="error-boundary"]) textarea:not([disabled])',
+                '[class*="error"]:not([class*="error-boundary"]) select:not([disabled])',
+                '[class*="invalid"] input:not([type=hidden]):not([disabled])',
+                '[class*="invalid"] textarea:not([disabled])',
+            ];
+            for (const sel of sels) {
+                for (const el of document.querySelectorAll(sel)) {
+                    if (!el.offsetParent) continue;
+                    const id = el.id || '';
+                    const lbl = document.querySelector('label[for="' + id + '"]');
+                    const label = lbl ? lbl.innerText.trim() :
+                        (el.getAttribute('aria-label') || el.getAttribute('placeholder') || '');
+                    if (!out.find(r => r.id && r.id === id)) {
+                        out.push({ id, tag: el.tagName.toLowerCase(), label, type: el.type || '' });
+                    }
+                }
+            }
+            return out;
+        }""")
+    except Exception:
+        return 0
+
+    for fi in (errored or [])[:6]:
+        fid   = fi.get("id", "")
+        label = (fi.get("label") or "").strip() or "field"
+        ftag  = fi.get("tag", "input")
+        ftype = fi.get("type", "text")
+        try:
+            if not fid:
+                continue
+            el = page.locator(f"#{fid}")
+            if not await el.count() or not await el.first.is_visible():
+                continue
+
+            if ftag == "select":
+                opts = [
+                    o.strip() for o in await el.first.locator("option").all_text_contents()
+                    if o.strip() and o.strip().lower() not in {"", "select", "please select",
+                                                               "---", "choose", "bitte wählen"}
+                ]
+                if not opts:
+                    continue
+                answer = answer_custom_question(label, "select", opts, resume_text, profile, job_desc, prior_answers=prior)
+                if answer:
+                    try:
+                        await el.first.select_option(label=answer)
+                    except Exception:
+                        await el.first.select_option(value=answer)
+                    await el.first.dispatch_event("change")
+                    fixed += 1
+                    prior.append({"question": label, "answer": answer})
+            else:
+                eff_type = "textarea" if ftag == "textarea" else ("number" if ftype == "number" else "text")
+                answer = answer_custom_question(label, eff_type, [], resume_text, profile, job_desc, prior_answers=prior)
+                if answer:
+                    if ftype == "number":
+                        answer = re.sub(r"[^\d]", "", answer.split(".")[0]) or "1"
+                    await el.first.click()
+                    await asyncio.sleep(0.1)
+                    await el.first.fill("")
+                    await asyncio.sleep(0.1)
+                    await _reliable_fill(page, el.first, answer)
+                    fixed += 1
+                    prior.append({"question": label, "answer": answer})
+                    _emit("apply_step", {"url": "", "step": f"  🔧 Fixed: {label[:40]} → {answer[:40]}"})
+        except Exception:
+            pass
+    return fixed
+
+
+# ── Navigation helpers ────────────────────────────────────────────────────────
+
+_SUBMIT_WORDS_RE = re.compile(
+    r"\b(submit|apply|send|absenden|senden|bewerb|einreichen)\b", re.I
+)
+
+
+async def _click_next_or_submit(page: Page) -> str:
+    """
+    Find and click the most appropriate navigation button.
+    Tries Next/Continue (multi-step) first, then Submit/Apply.
+    Returns 'next', 'submit', or 'none'.
+    """
+    # ── Next / Continue (step forward without submitting) ────────────────────
+    for sel in [
+        "button:has-text('Next')",
+        "button:has-text('Continue')",
+        "button:has-text('Weiter')",
+        "button:has-text('Next step')",
+        "button:has-text('Nächster Schritt')",
+        "button:has-text('Fortfahren')",
+        "button:has-text('Proceed')",
+        "a:has-text('Next')",
+        "[aria-label*='next step' i]",
+        "[data-testid*='next-btn' i]",
+        "[data-test*='next-button' i]",
+    ]:
+        try:
+            loc = page.locator(sel)
+            if await loc.count() and await loc.first.is_visible():
+                btn_text = (await loc.first.text_content() or "").strip()
+                # Guard: skip if it looks like a submit/apply button
+                if _SUBMIT_WORDS_RE.search(btn_text):
+                    continue
+                await loc.first.scroll_into_view_if_needed()
+                await asyncio.sleep(0.3)
+                await loc.first.click()
+                return "next"
+        except Exception:
+            pass
+
+    # ── Submit / Apply ────────────────────────────────────────────────────────
+    for sel in [
+        "button[type='submit']",
+        "input[type='submit']",
+        "button:has-text('Submit application')",
+        "button:has-text('Submit')",
+        "button:has-text('Apply now')",
+        "button:has-text('Apply')",
+        "button:has-text('Send application')",
+        "button:has-text('Send')",
+        "button:has-text('Complete application')",
+        "button:has-text('Complete')",
+        "button:has-text('Finish')",
+        "button:has-text('Jetzt bewerben')",
+        "button:has-text('Bewerben')",
+        "button:has-text('Bewerbung absenden')",
+        "button:has-text('Bewerbung senden')",
+        "button:has-text('Absenden')",
+        "button:has-text('Einreichen')",
+        "button:has-text('Ja, das passt zu mir')",
+        "a:has-text('Apply now')",
+        "a:has-text('Bewerben')",
+        "[data-test-submit-button]",
+        "[data-testid*='submit' i]",
+        "[data-testid*='apply-btn' i]",
+        "[class*='submit-btn']",
+        "[class*='apply-btn']",
+    ]:
+        try:
+            loc = page.locator(sel)
+            if await loc.count() and await loc.first.is_visible():
+                await loc.first.scroll_into_view_if_needed()
+                await asyncio.sleep(0.3)
+                await loc.first.click()
+                return "submit"
+        except Exception:
+            pass
+
+    # ── Claude vision fallback ────────────────────────────────────────────────
+    try:
+        import base64 as _b64
+        _api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if _api_key:
+            _client_v = anthropic.Anthropic(api_key=_api_key)
+            b64 = _b64.b64encode(await page.screenshot()).decode()
+            resp = _client_v.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=120,
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/png", "data": b64}},
+                    {"type": "text", "text":
+                        "Find the button to advance this job application form "
+                        "(Submit, Apply, Next, Continue, Weiter, Bewerben). "
+                        "Return JSON only: "
+                        '{"text":"exact button text","kind":"next_or_submit"} or {} if none.'}
+                ]}]
+            )
+            raw = resp.content[0].text.strip()
+            s, e = raw.find("{"), raw.rfind("}") + 1
+            if s >= 0 and e > s:
+                data = json.loads(raw[s:e])
+                btn_text = data.get("text", "")
+                if btn_text:
+                    loc2 = page.locator(
+                        f"button:has-text('{btn_text}'), a:has-text('{btn_text}')"
+                    )
+                    if await loc2.count() and await loc2.first.is_visible():
+                        await loc2.first.scroll_into_view_if_needed()
+                        await asyncio.sleep(0.3)
+                        await loc2.first.click()
+                        return "submit" if _SUBMIT_WORDS_RE.search(btn_text) else "next"
+    except Exception:
+        pass
+
+    return "none"
+
+
+async def _get_form_frame(page: Page):
+    """
+    Return the Playwright frame that contains the application form.
+
+    Many ATS platforms (some Taleo, iCIMS, BambooHR, custom portals) embed
+    their form inside an <iframe>.  Playwright exposes frames via page.frames;
+    we find the first one that has at least 2 visible form fields and return it.
+    Falls back to `page` itself if no iframe qualifies.
+    """
+    try:
+        for frame in page.frames:
+            if frame is page.main_frame:
+                continue
+            try:
+                # A real application form has at least two interactive fields
+                count = await frame.locator(
+                    "input:not([type=hidden]):not([disabled]), "
+                    "textarea:not([disabled]), select:not([disabled])"
+                ).count()
+                if count >= 2:
+                    log.info("Form detected in iframe: %s", frame.url[:80])
+                    _emit("apply_step", {"url": page.url,
+                          "step": f"  🖼️ Form is inside an iframe — switching context"})
+                    return frame
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return page  # no qualifying iframe found — use the top-level page
+
+
+async def _run_ats_form(
+    page: Page,
+    job: dict,
+    cfg: dict,
+    resume_text: str,
+    profile: dict,
+    apply_type: str = "External",
+    max_steps: int = 7,
+) -> dict:
+    """
+    Multi-step ATS form runner shared by Greenhouse, Lever, Ashby, and generic handlers.
+
+    Each iteration:
+      1. Fill all visible fields (_fill_remaining_questions)
+      2. Fix any visible validation errors (up to 2 cycles)
+      3. Click Next or Submit
+      4. On Submit: verify; on Next: loop
+
+    Returns a standard result dict {success, manual, note, apply_type}.
+    """
+    url = page.url
+    job_desc = job.get("description", "")
+    prior: list[dict] = []
+
+    # Resolve the frame that actually contains the form (may be an iframe)
+    ctx = await _get_form_frame(page)
+    # Wrap job with the frame's URL if we switched context
+    _job_ctx = dict(job, url=getattr(ctx, "url", url))
+
+    _last_url = page.url
+    _stuck_count = 0  # consecutive steps where URL didn't change and action was "next"
+
+    for step in range(max_steps):
+        # Guard: if page navigated completely away (closed tab / redirect to unrelated domain)
+        try:
+            _cur_url = page.url
+        except Exception:
+            log.warning("Page closed mid-form at step %d", step)
+            break
+        _emit("apply_step", {"url": url, "step": f"  📋 Form step {step + 1}/{max_steps}…"})
+
+        # 1. Fill all visible fields (use the frame context)
+        await _fill_remaining_questions(ctx, _job_ctx, resume_text, profile)
+        await asyncio.sleep(0.4)
+
+        # 2. Fix validation errors (up to 2 repair passes before clicking anything)
+        for _fp in range(2):
+            n_fixed = await _fix_ext_validation_errors(ctx, resume_text, profile, job_desc, prior)
+            if not n_fixed:
+                break
+            await asyncio.sleep(0.4)
+
+        # 3. Click Next or Submit (try frame context first, then top-level page)
+        action = await _click_next_or_submit(ctx)
+        if action == "none" and ctx is not page:
+            action = await _click_next_or_submit(page)
+
+        if action == "none":
+            _emit("apply_step", {"url": url, "step": "  ⚠ No navigation button found"})
+            break
+
+        _emit("apply_step", {"url": url, "step": f"  → Clicked '{action}' button on step {step + 1}"})
+
+        # Wait for the page to settle (use top-level page for load state — frames don't have it)
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+        except Exception:
+            pass
+        await asyncio.sleep(1.0)
+
+        if action == "submit":
+            try:
+                await page.wait_for_load_state("networkidle", timeout=8_000)
+            except Exception:
+                pass
+
+            if await _verify_submission(page):
+                return {"success": True, "manual": False, "apply_type": apply_type}
+
+            # Post-submit validation errors? Fix and retry once.
+            errs = await _get_ext_error_texts(ctx)
+            if errs:
+                _emit("apply_step", {"url": url,
+                      "step": f"  ⚠️ Post-submit errors: {errs[0][:80]}"})
+                for _fp in range(2):
+                    n_fixed = await _fix_ext_validation_errors(ctx, resume_text, profile, job_desc, prior)
+                    if not n_fixed:
+                        break
+                    await asyncio.sleep(0.5)
+                action2 = await _click_next_or_submit(ctx)
+                if action2 == "none" and ctx is not page:
+                    action2 = await _click_next_or_submit(page)
+                if action2 == "submit":
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=8_000)
+                    except Exception:
+                        pass
+                    if await _verify_submission(page):
+                        return {"success": True, "manual": False, "apply_type": apply_type}
+
+            # If there are still form fields, we either navigated to an apply form
+            # (job listing → apply button click) or moved to the next wizard step.
+            # Either way: keep filling instead of giving up.
+            still_form = await ctx.locator(
+                "input:not([type=hidden]):not([disabled]), "
+                "textarea:not([disabled]), select:not([disabled])"
+            ).count()
+            if not still_form:
+                # Check top-level page too
+                try:
+                    still_form = await page.locator(
+                        "input:not([type=hidden]):not([disabled]), "
+                        "textarea:not([disabled]), select:not([disabled])"
+                    ).count()
+                except Exception:
+                    pass
+            if not still_form:
+                break  # No form anywhere = likely confirmation page
+
+            # Re-resolve frame — multi-step forms sometimes swap iframes
+            ctx = await _get_form_frame(page)
+            _job_ctx = dict(job, url=getattr(ctx, "url", url))
+            _emit("apply_step", {"url": url,
+                  "step": f"  ↻ Submit navigated to new form — continuing fill…"})
+            continue  # go back to top of loop and fill the new page
+
+        # After a "next" click only do a cheap URL check — never run vision on
+        # intermediate steps (it causes false positives on multi-step forms).
+        if action == "next":
+            url_now = page.url.lower()
+            _confirm_url_kw = [
+                "thank", "thanks", "danke", "success", "erfolgreich",
+                "confirm", "bestatig", "submitted", "bewerbung-eingegangen",
+                "application-sent", "applied", "complete", "finished",
+            ]
+            if any(kw in url_now for kw in _confirm_url_kw):
+                return {"success": True, "manual": False, "apply_type": apply_type}
+            # Stuck detection: if URL hasn't changed for 2 consecutive "next" clicks,
+            # validation errors are likely blocking us — break so vision fallback can try.
+            if page.url == _last_url:
+                _stuck_count += 1
+                if _stuck_count >= 2:
+                    _emit("apply_step", {"url": url,
+                          "step": "  ⚠ Form appears stuck (same URL after 2 next clicks) — handing off"})
+                    break
+            else:
+                _stuck_count = 0
+            _last_url = page.url
+
+    return {"success": False, "manual": True, "note": f"{apply_type}: could not confirm submission"}
+
+
 # ── ATS handlers ──────────────────────────────────────────────────────────────
 
 async def _apply_greenhouse(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
     url = page.url
-    _emit("apply_step", {"url": url, "step": "🌿 Greenhouse form — filling standard fields"})
+    _emit("apply_step", {"url": url, "step": "🌿 Greenhouse — filling contact fields"})
     try:
         p = profile
+        # Known Greenhouse field selectors — fill upfront before the generic loop
         for sel, val in [
             ("input#first_name", p.get("first_name", "")),
             ("input#last_name",  p.get("last_name", "")),
@@ -602,22 +1184,26 @@ async def _apply_greenhouse(page: Page, job: dict, cfg: dict, resume_text: str, 
             try:
                 el = page.locator(sel)
                 if await el.count() and await el.first.is_visible():
-                    await el.first.fill(val)
-                    await asyncio.sleep(0.2)
+                    existing = await el.first.input_value()
+                    if not existing.strip():
+                        await el.first.fill(val)
+                        await asyncio.sleep(0.2)
             except Exception:
                 pass
 
+        # Resume upload
         try:
             resume = _resume_path(cfg, job.get("_resume_lang", "en"))
             if resume:
-                fi = page.locator("input[type='file']").first
-                if await fi.count():
-                    await fi.set_input_files(str(resume))
+                fi_loc = page.locator("input[type='file']")
+                if await fi_loc.count():
+                    await fi_loc.first.set_input_files(str(resume))
                     await asyncio.sleep(1.5)
                     _emit("apply_step", {"url": url, "step": "  ✎ Resume uploaded"})
         except Exception:
             pass
 
+        # LinkedIn URL
         try:
             li = page.locator("input[id*='linkedin' i], input[placeholder*='LinkedIn' i]")
             if await li.count() and await li.first.is_visible():
@@ -626,18 +1212,8 @@ async def _apply_greenhouse(page: Page, job: dict, cfg: dict, resume_text: str, 
         except Exception:
             pass
 
-        await _fill_remaining_questions(page, job, resume_text, profile)
-
-        submit = page.locator("input[type='submit'], button[type='submit']")
-        if await submit.count():
-            await submit.last.scroll_into_view_if_needed()
-            await asyncio.sleep(0.5)
-            await submit.last.click()
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            if await _verify_submission(page):
-                return {"success": True, "manual": False, "apply_type": "External (Greenhouse)"}
-
-        return {"success": False, "manual": True, "note": "Greenhouse: submit not confirmed"}
+        # Multi-step form loop: fill remaining + validate + Next/Submit
+        return await _run_ats_form(page, job, cfg, resume_text, profile, "External (Greenhouse)")
     except PWTimeout:
         return {"success": False, "manual": False, "note": "Timeout"}
     except Exception as exc:
@@ -646,7 +1222,7 @@ async def _apply_greenhouse(page: Page, job: dict, cfg: dict, resume_text: str, 
 
 async def _apply_lever(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
     url = page.url
-    _emit("apply_step", {"url": url, "step": "⚙️ Lever form — filling standard fields"})
+    _emit("apply_step", {"url": url, "step": "⚙️ Lever — filling contact fields"})
     try:
         p = profile
         for sel, val in [
@@ -669,29 +1245,19 @@ async def _apply_lever(page: Page, job: dict, cfg: dict, resume_text: str, profi
             except Exception:
                 pass
 
+        # Resume upload
         try:
             resume = _resume_path(cfg, job.get("_resume_lang", "en"))
             if resume:
-                fi = page.locator("input[type='file'][name='resume'], input[type='file']").first
-                if await fi.count():
-                    await fi.set_input_files(str(resume))
+                fi_loc = page.locator("input[type='file'][name='resume'], input[type='file']")
+                if await fi_loc.count():
+                    await fi_loc.first.set_input_files(str(resume))
                     await asyncio.sleep(1.5)
                     _emit("apply_step", {"url": url, "step": "  ✎ Resume uploaded"})
         except Exception:
             pass
 
-        await _fill_remaining_questions(page, job, resume_text, profile)
-
-        submit = page.locator("button[type='submit'], input[type='submit']")
-        if await submit.count():
-            await submit.last.scroll_into_view_if_needed()
-            await asyncio.sleep(0.5)
-            await submit.last.click()
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            if await _verify_submission(page):
-                return {"success": True, "manual": False, "apply_type": "External (Lever)"}
-
-        return {"success": False, "manual": True, "note": "Lever: submit not confirmed"}
+        return await _run_ats_form(page, job, cfg, resume_text, profile, "External (Lever)")
     except PWTimeout:
         return {"success": False, "manual": False, "note": "Timeout"}
     except Exception as exc:
@@ -700,7 +1266,7 @@ async def _apply_lever(page: Page, job: dict, cfg: dict, resume_text: str, profi
 
 async def _apply_ashby(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
     url = page.url
-    _emit("apply_step", {"url": url, "step": "🔷 Ashby form — filling standard fields"})
+    _emit("apply_step", {"url": url, "step": "🔷 Ashby — filling contact fields"})
     try:
         p = profile
         for testid, val in [
@@ -720,29 +1286,19 @@ async def _apply_ashby(page: Page, job: dict, cfg: dict, resume_text: str, profi
             except Exception:
                 pass
 
+        # Resume upload
         try:
             resume = _resume_path(cfg, job.get("_resume_lang", "en"))
             if resume:
-                fi = page.locator("input[type='file']").first
-                if await fi.count():
-                    await fi.set_input_files(str(resume))
+                fi_loc = page.locator("input[type='file']")
+                if await fi_loc.count():
+                    await fi_loc.first.set_input_files(str(resume))
                     await asyncio.sleep(1.5)
                     _emit("apply_step", {"url": url, "step": "  ✎ Resume uploaded"})
         except Exception:
             pass
 
-        await _fill_remaining_questions(page, job, resume_text, profile)
-
-        submit = page.locator("button[type='submit']")
-        if await submit.count():
-            await submit.last.scroll_into_view_if_needed()
-            await asyncio.sleep(0.5)
-            await submit.last.click()
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            if await _verify_submission(page):
-                return {"success": True, "manual": False, "apply_type": "External (Ashby)"}
-
-        return {"success": False, "manual": True, "note": "Ashby: submit not confirmed"}
+        return await _run_ats_form(page, job, cfg, resume_text, profile, "External (Ashby)")
     except PWTimeout:
         return {"success": False, "manual": False, "note": "Timeout"}
     except Exception as exc:
@@ -750,17 +1306,64 @@ async def _apply_ashby(page: Page, job: dict, cfg: dict, resume_text: str, profi
 
 
 async def _apply_workday(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
-    _emit("apply_step", {"url": job.get("url", ""), "step": "⚙️ Workday detected — using AI agent"})
+    """Workday: try CSS form runner first (handles standard wizard steps), fall back to browser-use."""
+    url = job.get("url", "")
+    _emit("apply_step", {"url": url, "step": "⚙️ Workday — trying CSS form runner first…"})
+    try:
+        result = await _run_ats_form(page, job, cfg, resume_text, profile,
+                                     apply_type="External (Workday)", max_steps=10)
+        if result.get("success"):
+            return result
+        log.info("Workday CSS runner: %s — escalating to browser-use", result.get("note", ""))
+    except Exception as _we:
+        log.warning("Workday CSS runner error: %s", _we)
+    _emit("apply_step", {"url": url, "step": "⚙️ Workday CSS incomplete — using AI agent"})
     return await _apply_generic_browser_use(page, job, cfg, resume_text, profile)
 
 
 async def _apply_taleo(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
-    _emit("apply_step", {"url": job.get("url", ""), "step": "⚠️ Going to manual: Taleo requires manual apply (login-gated)"})
+    """Taleo: try CSS form runner (works for guest/quick-apply instances), fall back to manual."""
+    url = job.get("url", "")
+    _emit("apply_step", {"url": url, "step": "⚙️ Taleo — checking for guest apply form…"})
+    try:
+        has_form = await page.locator(
+            "input:not([type=hidden]):not([disabled]), "
+            "textarea:not([disabled]), select:not([disabled])"
+        ).count()
+        if has_form:
+            result = await _run_ats_form(page, job, cfg, resume_text, profile,
+                                         apply_type="External (Taleo)", max_steps=8)
+            if result.get("success"):
+                return result
+            log.info("Taleo CSS runner: %s", result.get("note", ""))
+        else:
+            log.info("Taleo: no visible form fields — login wall or unsupported page")
+    except Exception as _te:
+        log.warning("Taleo CSS runner error: %s", _te)
+    _emit("apply_step", {"url": url, "step": "⚠️ Going to manual: Taleo (login-gated or unsupported)"})
     return {"success": False, "manual": True, "note": "Taleo requires manual apply (login-gated)"}
 
 
 async def _apply_icims(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
-    _emit("apply_step", {"url": job.get("url", ""), "step": "⚠️ Going to manual: iCIMS requires manual apply (login-gated)"})
+    """iCIMS: try CSS form runner (works for public-facing forms), fall back to manual."""
+    url = job.get("url", "")
+    _emit("apply_step", {"url": url, "step": "⚙️ iCIMS — checking for public apply form…"})
+    try:
+        has_form = await page.locator(
+            "input:not([type=hidden]):not([disabled]), "
+            "textarea:not([disabled]), select:not([disabled])"
+        ).count()
+        if has_form:
+            result = await _run_ats_form(page, job, cfg, resume_text, profile,
+                                         apply_type="External (iCIMS)", max_steps=8)
+            if result.get("success"):
+                return result
+            log.info("iCIMS CSS runner: %s", result.get("note", ""))
+        else:
+            log.info("iCIMS: no visible form fields — login wall or unsupported page")
+    except Exception as _ie:
+        log.warning("iCIMS CSS runner error: %s", _ie)
+    _emit("apply_step", {"url": url, "step": "⚠️ Going to manual: iCIMS (login-gated or unsupported)"})
     return {"success": False, "manual": True, "note": "iCIMS requires manual apply (login-gated)"}
 
 
@@ -849,7 +1452,7 @@ RULES:
         if browser is None:
             browser = _BUBrowser(config=_BUBrowserConfig(headless=cfg.get("headless", False)))
 
-        llm = _BUChatAnthropic(model="claude-sonnet-4-20250514")
+        llm = _BUChatAnthropic(model="claude-sonnet-4-6")
         agent = _BUAgent(task=task, llm=llm, browser=browser)
         result = await agent.run(max_steps=40)
 
@@ -862,7 +1465,7 @@ RULES:
             _emit("apply_step", {"url": url, "step": "  ✓ browser-use: application submitted"})
             try:
                 from applier.memory import get_memory
-                get_memory().save_application_result(url, platform, True, [])
+                get_memory().save_application_result(url, "browser-use", True, [])
             except Exception:
                 pass
             return {"success": True, "manual": False,
@@ -921,18 +1524,27 @@ async def _apply_unknown(page: Page, job: dict, cfg: dict, resume_text: str, pro
 
 
 PLATFORM_HANDLERS: dict = {
-    "greenhouse":     _apply_external_ai,
-    "lever":          _apply_external_ai,
-    "smartrecruiters":_apply_external_ai,
-    "ashby":          _apply_external_ai,
-    "workable":       _apply_external_ai,
-    "personio":       _apply_external_ai,
-    "recruitee":      _apply_external_ai,
-    "bamboohr":       _apply_external_ai,
-    "teamtailor":     _apply_external_ai,
-    "jazzhr":         _apply_external_ai,
-    "jobvite":        _apply_external_ai,
-    "stepstone":      _apply_external_ai,
+    # Specific handlers with known HTML structure
+    "greenhouse":     _apply_greenhouse,
+    "lever":          _apply_lever,
+    "ashby":          _apply_ashby,
+    # Generic AI/browser-use handlers (no special structure known)
+    "smartrecruiters":_apply_generic_browser_use,
+    "workable":       _apply_generic_browser_use,
+    "personio":       _apply_generic_browser_use,
+    "recruitee":      _apply_generic_browser_use,
+    "bamboohr":       _apply_generic_browser_use,
+    "teamtailor":     _apply_generic_browser_use,
+    "jazzhr":         _apply_generic_browser_use,
+    "jobvite":        _apply_generic_browser_use,
+    "stepstone":      _apply_generic_browser_use,
+    "csod":           _apply_generic_browser_use,
+    "softgarden":     _apply_generic_browser_use,
+    "rexx":           _apply_generic_browser_use,
+    "rippling":       _apply_generic_browser_use,
+    "erecruiter":     _apply_generic_browser_use,
+    "pinpoint":       _apply_generic_browser_use,
+    # Special cases
     "workday":        _apply_workday,
     "taleo":          _apply_taleo,
     "icims":          _apply_icims,
@@ -955,21 +1567,110 @@ async def _route_to_handler(
         new_url = page.url
         log.info("Routing to %s handler (URL: %s)", platform, new_url)
         return await handler(page, dict(job, url=new_url), cfg, resume_text, profile)
-    # Unknown platform — try Claude vision smart apply before giving up
-    _emit("apply_step", {"url": job.get("url",""),
-          "step": f"🧠 Unknown platform ({platform}) — trying smart apply"})
+
+    # Unknown / custom ATS — try to land on the actual form first.
+    # Many portals open on a job-description page; we must click their Apply button
+    # before any form-fill logic runs.
+    await _click_apply_on_listing(page)
+
+    # Two-tier fallback:
+    # Tier 1: CSS-selector form runner (_run_ats_form).  Fast, works on any standard
+    #         HTML form (most custom company portals use standard elements).
+    # Tier 2: Claude vision smart apply.  Slower but handles React/Angular SPAs and
+    #         non-standard UI patterns.
+    _emit("apply_step", {"url": job.get("url", ""),
+          "step": f"🔍 Unknown/custom ATS — trying CSS form runner first…"})
+    try:
+        _css_result = await _run_ats_form(
+            page, dict(job, url=page.url), cfg, resume_text, profile,
+            apply_type="External (custom)", max_steps=12,
+        )
+        if _css_result.get("success"):
+            return _css_result
+        # If the CSS runner couldn't find a submit button at all (note contains
+        # "could not confirm"), escalate to Claude vision.  If it DID click submit
+        # but verification failed, still escalate — Claude vision may do better.
+        log.info("CSS form runner: %s — escalating to Claude vision", _css_result.get("note", ""))
+    except Exception as _ce:
+        log.warning("CSS form runner error: %s", _ce)
+
+    _emit("apply_step", {"url": job.get("url", ""),
+          "step": "🧠 CSS runner could not complete — trying Claude vision smart apply…"})
     try:
         from applier.smart_filler import smart_apply_page
         _smart = await smart_apply_page(page, job, profile, resume_text, cfg)
-        if _smart.get('success'):
+        if _smart.get("success"):
             return _smart
     except Exception as _se:
         log.warning("smart_apply_page error: %s", _se)
-    log.warning("DEBUG pre-manual: URL=%s", page.url)
-    log.warning("DEBUG pre-manual: Reason=External apply, unknown platform: %s", platform)
+
+    log.warning("DEBUG pre-manual: URL=%s platform=%s", page.url, platform)
     _emit("apply_step", {"url": job.get("url", ""),
-          "step": f"⚠️ Going to manual: External apply — unknown platform: {platform}"})
-    return {"success": False, "manual": True, "note": f"External apply — unknown platform: {platform}"}
+          "step": f"⚠️ Going to manual: could not complete external apply ({platform})"})
+    return {"success": False, "manual": True,
+            "note": f"External apply — unknown platform: {platform}"}
+
+
+async def _click_apply_on_listing(page: Page) -> bool:
+    """
+    If we're on a job-description / listing page (no form fields visible),
+    find and click the Apply / Bewerben button to navigate to the actual form.
+    Returns True if a button was clicked.
+    """
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=8_000)
+    except Exception:
+        pass
+    await asyncio.sleep(1.5)
+
+    # Count visible form fields — if already on a form, do nothing
+    try:
+        form_count = await page.locator(
+            "input:not([type=hidden]):not([disabled]),"
+            "textarea:not([disabled]),select:not([disabled])"
+        ).count()
+        if form_count >= 2:
+            return False  # already on a form
+    except Exception:
+        pass
+
+    # Click the first visible Apply/Bewerben button
+    _APPLY_SELS = [
+        "a:has-text('Jetzt bewerben')",
+        "button:has-text('Jetzt bewerben')",
+        "a:has-text('jetzt bewerben')",
+        "button:has-text('jetzt bewerben')",
+        "a:has-text('Bewerben')",
+        "button:has-text('Bewerben')",
+        "a:has-text('Apply now')",
+        "button:has-text('Apply now')",
+        "a:has-text('Apply')",
+        "button:has-text('Apply')",
+        "a:has-text('Jetzt bewerben')",
+        "[data-testid*='apply' i]",
+        "[class*='apply-btn' i]",
+        "[class*='bewerbung' i]",
+    ]
+    for sel in _APPLY_SELS:
+        try:
+            loc = page.locator(sel)
+            if await loc.count() and await loc.first.is_visible():
+                btn_text = (await loc.first.text_content() or "").strip()
+                log.info("_click_apply_on_listing: clicking '%s'", btn_text[:40])
+                _emit("apply_step", {"url": page.url,
+                      "step": f"  🔗 Job listing detected — clicking '{btn_text[:40]}'"})
+                await loc.first.scroll_into_view_if_needed()
+                await asyncio.sleep(0.4)
+                await loc.first.click()
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+                except Exception:
+                    pass
+                await asyncio.sleep(2.0)
+                return True
+        except Exception:
+            pass
+    return False
 
 
 # ── Public entry point ────────────────────────────────────────────────────────

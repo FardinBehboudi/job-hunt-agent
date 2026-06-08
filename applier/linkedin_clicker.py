@@ -81,7 +81,9 @@ _MODAL_SEL = (
     ".jobs-easy-apply-modal, "
     ".jobs-easy-apply-content, "
     "[data-test-modal], "
-    ".artdeco-modal__content"
+    ".artdeco-modal__content, "
+    ".artdeco-modal[role='dialog'], "
+    ".artdeco-modal[aria-modal='true']"
 )
 MODAL_SEL = _MODAL_SEL  # public alias for imports
 
@@ -110,7 +112,9 @@ async def _is_ea_modal(page: Page) -> bool:
                 return False
     except Exception:
         pass
-    # Presence of a form input inside the modal is a strong signal
+    # Presence of a form input inside the modal is a strong signal.
+    # Premium overlays are already filtered out above by the header-text check,
+    # so the broad .artdeco-modal__content selector is safe here.
     try:
         form_el = await page.query_selector(
             ".artdeco-modal__content input:not([type='hidden']), "
@@ -122,14 +126,73 @@ async def _is_ea_modal(page: Page) -> bool:
             return True
     except Exception:
         pass
-    # Navigation buttons present in the EA wizard
+    # Navigation buttons — scope to .artdeco-modal so we don't match LinkedIn's
+    # sidebar "Next" pagination button (which exists on the job-detail page too).
     try:
-        for label in (r"Next", r"Submit application", r"Review your application"):
-            btn = page.get_by_role("button", name=re.compile(label, re.IGNORECASE))
-            if await btn.count() and await btn.first.is_visible():
-                return True
+        modal_scope = await page.query_selector(".artdeco-modal")
+        if not modal_scope:
+            modal_scope = await page.query_selector("[role='dialog']")
+        if modal_scope:
+            for label in ("Next", "Submit application", "Review your application",
+                          "Continue to next step"):
+                found = await page.evaluate(
+                    """([el, lbl]) => {
+                        for (const b of el.querySelectorAll('button')) {
+                            if (!b.offsetParent) continue;
+                            const t = (b.getAttribute('aria-label') || b.innerText || '').trim();
+                            if (t.toLowerCase() === lbl.toLowerCase()) return true;
+                        }
+                        return false;
+                    }""",
+                    [modal_scope, label]
+                )
+                if found:
+                    return True
     except Exception:
         pass
+
+    # ── role=dialog / aria-modal fallback (e.g. JazzHR overlays inside LinkedIn) ──
+    # These modals don't use LinkedIn's artdeco CSS classes but ARE valid apply wizards.
+    try:
+        result = await page.evaluate("""() => {
+            const DIALOG_SELS = ["[role='dialog']", "[aria-modal='true']"];
+            const PREMIUM_KW  = /premium|stand out|subscription|upgrade|trial/i;
+            const APPLY_KW    = /apply to|apply for|easy apply/i;
+
+            for (const dSel of DIALOG_SELS) {
+                for (const dlg of document.querySelectorAll(dSel)) {
+                    if (!dlg.offsetParent && getComputedStyle(dlg).display === 'none') continue;
+
+                    // Check heading text
+                    const h = dlg.querySelector('h1,h2,h3,[class*=headline],[class*=header]');
+                    if (h) {
+                        const txt = h.innerText || '';
+                        if (PREMIUM_KW.test(txt)) continue;  // skip premium overlays
+                        if (APPLY_KW.test(txt))   return true;
+                    }
+
+                    // Form inputs inside the dialog = strong apply-wizard signal
+                    const inp = dlg.querySelector(
+                        'input:not([type=hidden]):not([type=file]):not([disabled]),' +
+                        'select:not([disabled])'
+                    );
+                    if (inp && inp.offsetParent !== null) return true;
+
+                    // "Next" button inside the dialog
+                    for (const btn of dlg.querySelectorAll('button')) {
+                        if (!btn.offsetParent) continue;
+                        const label = (btn.getAttribute('aria-label') || btn.innerText || '').trim();
+                        if (/^next$/i.test(label)) return true;
+                    }
+                }
+            }
+            return false;
+        }""")
+        if result:
+            return True
+    except Exception:
+        pass
+
     return False
 
 _EA_CSS = [
@@ -146,7 +209,7 @@ _EA_CSS = [
 async def click_apply_button(
     page: Page,
     *,
-    modal_timeout_ms: int = 12_000,
+    modal_timeout_ms: int = 8_000,
 ) -> Literal["easy_apply", "external", "already", "not_found", "modal_failed"]:
 
     print(f"[clicker] URL: {page.url}", flush=True)
@@ -161,7 +224,15 @@ async def click_apply_button(
         pass  # proceed anyway — might still work on non-standard layouts
 
     await page.evaluate("window.scrollTo(0, 0)")
-    await page.wait_for_timeout(1_000)
+    await page.wait_for_timeout(400)
+    # Simulate natural mouse entry — LinkedIn's anti-bot checks look for prior mouse activity
+    try:
+        await page.mouse.move(400, 300)
+        await page.wait_for_timeout(120)
+        await page.mouse.move(300, 400)
+        await page.wait_for_timeout(80)
+    except Exception:
+        pass
 
     # ── Already applied? ──────────────────────────────────────────────────────
     for sel in [
@@ -208,13 +279,31 @@ async def click_apply_button(
         return None
 
     async def _do_click(el) -> bool:
+        """Click an element with a human-like sequence to avoid LinkedIn's anti-bot checks."""
         try:
             await el.scroll_into_view_if_needed()
-            await page.wait_for_timeout(500)
-            await el.click()
+            await page.wait_for_timeout(400)
+            # Get bounding box and use mouse.click with coordinates — more reliable
+            # than element.click() which LinkedIn sometimes ignores in headless mode.
+            bbox = await el.bounding_box()
+            if bbox:
+                cx = bbox["x"] + bbox["width"] / 2
+                cy = bbox["y"] + bbox["height"] / 2
+                # Move mouse to the button first, pause, then click
+                await page.mouse.move(cx, cy)
+                await page.wait_for_timeout(200)
+                await page.mouse.click(cx, cy)
+            else:
+                await el.click()
             return True
         except Exception:
-            return False
+            try:
+                # Last resort: JavaScript dispatch — fires the event even if the
+                # element is partially obscured or Playwright's hit-test fails.
+                await el.evaluate("el => el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}))")
+                return True
+            except Exception:
+                return False
 
     # ── Upfront: is this external-only (no Easy Apply)? ──────────────────────
     _has_easy = False
@@ -349,39 +438,47 @@ async def click_apply_button(
                 if button_found:
                     print("[clicker] Clicked via selector/text after scroll", flush=True)
 
-    # ── Method 6: JS deep search ─────────────────────────────────────────────
+    # ── Method 6: JS deep search + real mouse click ──────────────────────────
     if not button_found:
-        clicked = await page.evaluate("""
-            () => {
-                const btns = Array.from(document.querySelectorAll('button'));
-                // Filter to only visible buttons in upper part of page
-                let btn = btns.find(b => {
-                    const rect = b.getBoundingClientRect();
-                    const text = (b.textContent || '').toLowerCase();
-                    const label = (b.getAttribute('aria-label') || '').toLowerCase();
-                    const isVisible = rect.top < 2000 && b.offsetParent !== null;
-                    const isEasyApply = text.includes('easy apply') || label.includes('easy apply');
-                    return isEasyApply && isVisible;
+        # JS finds the button coordinates, Playwright fires the real mouse event
+        # (React's synthetic event system ignores programmatic btn.click())
+        btn_info = await page.evaluate("""() => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            let btn = btns.find(b => {
+                const rect = b.getBoundingClientRect();
+                const text = (b.textContent || '').toLowerCase();
+                const label = (b.getAttribute('aria-label') || '').toLowerCase();
+                return (text.includes('easy apply') || label.includes('easy apply'))
+                    && rect.top < 2000 && b.offsetParent !== null;
+            });
+            if (!btn) {
+                btn = Array.from(document.querySelectorAll('a')).find(a => {
+                    const rect = a.getBoundingClientRect();
+                    const text = (a.textContent || '').toLowerCase();
+                    const label = (a.getAttribute('aria-label') || '').toLowerCase();
+                    return (text.includes('easy apply') || label.includes('easy apply'))
+                        && rect.top < 2000 && a.offsetParent !== null;
                 });
-                if (!btn) {
-                    const anchors = Array.from(document.querySelectorAll('a'));
-                    btn = anchors.find(a => {
-                        const rect = a.getBoundingClientRect();
-                        const text = (a.textContent || '').toLowerCase();
-                        const label = (a.getAttribute('aria-label') || '').toLowerCase();
-                        const isVisible = rect.top < 2000 && a.offsetParent !== null;
-                        const isEasyApply = text.includes('easy apply') || label.includes('easy apply');
-                        return isEasyApply && isVisible;
-                    });
-                }
-                if (btn) { btn.click(); return (btn.textContent || '').trim().substring(0, 50); }
-                return null;
             }
-        """)
-        if clicked:
-            print(f"[clicker] Clicked via JS deep search: {clicked!r}", flush=True)
-            button_found = True
-            await page.wait_for_timeout(2_000)
+            if (!btn) return null;
+            const r = btn.getBoundingClientRect();
+            return {
+                text: (btn.textContent || '').trim().substring(0, 50),
+                cx: r.left + r.width / 2,
+                cy: r.top  + r.height / 2,
+            };
+        }""")
+        if btn_info:
+            print(f"[clicker] JS deep search found: {btn_info['text']!r} — using real mouse click", flush=True)
+            try:
+                await page.mouse.move(btn_info["cx"], btn_info["cy"])
+                await page.wait_for_timeout(150)
+                await page.mouse.click(btn_info["cx"], btn_info["cy"])
+                button_found = True
+                await page.wait_for_timeout(2_000)
+                print(f"[clicker] Clicked via JS deep search: {btn_info['text']!r}", flush=True)
+            except Exception as _m6e:
+                print(f"[clicker] JS deep search mouse click failed: {_m6e}", flush=True)
 
     # ── External Apply fallback ───────────────────────────────────────────────
     # Reached only when button_found=False (no Easy Apply found by any method).
@@ -426,6 +523,21 @@ async def click_apply_button(
         return "not_found"
 
     # ── Wait for Easy Apply modal ─────────────────────────────────────────────
+
+    async def _wait_for_full_page_form() -> str:
+        """Called when URL shows /jobs/apply/ — wait for the form to actually render."""
+        print("[clicker] Full-page apply URL detected — waiting for form content", flush=True)
+        try:
+            await page.wait_for_selector(
+                "input:not([type=hidden]):not([disabled]), select:not([disabled])",
+                state="visible", timeout=10_000,
+            )
+            print("[clicker] Full-page form content ready", flush=True)
+        except Exception:
+            print("[clicker] Full-page form content wait timed out — proceeding anyway", flush=True)
+            await page.wait_for_timeout(2_000)
+        return "easy_apply"
+
     # Strategy 1: broad selector wait (fast path — covers most sessions)
     _modal_opened = False
     _detect_via   = "none"
@@ -440,7 +552,7 @@ async def click_apply_button(
     if not _modal_opened:
         for _n in range(4):
             if "/jobs/apply/" in page.url or "/apply?" in page.url:
-                return "easy_apply"
+                return await _wait_for_full_page_form()
             # role=dialog
             try:
                 for _d in await page.query_selector_all("[role='dialog']"):
@@ -464,13 +576,43 @@ async def click_apply_button(
             await page.wait_for_timeout(1_500)
 
     if _modal_opened:
-        await page.wait_for_timeout(500)
-        # Verify the detected modal is actually the Easy Apply wizard
-        if await _is_ea_modal(page):
-            print(f"[clicker] Easy Apply modal open (via {_detect_via})", flush=True)
+        # Poll up to 6 s for the modal to reveal itself as EA or Premium.
+        # JazzHR / third-party ATS overlays take 3-5 s to render form fields.
+        _confirmed_premium = False
+        for _wait_ms in (500, 1000, 1500, 1500, 1500):
+            await page.wait_for_timeout(_wait_ms)
+            if await _is_ea_modal(page):
+                print(f"[clicker] Easy Apply modal open (via {_detect_via})", flush=True)
+                return "easy_apply"
+            # Check if it's positively a Premium/upsell overlay (dismiss immediately)
+            try:
+                _confirmed_premium = await page.evaluate("""() => {
+                    const PREMIUM_KW = /premium|stand out|subscription|upgrade|trial|reactivate/i;
+                    for (const sel of [
+                        '.artdeco-modal__header h2',
+                        '.artdeco-modal__headline',
+                        '[data-test-modal-header]',
+                    ]) {
+                        const h = document.querySelector(sel);
+                        if (h && h.offsetParent !== null && PREMIUM_KW.test(h.innerText || ''))
+                            return true;
+                    }
+                    return false;
+                }""")
+            except Exception:
+                pass
+            if _confirmed_premium:
+                break
+
+        if _confirmed_premium:
+            print("[clicker] Premium overlay confirmed — dismissing and retrying", flush=True)
+        else:
+            # Modal opened but didn't resolve as EA or Premium within 6 s.
+            # This happens for JazzHR/Greenhouse/Lever overlays that use
+            # non-artdeco DOM structures. Treat as EA — benefit of the doubt.
+            print(f"[clicker] Modal unresolved after 6 s — assuming EA (via {_detect_via})", flush=True)
             return "easy_apply"
-        # Premium / upsell overlay matched the broad selector — dismiss and retry
-        print("[clicker] Non-EA overlay detected — dismissing and retrying", flush=True)
+
         await dismiss_overlays(page)
         await page.wait_for_timeout(1_500)
         try:
@@ -488,23 +630,57 @@ async def click_apply_button(
         return "modal_failed"
 
     if "/jobs/apply/" in page.url or "/apply?" in page.url:
-        return "easy_apply"
+        return await _wait_for_full_page_form()
 
-    # One retry: click Easy Apply again in case the first click was swallowed
-    await page.wait_for_timeout(1_500)
-    try:
-        ea_loc = page.get_by_role("button", name=re.compile(r"easy apply", re.IGNORECASE))
-        if await ea_loc.count():
-            await ea_loc.first.click()
-        await page.wait_for_selector(_MODAL_SEL, state="visible", timeout=8_000)
-        await page.wait_for_timeout(500)
-        if await _is_ea_modal(page):
-            return "easy_apply"
-    except Exception:
-        pass
+    # Retry up to 2 more times — but ONLY click again if the modal isn't already open.
+    # Clicking Easy Apply while the modal is open toggles it closed.
+    for _retry in range(2):
+        await page.wait_for_timeout(1_500)
+        try:
+            # If the modal is already open, skip the click and just verify it's EA
+            _modal_already_open = False
+            try:
+                _modal_already_open = bool(
+                    await page.query_selector(_MODAL_SEL) and
+                    await (await page.query_selector(_MODAL_SEL)).is_visible()
+                )
+            except Exception:
+                pass
+
+            if not _modal_already_open:
+                ea_loc = page.get_by_role("button", name=re.compile(r"easy apply", re.IGNORECASE))
+                if not (await ea_loc.count() and await ea_loc.first.is_visible()):
+                    ea_loc = page.locator("button").filter(has_text="Easy Apply")
+                if await ea_loc.count() and await ea_loc.first.is_visible():
+                    btn_el = ea_loc.first
+                    bbox = await btn_el.bounding_box()
+                    if bbox:
+                        cx = bbox["x"] + bbox["width"] / 2
+                        cy = bbox["y"] + bbox["height"] / 2
+                        await page.mouse.move(cx, cy)
+                        await page.wait_for_timeout(150)
+                        await page.mouse.click(cx, cy)
+                        print(f"[clicker] Retry {_retry+1}: coordinate click on Easy Apply", flush=True)
+                    else:
+                        await btn_el.evaluate(
+                            "el => el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}))"
+                        )
+                        print(f"[clicker] Retry {_retry+1}: JS dispatch on Easy Apply", flush=True)
+            else:
+                print(f"[clicker] Retry {_retry+1}: modal already open — skipping click", flush=True)
+
+            await page.wait_for_selector(_MODAL_SEL, state="visible", timeout=8_000)
+            await page.wait_for_timeout(500)
+            if await _is_ea_modal(page):
+                print(f"[clicker] Easy Apply modal open (retry {_retry+1})", flush=True)
+                return "easy_apply"
+        except Exception:
+            pass
+        if "/jobs/apply/" in page.url or "/apply?" in page.url:
+            return await _wait_for_full_page_form()
 
     if "/jobs/apply/" in page.url:
-        return "easy_apply"
+        return await _wait_for_full_page_form()
 
     # External ATS navigation (clicked something and left linkedin.com)
     if "linkedin.com" not in page.url:
@@ -563,11 +739,13 @@ async def dismiss_overlays(page: Page) -> int:
     # (belt-and-suspenders — the modal isn't open yet at this stage anyway).
     try:
         n = await page.evaluate("""() => {
-            // Only protect the EA-specific modal classes — NOT the broad artdeco
-            // classes that Premium/upsell overlays also use.
+            // Protect any visible modal — if the EA modal is open we must
+            // never dismiss its buttons even before _is_ea_modal confirms it.
             const MODAL_SELS = [
                 '.jobs-easy-apply-modal',
                 '.jobs-easy-apply-content',
+                '.artdeco-modal',
+                '[data-test-modal]',
             ];
             function inModal(el) {
                 return MODAL_SELS.some(s => el.closest(s) !== null);

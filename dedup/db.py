@@ -4,6 +4,7 @@ db.py — SQLite data layer for the job hunt agent.
 Database: uploads/jobhunt.db  (project-local, gitignored).
 """
 
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -12,6 +13,28 @@ from pathlib import Path
 import pandas as pd
 
 _DB_PATH = Path(__file__).resolve().parent.parent / "uploads" / "jobhunt.db"
+_BACKUP_DIR = _DB_PATH.parent / "backups"
+_KEEP_BACKUPS = 7  # daily copies to retain
+
+
+def backup_db() -> Path:
+    """Copy the live DB to uploads/backups/jobhunt_YYYYMMDD.db using SQLite's
+    online-backup API so the copy is always consistent even under WAL mode.
+    Returns the backup path. Keeps at most _KEEP_BACKUPS files (oldest deleted)."""
+    _BACKUP_DIR.mkdir(exist_ok=True)
+    dest = _BACKUP_DIR / f"jobhunt_{date.today().strftime('%Y%m%d')}.db"
+    src = sqlite3.connect(str(_DB_PATH))
+    dst = sqlite3.connect(str(dest))
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
+    # Prune old backups
+    backups = sorted(_BACKUP_DIR.glob("jobhunt_*.db"))
+    for old in backups[:-_KEEP_BACKUPS]:
+        old.unlink(missing_ok=True)
+    return dest
 
 
 def _ensure_dir() -> None:
@@ -239,6 +262,20 @@ def init_db() -> None:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
         except Exception:
             pass  # column already exists
+
+    # Auto-backup once per calendar day (skip if DB doesn't exist yet)
+    if _DB_PATH.exists():
+        today = date.today().isoformat()
+        try:
+            with _conn() as _db:
+                _row = _db.execute("SELECT value FROM settings WHERE key='last_backup_date'").fetchone()
+                _last = _row["value"] if _row else ""
+            if _last != today:
+                backup_db()
+                with _conn() as _db:
+                    _db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('last_backup_date',?)", (today,))
+        except Exception:
+            pass  # never block startup over a backup failure
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
