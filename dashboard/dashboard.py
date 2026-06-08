@@ -11131,19 +11131,20 @@ def _linkedin_login_worker():
 
                 await page.goto("https://www.linkedin.com/login", timeout=30_000)
 
-                await page.fill("#username", email)
-
-                await page.fill("#password", password)
-
-                await page.click("button[type='submit']")
-
-
-
-                _li_login_state["message"] = (
-
-                    "Credentials submitted — approve the LinkedIn notification on your phone…"
-
-                )
+                # Fill credentials if the login form is present
+                try:
+                    await page.wait_for_selector("#username", timeout=5000)
+                    await page.fill("#username", email)
+                    await page.fill("#password", password)
+                    await page.click("button[type='submit']")
+                    _li_login_state["message"] = (
+                        "Credentials submitted — approve the LinkedIn notification or complete any verification in the browser…"
+                    )
+                except Exception:
+                    # Challenge page or already logged in — let user handle it
+                    _li_login_state["message"] = (
+                        "LinkedIn requires manual verification — please complete it in the browser window"
+                    )
 
 
 

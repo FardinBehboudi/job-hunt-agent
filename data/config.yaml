@@ -3,11 +3,11 @@ locations:
 - Berlin
 min_match_score: 50
 max_applications_per_day: 10
-posted_limit: month
+posted_limit: 24h
 smart_scrape: true
 only_easy_apply: false
-skip_cached_jobs: false
-scrape_pool_size: 3
+skip_cached_jobs: true
+scrape_pool_size: 5
 experience_levels:
 - entry
 - associate

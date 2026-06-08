@@ -323,6 +323,33 @@
       "resume_used": "resume_en.pdf",
       "timestamp": "2026-05-27T21:33:48.942745Z",
       "status": "applied"
+    },
+    {
+      "company": "]init[ - Services for the eSociety",
+      "title": "Java Coremedia/Magnolia Developer (all genders)",
+      "url": "https://www.linkedin.com/jobs/view/4419253192/",
+      "apply_type": "External (custom)",
+      "resume_used": "resume_en.pdf",
+      "timestamp": "2026-06-03T00:00:46.723978Z",
+      "status": "pending_confirmation"
+    },
+    {
+      "company": "RemoteStar",
+      "title": "Senior Java Engineer (AI-First)",
+      "url": "https://www.linkedin.com/jobs/view/4419637042/",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume_en.pdf",
+      "timestamp": "2026-06-03T00:49:43.421592Z",
+      "status": "pending_confirmation"
+    },
+    {
+      "company": "Unknown",
+      "title": "Unknown",
+      "url": "https://www.linkedin.com/jobs/view/4418742417",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume_en.pdf",
+      "timestamp": "2026-06-04T10:12:32.123599Z",
+      "status": "pending_confirmation"
     }
   ]
 }
