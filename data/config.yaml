@@ -1,13 +1,16 @@
 notify_email: f_behboud@hotmail.com
 locations:
 - Berlin
-min_match_score: 50
-max_applications_per_day: 10
-posted_limit: 24h
+- Hamburg
+- Germany
+- Zurich
+min_match_score: 65
+max_applications_per_day: 499
+posted_limit: week
 smart_scrape: true
 only_easy_apply: false
-skip_cached_jobs: true
-scrape_pool_size: 5
+skip_cached_jobs: false
+scrape_pool_size: 100
 experience_levels:
 - entry
 - associate
@@ -28,6 +31,8 @@ confirm_before_apply: true
 tracker_file: job_application_tracker_v34.xlsx
 log_file: agent/applied_jobs_log.json
 roles:
+- Cloud Native Developer
+- java developer
 - Backend Java Engineer
 target_companies: []
 retry_captcha_as_manual: false

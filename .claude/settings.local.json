@@ -1,4 +1,8 @@
 {
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "github@claude-plugins-official": false
+  },
   "permissions": {
     "allow": [
       "Bash(dir \"C:\\\\\\\\Users\\\\\\\\f_beh\\\\\\\\Projects\\\\\\\\claude\\\\\\\\job-hunt-agent\" /A)",

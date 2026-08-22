@@ -18,6 +18,7 @@ uploads/applied_jobs_log.json
 uploads/matched_jobs.json
 uploads/scraped_jobs.json
 uploads/debug_*.png
+uploads/step_*.png
 uploads/_import_tmp.xlsx
 uploads/.fuse_hidden*
 
