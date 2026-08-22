@@ -7,6 +7,8 @@ __pycache__/
 .venv/
 *.log
 .idea/
+*.db-wal
+graphify-out/
 
 # personal / sensitive uploads
 uploads/linkedin_session.json
@@ -17,6 +19,8 @@ uploads/tracker.xlsx
 uploads/applied_jobs_log.json
 uploads/matched_jobs.json
 uploads/scraped_jobs.json
+uploads/backups/
+uploads/history/
 uploads/debug_*.png
 uploads/step_*.png
 uploads/_import_tmp.xlsx
