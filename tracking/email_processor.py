@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import json
 import logging
 import os
+import re
 from datetime import datetime
 
 import anthropic
@@ -99,7 +100,12 @@ def _classify(client: anthropic.Anthropic, subject: str,
                 subject=subject, body=body_preview,
             )}],
         )
-        return json.loads(resp.content[0].text.strip())
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+            raw = raw.strip()
+        return json.loads(raw)
     except Exception as exc:
         log.warning("Classification error: %s", exc)
         return {"category": "Uncertain", "confidence": 0,
@@ -117,7 +123,12 @@ def _extract_event(client: anthropic.Anthropic, subject: str,
                 subject=subject, body=body_preview,
             )}],
         )
-        return json.loads(resp.content[0].text.strip())
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+            raw = raw.strip()
+        return json.loads(raw)
     except Exception as exc:
         log.warning("Event extraction error: %s", exc)
         return {"event_type": "interview", "title": subject,

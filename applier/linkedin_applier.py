@@ -416,7 +416,37 @@ def _detect_job_language(job: dict) -> str:
 
 # ── File helpers ──────────────────────────────────────────────────────────────
 
-def _resume_path(cfg: dict, lang: str = "en") -> Path | None:
+def _tailored_company_dir(cfg: dict, company: str) -> "Path | None":
+    tailored_dir = cfg.get("paths", {}).get("resume_tailored_dir")
+    if not tailored_dir:
+        return None
+    slug = re.sub(r"[^\w-]", "_", company.strip())[:40]
+    return Path(tailored_dir) / slug
+
+
+def _resume_path(cfg: dict, lang: str = "en", company: str | None = None) -> Path | None:
+    # Prefer the tailored resume for this company, if tailor.create_docs()
+    # already produced one (see tailor.py's uploads/resume/tailored/<company>/).
+    # Callers without a `job` in scope (e.g. fill_field_smart) fall back to the
+    # company name stashed on cfg by fill_easy_apply's _resume_company propagation.
+    company = company or cfg.get("_resume_company")
+
+    def _tailored(for_lang: str) -> "Path | None":
+        if not company:
+            return None
+        company_dir = _tailored_company_dir(cfg, company)
+        if not company_dir:
+            return None
+        for ext in (".pdf", ".docx"):
+            cand = company_dir / f"resume_{for_lang}{ext}"
+            if cand.exists():
+                return cand
+        return None
+
+    cand = _tailored(lang)
+    if cand:
+        return cand
+
     key = "resume_de" if lang == "de" else "resume_en"
     p = cfg.get("paths", {}).get(key)
     if p and Path(str(p)).exists():
@@ -424,13 +454,34 @@ def _resume_path(cfg: dict, lang: str = "en") -> Path | None:
     default = Path(__file__).resolve().parent.parent / "uploads" / f"resume_{lang}.pdf"
     if default.exists():
         return default
-    # Fall back to English if the German file isn't uploaded yet
+    # Fall back to English if the German file isn't uploaded/tailored yet
     if lang == "de":
+        cand = _tailored("en")
+        if cand:
+            return cand
         fallback = cfg.get("paths", {}).get("resume_en")
         if fallback and Path(str(fallback)).exists():
             return Path(str(fallback))
         en_default = Path(__file__).resolve().parent.parent / "uploads" / "resume_en.pdf"
         return en_default if en_default.exists() else None
+    return None
+
+
+def _cover_letter_path(cfg: dict, lang: str = "en", company: str | None = None) -> "Path | None":
+    """Tailored cover letter for this company/language, if tailor.create_docs()
+    has produced one. Returns None if none exists yet — callers should not fall
+    back to the raw (untailored) cover_letter_template."""
+    company = company or cfg.get("_resume_company")
+    if not company:
+        return None
+    company_dir = _tailored_company_dir(cfg, company)
+    if not company_dir:
+        return None
+    for check_lang in dict.fromkeys([lang, "en"]):  # dedupe while preserving order
+        for ext in (".pdf", ".docx"):
+            cand = company_dir / f"cover_letter_{check_lang}{ext}"
+            if cand.exists():
+                return cand
     return None
 
 
@@ -977,12 +1028,19 @@ async def fill_field_smart(
 
     try:
         if field_type == "file":
-            # Resume upload — honour the job's language (de/en), fall back to EN
+            # Honour the job's language (de/en), fall back to EN. Route by the
+            # field's own label so a "Cover Letter" upload field doesn't get the
+            # resume file, and vice versa.
             _lang = cfg.get("_resume_lang", "en")
-            resume = _resume_path(cfg, _lang)
-            if resume and resume.exists():
-                await el.set_input_files(str(resume))
-                _emit("apply_answer", {"label": label[:60] or "Resume", "answer": resume.name})
+            _label_low = (label or "").lower()
+            _wants_cl = any(w in _label_low for w in ("cover letter", "anschreiben", "motivation"))
+            if _wants_cl:
+                _file = _cover_letter_path(cfg, _lang) or _resume_path(cfg, _lang)
+            else:
+                _file = _resume_path(cfg, _lang)
+            if _file and _file.exists():
+                await el.set_input_files(str(_file))
+                _emit("apply_answer", {"label": label[:60] or "Resume", "answer": _file.name})
                 return True
             return False
 
@@ -1439,8 +1497,14 @@ async def _fill_wizard_step(
         pass
 
     # ── 6. Text-like inputs (text, email, tel, url, number) ───────────────────
+    # Combobox/typeahead-role text inputs are excluded here — they're handled
+    # exclusively by step 8 below. Without this exclusion an <input type="text"
+    # role="combobox"> would match both selectors, violating the "each element
+    # processed once" invariant (double LLM call + duplicate prior_answers entry
+    # whenever step 8's typeahead fill logic is reached after step 6 already ran).
     _TEXT_INPUT_SEL = (
-        "input[type='text']:not([aria-label*='search' i]):not([disabled]),"
+        "input[type='text']:not([aria-label*='search' i]):not([disabled])"
+        ":not([role='combobox']):not([class*='combobox']):not([class*='typeahead']),"
         "input[type='email']:not([disabled]),"
         "input[type='tel']:not([disabled]),"
         "input[type='url']:not([disabled]),"
@@ -1586,117 +1650,6 @@ async def _fill_wizard_step(
         pass
 
     return filled
-
-
-# ── (legacy – superseded by _fill_wizard_step) ────────────────────────────────
-async def _fill_all_visible_fields_LEGACY(
-    page: Page,
-    resume_text: str,
-    profile: dict,
-    job_desc: str,
-    cfg: dict,
-    prior_answers: list[dict] | None = None,
-) -> int:
-    """Kept as reference only — not called. Use _fill_wizard_step instead."""
-    if prior_answers is None:
-        prior_answers = []
-    filled_count = 0
-
-    # Collect all visible interactive elements
-    selectors = [
-        "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]):not([disabled])",
-        "textarea:not([disabled])",
-        "select:not([disabled])",
-        "[role=combobox]:not([disabled])",
-        ".artdeco-combobox__input",
-    ]
-    for sel in selectors:
-        try:
-            locs = page.locator(sel)
-            count = await locs.count()
-            for i in range(min(count, 30)):
-                try:
-                    el = locs.nth(i)
-                    if not await el.is_visible():
-                        continue
-
-                    field_type = await _detect_field_type(el)
-                    label = await _get_field_label(page, el)
-
-                    # Skip already-filled fields
-                    if field_type not in ("radio", "checkbox", "file"):
-                        try:
-                            current_val = await el.input_value()
-                            if current_val.strip() and current_val.strip().lower() not in {
-                                "select", "please select", "select an option", "choose",
-                            }:
-                                continue
-                        except Exception:
-                            pass
-
-                    # Check memory first
-                    value = None
-                    try:
-                        from applier.memory import get_memory
-                        value = get_memory().get_answer(label, platform="linkedin")
-                    except Exception:
-                        pass
-
-                    # Generate answer if not in memory
-                    if not value:
-                        if field_type == "select":
-                            try:
-                                opts = [o.strip() for o in await el.locator("option").all_text_contents()
-                                        if o.strip().lower() not in {"", "select", "please select",
-                                                                      "select an option", "auswählen"}]
-                                if opts:
-                                    value = answer_custom_question(
-                                        label or "select", "select", opts,
-                                        resume_text, profile, job_desc,
-                                        prior_answers=prior_answers
-                                    )
-                            except Exception:
-                                pass
-                        elif field_type == "radio":
-                            value = answer_custom_question(
-                                label or "radio", "radio", ["Yes", "No"],
-                                resume_text, profile, job_desc,
-                                prior_answers=prior_answers
-                            )
-                        elif field_type in ("checkbox",):
-                            value = "yes"  # consent boxes
-                        elif field_type == "file":
-                            value = "resume"
-                        elif field_type == "date":
-                            value = profile.get("graduation_date", "01/2020")
-                        else:
-                            value = answer_custom_question(
-                                label or "field",
-                                "textarea" if field_type == "textarea" else "text",
-                                [], resume_text, profile, job_desc,
-                                prior_answers=prior_answers
-                            )
-
-                    if not value:
-                        continue
-
-                    ok = await fill_field_smart(page, el, value, label=label, cfg=cfg)
-                    if ok:
-                        prior_answers.append({"question": label, "answer": str(value)})
-                        try:
-                            from applier.memory import get_memory
-                            get_memory().save_qa(label, str(value), platform="linkedin")
-                        except Exception:
-                            pass
-                        filled_count += 1
-                        await asyncio.sleep(0.2)
-
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    return filled_count
 
 
 # ── Profile field filler ───────────────────────────────────────────────────────
@@ -2101,426 +2054,6 @@ def is_numeric_question(label: str, inp_type: str) -> bool:
     return False
 
 
-# ── Visible question scanner ───────────────────────────────────────────────────
-
-async def _answer_visible_questions(page: Page, resume_text: str, profile: dict, job_desc: str) -> None:
-    prior_answers: list[dict] = []
-    try:
-        inputs = page.locator(
-            "input[type='text']:not([aria-label*='search' i]), "
-            "input[type='number']"
-        )
-        count = await inputs.count()
-        for i in range(min(count, 15)):
-            try:
-                inp = inputs.nth(i)
-                if not await inp.is_visible():
-                    continue
-                label_text = await _get_label(page, inp)
-                if not label_text:
-                    continue
-                existing = await inp.input_value()
-                if existing.strip():
-                    continue
-                inp_type = (await inp.get_attribute("type") or "text").lower()
-                effective_type = "number" if is_numeric_question(label_text, inp_type) else inp_type
-                _emit("apply_step", {"url": "", "step":
-                    f"  [field] '{label_text[:40]}' type={inp_type} effective={effective_type}"})
-                try:
-                    from applier.memory import get_memory
-                    answer = get_memory().get_answer(label_text, platform='linkedin') or ''
-                except Exception:
-                    answer = ''
-                if not answer:
-                    answer = answer_custom_question(
-                        label_text, effective_type, [], resume_text, profile, job_desc,
-                        prior_answers=prior_answers
-                    )
-                    if answer:
-                        try:
-                            from applier.memory import get_memory
-                            get_memory().save_qa(label_text, answer, platform='linkedin')
-                        except Exception:
-                            pass
-                if effective_type == "number":
-                    raw_answer = answer
-                    answer = re.sub(r"[^\d]", "", answer.split(".")[0]) or "1"
-                    _emit("apply_step", {"url": "", "step":
-                        f"  [number] '{label_text[:40]}' raw='{raw_answer[:30]}' → '{answer}'"})
-                if answer:
-                    if effective_type == "number":
-                        try:
-                            await inp.triple_click()
-                            await inp.fill(answer)
-                        except Exception:
-                            await _reliable_fill(page, inp, answer)
-                    else:
-                        await _reliable_fill(page, inp, answer)
-                        await _handle_autocomplete(page, inp, answer)
-                    _emit("apply_answer", {"label": label_text[:60], "answer": answer[:80]})
-                    prior_answers.append({"question": label_text, "answer": answer})
-            except Exception:
-                pass
-
-        textareas = page.locator("textarea")
-        ta_count = await textareas.count()
-        for i in range(min(ta_count, 10)):
-            try:
-                ta = textareas.nth(i)
-                if not await ta.is_visible():
-                    continue
-                label_text = await _get_label(page, ta)
-                if not label_text:
-                    continue
-                existing = await ta.input_value()
-                if existing.strip():
-                    continue
-                answer = answer_custom_question(
-                    label_text, "textarea", [], resume_text, profile, job_desc,
-                    prior_answers=prior_answers
-                )
-                if answer:
-                    await _reliable_fill(page, ta, answer)
-                    _emit("apply_answer", {"label": label_text[:60], "answer": answer[:120]})
-                    prior_answers.append({"question": label_text, "answer": answer})
-            except Exception:
-                pass
-
-        _CONSENT_WORDS = re.compile(
-            r"\bagree\b|\bconfirm\b|\bauthorize\b|\bauthorise\b|\bconsent\b|\backnowledge\b",
-            re.I
-        )
-        try:
-            checkboxes = page.locator("input[type='checkbox']")
-            cb_count = await checkboxes.count()
-            for i in range(min(cb_count, 20)):
-                try:
-                    cb = checkboxes.nth(i)
-                    if not await cb.is_visible():
-                        continue
-                    is_checked = await cb.is_checked()
-                    cb_label = await _get_label(page, cb)
-                    if not cb_label:
-                        try:
-                            par_lbl = cb.locator("xpath=ancestor::label[1]")
-                            if await par_lbl.count():
-                                cb_label = (await par_lbl.first.text_content() or "").strip()
-                        except Exception:
-                            pass
-                    if not cb_label:
-                        continue
-                    if is_checked:
-                        continue
-                    if _CONSENT_WORDS.search(cb_label):
-                        try:
-                            cb_id = await cb.get_attribute("id")
-                            if cb_id:
-                                lbl = page.locator(f"label[for='{cb_id}']")
-                                if await lbl.count():
-                                    await lbl.first.click()
-                                else:
-                                    await cb.click()
-                            else:
-                                await cb.click()
-                            await asyncio.sleep(0.3)
-                            _emit("apply_answer", {"label": cb_label[:60], "answer": "checked (consent)"})
-                            prior_answers.append({"question": cb_label, "answer": "Yes (checked)"})
-                        except Exception:
-                            pass
-                    else:
-                        ai_answer = answer_custom_question(
-                            cb_label, "checkbox", ["Yes", "No"],
-                            resume_text, profile, job_desc,
-                            prior_answers=prior_answers
-                        )
-                        if ai_answer.lower() in ("yes", "true", "1", "check", "checked"):
-                            try:
-                                cb_id = await cb.get_attribute("id")
-                                if cb_id:
-                                    lbl = page.locator(f"label[for='{cb_id}']")
-                                    if await lbl.count():
-                                        await lbl.first.click()
-                                    else:
-                                        await cb.click()
-                                else:
-                                    await cb.click()
-                                await asyncio.sleep(0.3)
-                                _emit("apply_answer", {"label": cb_label[:60], "answer": "checked (AI)"})
-                                prior_answers.append({"question": cb_label, "answer": "Yes (checked)"})
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        try:
-            fieldsets = page.locator("fieldset")
-            fs_count = await fieldsets.count()
-            for i in range(min(fs_count, 10)):
-                try:
-                    fs = fieldsets.nth(i)
-                    if not await fs.is_visible():
-                        continue
-                    radios = fs.locator("input[type='radio']")
-                    r_count = await radios.count()
-                    if not r_count:
-                        continue
-                    already_answered = False
-                    for j in range(r_count):
-                        try:
-                            if await radios.nth(j).is_checked():
-                                already_answered = True
-                                break
-                        except Exception:
-                            pass
-                    legend = fs.locator("legend")
-                    question = (await legend.first.text_content() or "").strip() if await legend.count() else ""
-                    option_values = []
-                    for j in range(r_count):
-                        try:
-                            val = await radios.nth(j).get_attribute("value") or ""
-                            if val:
-                                option_values.append(val)
-                        except Exception:
-                            pass
-                    if not option_values:
-                        option_values = ["Yes", "No"]
-                    _emit("apply_step", {"url": "", "step":
-                        f"  [radio found] '{(question or 'radio')[:60]}' "
-                        f"options={option_values} already_answered={already_answered}"})
-                    if already_answered:
-                        continue
-                    answer = answer_custom_question(
-                        question or "Yes/No", "radio",
-                        option_values, resume_text, profile, job_desc,
-                        prior_answers=prior_answers
-                    )
-                    clicked = False
-                    for j in range(r_count):
-                        try:
-                            val = await radios.nth(j).get_attribute("value") or ""
-                            if not (answer.lower() in val.lower() or val.lower() in answer.lower()):
-                                continue
-                            radio_id = await radios.nth(j).get_attribute("id")
-
-                            for _dt_val in [answer, val]:
-                                _dt_lbl = page.locator(
-                                    f"label[data-test-text-selectable-option__label='{_dt_val}']"
-                                )
-                                if await _dt_lbl.count():
-                                    await _dt_lbl.first.scroll_into_view_if_needed()
-                                    await _dt_lbl.first.click(force=True)
-                                    await asyncio.sleep(0.4)
-                                    try:
-                                        if await radios.nth(j).is_checked():
-                                            clicked = True
-                                    except Exception:
-                                        clicked = True
-                                    if clicked:
-                                        break
-
-                            if not clicked and radio_id:
-                                lbl = page.locator(f"label[for='{radio_id}']")
-                                if await lbl.count():
-                                    await lbl.first.scroll_into_view_if_needed()
-                                    await lbl.first.click()
-                                    await asyncio.sleep(0.4)
-                                    if await radios.nth(j).is_checked():
-                                        clicked = True
-
-                            if not clicked:
-                                await radios.nth(j).scroll_into_view_if_needed()
-                                await radios.nth(j).click(force=True)
-                                await asyncio.sleep(0.4)
-                                if await radios.nth(j).is_checked():
-                                    clicked = True
-
-                            if not clicked:
-                                try:
-                                    handle = await radios.nth(j).element_handle()
-                                    await page.evaluate("""(el) => {
-                                        el.click();
-                                        el.dispatchEvent(new MouseEvent('click',
-                                            {bubbles: true, cancelable: true}));
-                                        el.dispatchEvent(new Event('change',
-                                            {bubbles: true}));
-                                    }""", handle)
-                                    await asyncio.sleep(0.4)
-                                    clicked = True
-                                except Exception:
-                                    pass
-
-                            if clicked:
-                                is_checked = False
-                                try:
-                                    is_checked = await radios.nth(j).is_checked()
-                                except Exception:
-                                    pass
-                                _emit("apply_answer", {"label": (question or "radio")[:60], "answer": answer[:80]})
-                                _emit("apply_step", {"url": "", "step":
-                                    f"  [radio] '{(question or '')[:40]}' → '{answer}' checked={is_checked}"})
-                                prior_answers.append({"question": question or "radio", "answer": answer})
-                                break
-                        except Exception:
-                            pass
-                    if not clicked:
-                        log.warning("Radio group '%s' — no option matched answer '%s'",
-                                    (question or "?")[:60], answer)
-                except Exception as _fs_err:
-                    log.warning("Fieldset %d failed: %s", i, _fs_err)
-                    continue
-        except Exception:
-            pass
-
-        # Final pass — re-click any fieldset still unchecked
-        try:
-            fieldsets = page.locator("fieldset")
-            fs_count = await fieldsets.count()
-            for i in range(min(fs_count, 10)):
-                try:
-                    fs = fieldsets.nth(i)
-                    if not await fs.is_visible():
-                        continue
-                    radios = fs.locator("input[type='radio']")
-                    r_count = await radios.count()
-                    if not r_count:
-                        continue
-                    any_checked = False
-                    for j in range(r_count):
-                        try:
-                            if await radios.nth(j).is_checked():
-                                any_checked = True
-                                break
-                        except Exception:
-                            pass
-                    if not any_checked:
-                        legend = fs.locator("legend")
-                        q_txt = (await legend.first.text_content() or "").strip() if await legend.count() else f"group {i}"
-                        _emit("apply_step", {"url": "", "step":
-                            f"  ⚠ Radio group {i} still unchecked — retrying: '{q_txt[:50]}'"})
-                        try:
-                            handle = await radios.first.element_handle()
-                            await page.evaluate("""(el) => {
-                                el.click();
-                                el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));
-                                el.dispatchEvent(new Event('change', {bubbles:true}));
-                            }""", handle)
-                            await asyncio.sleep(0.4)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Retry invalid fieldsets
-        try:
-            for retry_sel in ["fieldset[aria-invalid='true']", "fieldset.has-error"]:
-                inv_fsets = page.locator(retry_sel)
-                inv_count = await inv_fsets.count()
-                if not inv_count:
-                    continue
-                _emit("apply_step", {"url": "", "step":
-                    f"  [radio retry] {inv_count} invalid fieldset(s) still detected"})
-                for k in range(inv_count):
-                    try:
-                        inv_fs = inv_fsets.nth(k)
-                        inv_radios = inv_fs.locator("input[type='radio']")
-                        inv_r_count = await inv_radios.count()
-                        if not inv_r_count:
-                            continue
-                        already = False
-                        for m in range(inv_r_count):
-                            try:
-                                if await inv_radios.nth(m).is_checked():
-                                    already = True
-                                    break
-                            except Exception:
-                                pass
-                        if already:
-                            continue
-                        radio_id = await inv_radios.first.get_attribute("id")
-                        if radio_id:
-                            lbl = page.locator(f"label[for='{radio_id}']")
-                            if await lbl.count():
-                                await lbl.first.click()
-                                await asyncio.sleep(0.3)
-                                continue
-                        await inv_radios.first.click(force=True)
-                        await asyncio.sleep(0.3)
-                    except Exception:
-                        pass
-                break
-        except Exception:
-            pass
-
-        # Selects
-        _PLACEHOLDER_OPTION_TEXTS = {
-            "", "select", "select an option", "select an option...", "select one",
-            "---", "please select", "choose one", "choose an option",
-            "bitte wählen", "auswählen", "keine angabe",
-        }
-        selects = page.locator("select")
-        sel_count = await selects.count()
-        for i in range(min(sel_count, 10)):
-            try:
-                sel = selects.nth(i)
-                if not await sel.is_visible():
-                    continue
-                label_text = await _get_label(page, sel)
-                options_raw = await sel.locator("option").all_text_contents()
-                options = [o.strip() for o in options_raw if o.strip() and o.strip().lower() not in _PLACEHOLDER_OPTION_TEXTS]
-                if not options:
-                    continue
-                try:
-                    selected_text = (await sel.evaluate(
-                        "el => (el.options[el.selectedIndex] || {}).text || ''"
-                    )).strip().lower()
-                except Exception:
-                    selected_text = ""
-                if selected_text and selected_text not in _PLACEHOLDER_OPTION_TEXTS:
-                    continue
-                answer = answer_custom_question(
-                    label_text or "", "select", options, resume_text, profile, job_desc,
-                    prior_answers=prior_answers
-                )
-                if answer:
-                    _sel_ok = False
-                    try:
-                        await sel.select_option(label=answer)
-                        _sel_ok = True
-                    except Exception:
-                        pass
-                    if not _sel_ok:
-                        try:
-                            await sel.select_option(value=answer)
-                            _sel_ok = True
-                        except Exception:
-                            pass
-                    if not _sel_ok:
-                        for _opt in options:
-                            if answer.lower() in _opt.lower() or _opt.lower() in answer.lower():
-                                try:
-                                    await sel.select_option(label=_opt)
-                                    _sel_ok = True
-                                    break
-                                except Exception:
-                                    pass
-                    if _sel_ok:
-                        try:
-                            await sel.dispatch_event("change")
-                        except Exception:
-                            pass
-                        _emit("apply_answer", {"label": (label_text or "select")[:60], "answer": answer[:80]})
-                        prior_answers.append({"question": label_text or "select", "answer": answer})
-            except Exception:
-                pass
-
-    except Exception:
-        pass
-
-
 # ── Wizard lifecycle helpers ───────────────────────────────────────────────────
 
 async def _dismiss_unfinished_application_dialog(page: Page) -> bool:
@@ -2563,15 +2096,31 @@ async def _dismiss_unfinished_application_dialog(page: Page) -> bool:
     return False
 
 
-async def _dismiss_post_submit_dialogs(page: Page) -> None:
+async def _dismiss_post_submit_dialogs(page: Page) -> bool:
     """Dismiss the post-submission dialogs LinkedIn shows after a successful submit.
 
     Handles:
     - "Your application was sent" confirmation modal → click Done
     - "Follow [Company]" auto-checked checkbox → uncheck it
     - Generic profile-update / upsell overlays → dismiss
+
+    Returns True only if a genuine "application sent" confirmation was actually
+    seen (either the confirmation text itself, or the specific Done button that
+    only appears on that modal) — this is the authoritative success signal
+    callers should use, not just "a button was clickable."
     """
     await asyncio.sleep(1.2)
+
+    confirmed = False
+    try:
+        body_text = (await page.locator("body").inner_text())[:3000].lower()
+        if any(p in body_text for p in (
+            "application was sent", "your application to", "was sent to",
+            "application submitted", "you applied",
+        )):
+            confirmed = True
+    except Exception:
+        pass
 
     # 1. Click the "Done" button that closes the "application sent" modal
     for sel in [
@@ -2582,6 +2131,7 @@ async def _dismiss_post_submit_dialogs(page: Page) -> None:
         try:
             btn = page.locator(sel)
             if await btn.count() and await btn.first.is_visible():
+                confirmed = True  # this specific control only renders on the success modal
                 await btn.first.click()
                 await asyncio.sleep(0.5)
                 _emit("apply_step", {"url": "", "step": "  ✓ Closed post-submit confirmation"})
@@ -2616,6 +2166,8 @@ async def _dismiss_post_submit_dialogs(page: Page) -> None:
                 await asyncio.sleep(0.4)
         except Exception:
             pass
+
+    return confirmed
 
 
 async def _fill_phone_country_code(page: Page, profile: dict) -> None:
@@ -2814,6 +2366,7 @@ async def fill_easy_apply(
 
     _resume_lang = job.get("_resume_lang") or _detect_job_language(job)
     cfg["_resume_lang"] = _resume_lang  # propagate so fill_field_smart picks the right resume
+    cfg["_resume_company"] = job.get("company")  # so fill_field_smart can prefer today's tailored resume
     _prev_page_labels: list[str] = []
     _stuck_count = 0
     _prev_progress_pct: str = ""   # track progress bar to detect infinite loops
@@ -3024,17 +2577,23 @@ async def fill_easy_apply(
         if not _click_done:
             _dbg(f"No clickable Next/Submit button found at step {step_n}")
             if _submit_clicked:
-                # Post-submit dialog (e.g. LinkedIn's "Update your profile?" prompt)
-                _dbg(f"Submit was already clicked — treating as success at step {step_n}")
-                await _dismiss_post_submit_dialogs(page)
-                try:
-                    from applier.memory import get_memory
-                    get_memory().save_application_result(
-                        job.get("url", ""), "linkedin", True, prior_answers
-                    )
-                except Exception:
-                    pass
-                return {"success": True, "manual": False, "note": "", "apply_type": apply_type}
+                _dbg(f"Submit was already clicked — verifying confirmation at step {step_n}")
+                _confirmed = await _dismiss_post_submit_dialogs(page)
+                if _confirmed:
+                    _emit("apply_step", {"url": job["url"],
+                        "step": "✓ Confirmation seen — application submitted"})
+                    try:
+                        from applier.memory import get_memory
+                        get_memory().save_application_result(
+                            job.get("url", ""), "linkedin", True, prior_answers
+                        )
+                    except Exception:
+                        pass
+                    return {"success": True, "manual": False, "note": "", "apply_type": apply_type}
+                _emit("apply_step", {"url": job["url"],
+                    "step": "⚠️ Submit was clicked but no confirmation seen — marking manual"})
+                return {"success": False, "manual": True,
+                        "note": "Submit clicked but no confirmation message found"}
             log.warning("No Next/Submit button found at step %d", step_n + 1)
             break
 
@@ -3058,11 +2617,17 @@ async def fill_easy_apply(
         except Exception as _mce:
             _dbg(f"MODAL_CHECK_ERR | {_mce}")
         if not _modal_still_open and "linkedin.com" in page.url:
-            _dbg(f"SINGLE_STEP_RETURN | modal closed after Next on step {step_n}")
+            _dbg(f"SINGLE_STEP_RETURN | modal closed after Next on step {step_n} — verifying")
+            _confirmed = await _dismiss_post_submit_dialogs(page)
+            if _confirmed or _submit_clicked:
+                _emit("apply_step", {"url": job["url"],
+                    "step": "✓ Modal closed after Next — application submitted"})
+                return {"success": True, "manual": False,
+                        "note": "Single-step ATS overlay submitted", "apply_type": apply_type}
             _emit("apply_step", {"url": job["url"],
-                "step": "✓ Modal closed after Next — application submitted"})
-            return {"success": True, "manual": False,
-                    "note": "Single-step ATS overlay submitted", "apply_type": apply_type}
+                "step": "⚠️ Modal closed but no confirmation seen — marking manual"})
+            return {"success": False, "manual": True,
+                    "note": "Modal closed without a confirmation message"}
 
         _step_errs = await _get_page_errors(page)
         if _step_errs:
@@ -3122,6 +2687,7 @@ async def fill_easy_apply(
                         "step": "⚠️ Modal closed before submit was clicked — marking manual"})
                     return {"success": False, "manual": True,
                             "note": "Easy Apply modal closed before submission"}
+            else:
                 raise
 
     log.warning("DEBUG pre-manual: URL=%s", page.url)

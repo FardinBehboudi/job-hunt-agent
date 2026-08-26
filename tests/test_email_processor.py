@@ -101,7 +101,7 @@ def test_auto_execute_fires_at_threshold(temp_db):
     with patch("tracking.email_processor.email_executor") as mock_exec:
         mock_exec.move = MagicMock()
         email_processor._auto_execute(staging_id, "Rejected", None, "2026-05-28", "Rejected")
-        mock_exec.move.assert_called_once_with(staging_id)
+        mock_exec.move.assert_called_once_with(staging_id, move_source="auto")
 
 
 def test_auto_execute_skips_below_threshold(temp_db):

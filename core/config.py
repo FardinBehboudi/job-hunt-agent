@@ -89,11 +89,24 @@ def load_config(path: str | None = None) -> dict:
         """Return cv_root/rel if cv_root is set and rel is non-empty, else fallback."""
         return (cv_root / rel) if (cv_root and rel) else fallback
 
+    resume_dir = uploads_dir / "resume"
+
+    def _first_existing(*candidates: Path) -> Path:
+        """Return the first candidate that exists, else the first (for a clear
+        'not found at <path>' message when nothing has been uploaded yet)."""
+        for c in candidates:
+            if c.exists():
+                return c
+        return candidates[0]
+
     cfg["paths"] = {
         "cv_root":               cv_root or uploads_dir,
-        "resume_en":             uploads_dir / "resume_en.pdf",
+        "resume_en":             resume_dir / "resume.docx",
+        "resume_en_docx":        resume_dir / "resume.docx",
         "resume_de":             uploads_dir / "resume_de.pdf",
-        "cover_letter_template": uploads_dir / "cover_letter.pdf",
+        "cover_letter_template": _first_existing(resume_dir / "cover_letter.pdf",
+                                                   resume_dir / "cover_letter.docx"),
+        "resume_tailored_dir":   resume_dir / "tailored",
         "tracker_file":          _cv(cfg.get("tracker_file"),
                                       uploads_dir / (cfg.get("tracker_file") or "job_applications.xlsx")),
         "history_folder":        _cv(cfg.get("history_folder"), uploads_dir / "history"),

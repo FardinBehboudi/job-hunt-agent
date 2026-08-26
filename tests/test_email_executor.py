@@ -26,20 +26,22 @@ def test_move_calls_graph_move(temp_db):
     from tracking import email_executor
     sid = _insert_staging(temp_db)
 
-    with patch("tracking.email_executor.ms_graph.move_message") as mock_move, \
+    with patch("tracking.email_executor.ms_graph.move_message",
+              side_effect=lambda graph_id, folder: graph_id) as mock_move, \
          patch("tracking.email_executor.db", temp_db):
         email_executor.move(sid)
 
     mock_move.assert_called_once()
     _, target = mock_move.call_args[0]
-    assert target == "Applications/Rejected"
+    assert target == "Inbox/Applications/Rejected"
 
 
 def test_move_logs_success(temp_db):
     from tracking import email_executor
     sid = _insert_staging(temp_db, message_id="<log@test.com>")
 
-    with patch("tracking.email_executor.ms_graph.move_message"), \
+    with patch("tracking.email_executor.ms_graph.move_message",
+              side_effect=lambda graph_id, folder: graph_id), \
          patch("tracking.email_executor.db", temp_db):
         email_executor.move(sid)
 
@@ -52,7 +54,8 @@ def test_move_updates_staging_status_to_executed(temp_db):
     from tracking import email_executor
     sid = _insert_staging(temp_db, message_id="<stat@test.com>")
 
-    with patch("tracking.email_executor.ms_graph.move_message"), \
+    with patch("tracking.email_executor.ms_graph.move_message",
+              side_effect=lambda graph_id, folder: graph_id), \
          patch("tracking.email_executor.db", temp_db):
         email_executor.move(sid)
 
@@ -81,7 +84,8 @@ def test_move_updates_application_status(temp_db):
         "confidence_score": 92, "classification_reason": "rejection",
     })
 
-    with patch("tracking.email_executor.ms_graph.move_message"), \
+    with patch("tracking.email_executor.ms_graph.move_message",
+              side_effect=lambda graph_id, folder: graph_id), \
          patch("tracking.email_executor.db", temp_db):
         email_executor.move(sid)
 
@@ -97,7 +101,8 @@ def test_approve_batch_returns_counts(temp_db):
     sid1 = _insert_staging(temp_db, message_id="<b1@test.com>", uid="AAMkB1")
     sid2 = _insert_staging(temp_db, message_id="<b2@test.com>", uid="AAMkB2")
 
-    with patch("tracking.email_executor.ms_graph.move_message"), \
+    with patch("tracking.email_executor.ms_graph.move_message",
+              side_effect=lambda graph_id, folder: graph_id), \
          patch("tracking.email_executor.db", temp_db):
         result = email_executor.approve_batch([sid1, sid2])
 

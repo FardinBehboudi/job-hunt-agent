@@ -18,6 +18,7 @@ without touching code.
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
 from itertools import product
@@ -177,22 +178,35 @@ Return a JSON array, e.g.: ["Data Engineer", "Python Developer", "Backend Engine
 
 
 def extract_roles_from_resume(cfg: dict) -> list[str]:
-    """Read the resume PDF and ask Claude for up to 6 job-search terms."""
+    """Read the resume (PDF or DOCX) and ask Claude for up to 6 job-search terms."""
     global _extracted_roles_cache
     if _extracted_roles_cache is not None:
         return _extracted_roles_cache
 
-    resume_path = cfg["paths"]["resume_en"]
+    resume_path = cfg["paths"].get("resume_en_docx") or cfg["paths"]["resume_en"]
+    if not resume_path.exists():
+        resume_path = cfg["paths"]["resume_en"]
     if not resume_path.exists():
         raise FileNotFoundError(f"Resume not found: {resume_path}")
 
-    text_parts: list[str] = []
-    with pdfplumber.open(resume_path) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text()
-            if t:
-                text_parts.append(t)
-    resume_text = "\n".join(text_parts)
+    if resume_path.suffix.lower() == ".docx":
+        from docx import Document
+        doc = Document(resume_path)
+        parts = [p.text for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        parts.append(cell.text.strip())
+        resume_text = "\n".join(parts)
+    else:
+        text_parts: list[str] = []
+        with pdfplumber.open(resume_path) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t:
+                    text_parts.append(t)
+        resume_text = "\n".join(text_parts)
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -206,6 +220,10 @@ def extract_roles_from_resume(cfg: dict) -> list[str]:
         messages=[{"role": "user", "content": _ROLE_PROMPT.format(resume=resume_text[:4000])}],
     )
     raw = resp.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```[a-z]*\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw)
+        raw = raw.strip()
     try:
         roles = json.loads(raw)
         if not isinstance(roles, list):
@@ -253,7 +271,7 @@ def _scrape_linkedin(client: ApifyClient, role: str, location: str,
         raise RuntimeError("Scraping stopped by user")
 
     run = client.actor(_LINKEDIN_ACTOR).start(run_input=run_input)
-    _current_apify_run_id = run["id"]
+    _current_apify_run_id = run.id
     log.info("[Apify] Run started: %s", _current_apify_run_id)
 
     # Poll until the actor finishes, streaming its logs to agent.log in real-time
@@ -281,8 +299,8 @@ def _scrape_linkedin(client: ApifyClient, role: str, location: str,
         except Exception:
             pass
 
-        run_info = client.run(_current_apify_run_id).get() or {}
-        status   = run_info.get("status", "RUNNING")
+        run_info = client.run(_current_apify_run_id).get()
+        status   = run_info.status if run_info else "RUNNING"
         if status not in ("RUNNING", "READY"):
             log.info("[Apify] Run finished with status: %s", status)
             break
@@ -292,7 +310,7 @@ def _scrape_linkedin(client: ApifyClient, role: str, location: str,
     run = client.run(_current_apify_run_id).get() or run
     _current_apify_run_id = None
 
-    raw_items: list[dict] = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    raw_items: list[dict] = list(client.dataset(run.default_dataset_id).iterate_items())
     _current_apify_run_id = None  # Clear after actor finishes
     log.info("  → %d raw items from Apify dataset", len(raw_items))
     if raw_items:

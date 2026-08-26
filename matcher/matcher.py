@@ -334,7 +334,7 @@ def run(jobs: list[dict], cfg: dict | None = None) -> list[dict]:
 
             job["match_score"]           = scores.get("match_score", 0)
             job["interview_chance"]      = scores.get("interview_chance", "low")
-            job["german_level_required"] = scores.get("german_level_required", "none")
+            job["german_level_required"] = scores.get("german_level_required") or "none"
             job["skip_reason"]           = scores.get("skip_reason")
             job["match_summary"]         = scores.get("match_summary", "")
             _match_stats["fresh"] += 1

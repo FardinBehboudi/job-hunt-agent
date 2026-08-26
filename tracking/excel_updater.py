@@ -9,8 +9,11 @@ Rules:
 """
 
 import logging
+import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
+# Ensure project root is on sys.path when run as a standalone script
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import openpyxl
 from openpyxl.styles import Font
@@ -232,7 +235,7 @@ def sweep_unconfirmed(cfg: dict | None = None) -> None:
 
 
 if __name__ == "__main__":
-    from config import setup_logging
+    from core.config import setup_logging
     cfg = load_config()
     setup_logging(cfg)
     sample = {

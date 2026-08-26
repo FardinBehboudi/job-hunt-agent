@@ -19,6 +19,7 @@ from applier.events import _emit
 from applier.linkedin_applier import (
     _profile_summary,
     _resume_path,
+    _cover_letter_path,
     _get_label,
     _reliable_fill,
     _handle_autocomplete,
@@ -27,11 +28,11 @@ from applier.linkedin_applier import (
 )
 
 try:
-    from browser_use import Agent as _BUAgent, Browser as _BUBrowser, BrowserConfig as _BUBrowserConfig
+    from browser_use import Agent as _BUAgent, Browser as _BUBrowser
     from langchain_anthropic import ChatAnthropic as _BUChatAnthropic
     _BROWSER_USE_OK = True
 except ImportError:
-    _BUAgent = _BUBrowser = _BUBrowserConfig = _BUChatAnthropic = None  # type: ignore
+    _BUAgent = _BUBrowser = _BUChatAnthropic = None  # type: ignore
     _BROWSER_USE_OK = False
 
 log = logging.getLogger(__name__)
@@ -176,6 +177,45 @@ def _detect_platform_by_url(url: str) -> str:
             return platform
     log.info("🎯 Platform detected: generic @ %s", url[:80])
     return "generic"
+
+
+# ── Resume / cover letter upload ──────────────────────────────────────────────
+
+async def _upload_resume_and_cover_letter(page: Page, job: dict, cfg: dict, url: str) -> None:
+    """Fill every visible file-upload input on the page — routing to the
+    tailored cover letter when the field's own label says "cover letter", the
+    resume otherwise. Structured ATS pages (Greenhouse, Lever, Ashby) commonly
+    have separate Resume/CV and Cover Letter upload fields."""
+    lang = job.get("_resume_lang", "en")
+    company = job.get("company")
+    resume = _resume_path(cfg, lang, company=company)
+    cover_letter = _cover_letter_path(cfg, lang, company=company)
+
+    try:
+        inputs = page.locator("input[type='file']")
+        count = await inputs.count()
+    except Exception:
+        return
+
+    resume_used = False
+    for i in range(count):
+        try:
+            fi = inputs.nth(i)
+            if not await fi.is_visible():
+                continue
+            label = (await _get_label(page, fi) or "").lower()
+            wants_cl = any(w in label for w in ("cover letter", "anschreiben", "motivation"))
+            if wants_cl and cover_letter:
+                await fi.set_input_files(str(cover_letter))
+                await asyncio.sleep(1.0)
+                _emit("apply_step", {"url": url, "step": f"  ✎ Cover letter uploaded ({cover_letter.name})"})
+            elif resume and not resume_used:
+                await fi.set_input_files(str(resume))
+                await asyncio.sleep(1.0)
+                _emit("apply_step", {"url": url, "step": f"  ✎ Resume uploaded ({resume.name})"})
+                resume_used = True
+        except Exception:
+            pass
 
 
 # ── Submission helpers ────────────────────────────────────────────────────────
@@ -408,7 +448,7 @@ async def _ai_execute_action(page: Page, action: dict) -> None:
         return
     el = visible[idx]
 
-    tag = (await el.get_property("tagName")).json_value().lower()
+    tag = (await (await el.get_property("tagName")).json_value()).lower()
     typ = ((await el.get_attribute("type")) or "").lower()
 
     if kind == "select" or tag == "select":
@@ -433,7 +473,7 @@ async def _ai_execute_action(page: Page, action: dict) -> None:
 
 
 async def _fill_remaining_questions(
-    page: Page, job: dict, resume_text: str, profile: dict
+    page: Page, job: dict, resume_text: str, profile: dict, cfg: dict
 ) -> None:
     """Fill all visible unfilled fields on the current ATS page.
     Handles text/number/textarea, <select>, comboboxes, radio groups, and consent checkboxes.
@@ -713,12 +753,17 @@ async def _fill_remaining_questions(
                 # Skip if it looks like a photo/avatar upload
                 if any(w in label_low for w in ("photo", "picture", "avatar", "bild", "foto")):
                     continue
-                resume_path = _resume_path(cfg)
-                if not resume_path:
+                _lang = job.get("_resume_lang", "en")
+                _company = job.get("company")
+                wants_cl = any(w in label_low for w in ("cover letter", "anschreiben", "motivation"))
+                doc_path = (_cover_letter_path(cfg, _lang, company=_company) if wants_cl else None) \
+                    or _resume_path(cfg, _lang, company=_company)
+                if not doc_path:
                     continue
-                await fi.set_input_files(str(resume_path))
+                await fi.set_input_files(str(doc_path))
                 await asyncio.sleep(0.5)
-                _emit("apply_step", {"url": url, "step": f"  📎 Uploaded resume: {resume_path.name}"})
+                _kind = "cover letter" if wants_cl else "resume"
+                _emit("apply_step", {"url": url, "step": f"  📎 Uploaded {_kind}: {doc_path.name}"})
             except Exception:
                 pass
     except Exception:
@@ -1055,7 +1100,7 @@ async def _run_ats_form(
         _emit("apply_step", {"url": url, "step": f"  📋 Form step {step + 1}/{max_steps}…"})
 
         # 1. Fill all visible fields (use the frame context)
-        await _fill_remaining_questions(ctx, _job_ctx, resume_text, profile)
+        await _fill_remaining_questions(ctx, _job_ctx, resume_text, profile, cfg)
         await asyncio.sleep(0.4)
 
         # 2. Fix validation errors (up to 2 repair passes before clicking anything)
@@ -1191,17 +1236,8 @@ async def _apply_greenhouse(page: Page, job: dict, cfg: dict, resume_text: str, 
             except Exception:
                 pass
 
-        # Resume upload
-        try:
-            resume = _resume_path(cfg, job.get("_resume_lang", "en"))
-            if resume:
-                fi_loc = page.locator("input[type='file']")
-                if await fi_loc.count():
-                    await fi_loc.first.set_input_files(str(resume))
-                    await asyncio.sleep(1.5)
-                    _emit("apply_step", {"url": url, "step": "  ✎ Resume uploaded"})
-        except Exception:
-            pass
+        # Resume + cover letter upload
+        await _upload_resume_and_cover_letter(page, job, cfg, url)
 
         # LinkedIn URL
         try:
@@ -1245,17 +1281,8 @@ async def _apply_lever(page: Page, job: dict, cfg: dict, resume_text: str, profi
             except Exception:
                 pass
 
-        # Resume upload
-        try:
-            resume = _resume_path(cfg, job.get("_resume_lang", "en"))
-            if resume:
-                fi_loc = page.locator("input[type='file'][name='resume'], input[type='file']")
-                if await fi_loc.count():
-                    await fi_loc.first.set_input_files(str(resume))
-                    await asyncio.sleep(1.5)
-                    _emit("apply_step", {"url": url, "step": "  ✎ Resume uploaded"})
-        except Exception:
-            pass
+        # Resume + cover letter upload
+        await _upload_resume_and_cover_letter(page, job, cfg, url)
 
         return await _run_ats_form(page, job, cfg, resume_text, profile, "External (Lever)")
     except PWTimeout:
@@ -1286,17 +1313,8 @@ async def _apply_ashby(page: Page, job: dict, cfg: dict, resume_text: str, profi
             except Exception:
                 pass
 
-        # Resume upload
-        try:
-            resume = _resume_path(cfg, job.get("_resume_lang", "en"))
-            if resume:
-                fi_loc = page.locator("input[type='file']")
-                if await fi_loc.count():
-                    await fi_loc.first.set_input_files(str(resume))
-                    await asyncio.sleep(1.5)
-                    _emit("apply_step", {"url": url, "step": "  ✎ Resume uploaded"})
-        except Exception:
-            pass
+        # Resume + cover letter upload
+        await _upload_resume_and_cover_letter(page, job, cfg, url)
 
         return await _run_ats_form(page, job, cfg, resume_text, profile, "External (Ashby)")
     except PWTimeout:
@@ -1444,13 +1462,13 @@ RULES:
                     _ws = getattr(_endpoint, "_connection", None)
                     _cdp_url = getattr(_ws, "url", None) if _ws else None
             if _cdp_url:
-                browser = _BUBrowser(config=_BUBrowserConfig(cdp_url=_cdp_url))
+                browser = _BUBrowser(cdp_url=_cdp_url)
                 log.debug("browser-use: reusing CDP at %s", _cdp_url)
         except Exception as _cdp_err:
             log.debug("browser-use: CDP reuse failed (%s)", _cdp_err)
 
         if browser is None:
-            browser = _BUBrowser(config=_BUBrowserConfig(headless=cfg.get("headless", False)))
+            browser = _BUBrowser(headless=cfg.get("headless", False))
 
         llm = _BUChatAnthropic(model="claude-sonnet-4-6")
         agent = _BUAgent(task=task, llm=llm, browser=browser)

@@ -4,8 +4,9 @@ main.py — daily job-hunt pipeline.
 Run via Windows Task Scheduler at 08:00 daily:
     python core\main.py
 
-Email inbox is polled separately every 2 hours:
-    python tracking\email_watcher.py   (separate Task Scheduler entry)
+Email inbox (replies, confirmations, interview invites) is handled separately
+via the Microsoft Graph API, every 15 minutes:
+    python tracking\email_processor.py   (Task Scheduler entry, see README)
 """
 
 import json
@@ -20,7 +21,6 @@ from dedup import dedup
 from tailor import tailor
 from applier import applier
 from tracking import excel_updater
-from tracking import email_watcher
 
 log = logging.getLogger(__name__)
 
@@ -114,13 +114,11 @@ def run_pipeline(cfg: dict) -> None:
             log.warning("Application failed: %s @ %s",
                         job["title"], job["company"])
 
-    # 5. Email inbox check (confirmation emails + interview invites)
-    log.info("Step 5/5 — Checking inbox")
-    try:
-        email_watcher.run(cfg)
-    except Exception as exc:
-        log.error("Email watcher error: %s", exc)
-
+    # Email inbox (replies, confirmations, interview invites) is handled by
+    # tracking/email_processor.py via the Microsoft Graph API, scheduled
+    # separately — see README. The legacy IMAP-based email_watcher.py has
+    # been removed: Microsoft disabled basic auth for this account, so it
+    # could no longer authenticate.
     log.info("Pipeline complete.")
 
 

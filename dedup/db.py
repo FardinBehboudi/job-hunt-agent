@@ -241,6 +241,7 @@ def init_db() -> None:
         ("scraped_jobs", "posted_date",           "TEXT DEFAULT ''"),
         ("scraped_jobs", "has_easy_apply",        "INTEGER DEFAULT 0"),
         ("seen_jobs",    "posted_date",           "TEXT DEFAULT ''"),
+        ("seen_jobs",    "first_seen_at",         "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
         ("seen_jobs",    "first_scraped_at",      "TIMESTAMP"),
         ("seen_jobs",    "last_scraped_at",       "TIMESTAMP"),
         ("seen_jobs",    "german_level_required", "TEXT DEFAULT NULL"),

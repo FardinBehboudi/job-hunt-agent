@@ -15,6 +15,7 @@ uploads/linkedin_session.json
 uploads/resume_en.pdf
 uploads/cover_letter.pdf
 uploads/tracker.xlsx
+uploads/resume/
 # uploads/jobhunt.db  ← tracked in git; skip-worktree protects local data
 uploads/applied_jobs_log.json
 uploads/matched_jobs.json

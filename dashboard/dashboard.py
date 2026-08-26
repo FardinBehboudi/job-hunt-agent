@@ -1970,7 +1970,9 @@ td { padding: 10px 14px; vertical-align: middle; }
 
                   <th>Title</th><th>Company</th><th>Location</th>
 
-                  <th>Match %</th><th>Chance</th><th>Actions</th>
+                  <th>Match %</th><th>Chance</th>
+                  <th title="Generate an AI-tailored resume for this job before applying">Tailor Resume</th>
+                  <th>Actions</th>
 
                 </tr>
 
@@ -2284,7 +2286,7 @@ td { padding: 10px 14px; vertical-align: middle; }
 
 
 
-        <!-- Upload Files (resume only) -->
+        <!-- Upload Files (resume + cover letter) -->
 
         <div class="panel">
 
@@ -2298,11 +2300,25 @@ td { padding: 10px 14px; vertical-align: middle; }
 
               <div class="upload-label">Resume</div>
 
-              <div class="upload-sub">PDF or DOCX</div>
+              <div class="upload-sub">DOCX only — needed to generate a tailored resume per job</div>
 
-              <input type="file" accept=".pdf,.docx" onchange="uploadFile('resume', this)">
+              <input type="file" accept=".docx" onchange="uploadFile('resume', this)">
 
               <div class="upload-status" id="ust-resume"></div>
+
+            </div>
+
+            <div class="upload-slot" id="us-cover_letter">
+
+              <div class="upload-icon">&#128196;</div>
+
+              <div class="upload-label">Cover Letter</div>
+
+              <div class="upload-sub">PDF or DOCX — used as the tailoring template</div>
+
+              <input type="file" accept=".pdf,.docx" onchange="uploadFile('cover_letter', this)">
+
+              <div class="upload-status" id="ust-cover_letter"></div>
 
             </div>
 
@@ -4004,17 +4020,21 @@ async function checkUploadedFiles() {
 
     const d = await r.json();
 
-    const info = d['resume'];
+    for (const key of ['resume', 'cover_letter']) {
 
-    if (info && info.exists) {
+      const info = d[key];
 
-      const statusEl = document.getElementById('ust-resume');
+      if (info && info.exists) {
 
-      const slotEl   = document.getElementById('us-resume');
+        const statusEl = document.getElementById('ust-' + key);
 
-      if (statusEl) { statusEl.textContent = '✓ ' + info.filename; statusEl.style.color = '#34d399'; }
+        const slotEl   = document.getElementById('us-' + key);
 
-      if (slotEl)   slotEl.classList.add('uploaded');
+        if (statusEl) { statusEl.textContent = '✓ ' + info.filename; statusEl.style.color = '#34d399'; }
+
+        if (slotEl)   slotEl.classList.add('uploaded');
+
+      }
 
     }
 
@@ -5092,7 +5112,7 @@ function renderMatchedTable() {
 
   if (!total) {
 
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:20px;">No jobs match the filter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:20px;">No jobs match the filter.</td></tr>';
 
     return;
 
@@ -5161,6 +5181,10 @@ function renderMatchedTable() {
       <td>${scoreBadgeEl}</td>
 
       <td>${chanceEl}</td>
+
+      <td onclick="event.stopPropagation()" style="text-align:center;">
+        ${isDismissed ? '' : `<input type="checkbox" class="job-tailor-checkbox" data-job-id="${jobId}" title="Generate a tailored resume for this job before applying">`}
+      </td>
 
       <td class="td-actions" onclick="event.stopPropagation()">
 
@@ -6092,6 +6116,15 @@ async function renderStep3Results() {
 
 
 
+function _tailorRequestedIds() {
+
+  return Array.from(document.querySelectorAll('.job-tailor-checkbox:checked'))
+    .map(cb => parseInt(cb.dataset.jobId)).filter(Boolean);
+
+}
+
+
+
 async function applySelectedJobs() {
 
   const checked = document.querySelectorAll('.job-select-checkbox:checked');
@@ -6110,7 +6143,7 @@ async function applySelectedJobs() {
 
   }
 
-  await _startApplyWithIds(ids);
+  await _startApplyWithIds(ids, _tailorRequestedIds());
 
 }
 
@@ -6134,13 +6167,13 @@ async function applyAllJobs() {
 
   }
 
-  await _startApplyWithIds(ids);
+  await _startApplyWithIds(ids, _tailorRequestedIds());
 
 }
 
 
 
-async function _startApplyWithIds(jobIds) {
+async function _startApplyWithIds(jobIds, tailorIds) {
 
   _applySessionStarted = false;
 
@@ -6152,7 +6185,7 @@ async function _startApplyWithIds(jobIds) {
 
       headers: {'Content-Type': 'application/json'},
 
-      body: JSON.stringify({job_ids: jobIds}),
+      body: JSON.stringify({job_ids: jobIds, tailor_ids: tailorIds || []}),
 
     });
 
@@ -9915,13 +9948,15 @@ def api_roles():
 
 
 
-_ALLOWED_DOC = {".pdf", ".docx"}
+_ALLOWED_DOC    = {".pdf", ".docx"}
+_ALLOWED_RESUME = {".docx"}  # tailoring edits the docx XML directly — a PDF can't be tailored
+_RESUME_DIR     = _UPLOADS_DIR / "resume"
 
 
 
 
-
-def _save_upload(file_storage, stem: str, allowed: set[str]) -> "tuple[str, str]":
+def _save_upload(file_storage, stem: str, allowed: set[str],
+                  dest_dir: "Path | None" = None) -> "tuple[str, str]":
 
     ext = Path(file_storage.filename).suffix.lower()
 
@@ -9929,15 +9964,17 @@ def _save_upload(file_storage, stem: str, allowed: set[str]) -> "tuple[str, str]
 
         raise ValueError(f"File type {ext} not allowed (expected {allowed})")
 
-    _UPLOADS_DIR.mkdir(exist_ok=True)
+    target_dir = dest_dir or _UPLOADS_DIR
 
-    for old in _UPLOADS_DIR.glob(f"{stem}.*"):
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    for old in target_dir.glob(f"{stem}.*"):
 
         old.unlink(missing_ok=True)
 
     filename = f"{stem}{ext}"
 
-    dest = _UPLOADS_DIR / filename
+    dest = target_dir / filename
 
     file_storage.save(str(dest))
 
@@ -9959,7 +9996,7 @@ def api_upload_resume():
 
     try:
 
-        filename, _ = _save_upload(f, "resume_en", _ALLOWED_DOC)
+        filename, _ = _save_upload(f, "resume", _ALLOWED_RESUME, dest_dir=_RESUME_DIR)
 
         from scraper import scraper as _scraper
 
@@ -9987,7 +10024,7 @@ def api_upload_cover_letter():
 
     try:
 
-        filename, _ = _save_upload(f, "cover_letter", _ALLOWED_DOC)
+        filename, _ = _save_upload(f, "cover_letter", _ALLOWED_DOC, dest_dir=_RESUME_DIR)
 
         return jsonify({"ok": True, "filename": filename})
 
@@ -10005,9 +10042,11 @@ def api_upload_status():
 
     result = {}
 
-    for stem, key in [("resume_en", "resume"), ("cover_letter", "cover_letter")]:
+    _resume_dir = _UPLOADS_DIR / "resume"
 
-        found = next(_UPLOADS_DIR.glob(f"{stem}.*"), None) if _UPLOADS_DIR.exists() else None
+    for stem, key in [("resume", "resume"), ("cover_letter", "cover_letter")]:
+
+        found = next(_resume_dir.glob(f"{stem}.*"), None) if _resume_dir.exists() else None
 
         result[key] = {"exists": found is not None, "filename": found.name if found else None}
 
@@ -10381,11 +10420,11 @@ def api_pipeline_step_availability():
 
             ).fetchone() is not None
 
-        has_apply_session = db.execute(
+            has_apply_session = db.execute(
 
-            "SELECT 1 FROM apply_sessions LIMIT 1"
+                "SELECT 1 FROM apply_sessions LIMIT 1"
 
-        ).fetchone() is not None
+            ).fetchone() is not None
 
         return jsonify({
 
@@ -11316,7 +11355,7 @@ def api_linkedin_set_credentials():
 
 
 
-    env_path = Path(__file__).parent / ".env"
+    env_path = _PROJECT_ROOT / ".env"
 
     if not env_path.exists():
 
@@ -11678,9 +11717,11 @@ def api_apply_start():
 
             return jsonify({"error": "Apply session already running"}), 409
 
-        body     = request.get_json(force=True) or {}
+        body       = request.get_json(force=True) or {}
 
-        job_ids  = body.get("job_ids") or []  # list of job.id ints
+        job_ids    = body.get("job_ids") or []  # list of job.id ints
+
+        tailor_ids = set(body.get("tailor_ids") or [])  # subset to generate a tailored resume for
 
 
 
@@ -11741,6 +11782,8 @@ def api_apply_start():
             for j in jobs:
 
                 j["id"] = j["scraped_id"]
+
+                j["_tailor_requested"] = j["scraped_id"] in tailor_ids
 
             if not jobs:
 

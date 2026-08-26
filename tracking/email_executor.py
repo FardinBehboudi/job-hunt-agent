@@ -72,7 +72,12 @@ def _extract_event_claude(subject: str, body_preview: str) -> dict:
                 subject=subject, body=body_preview[:600],
             )}],
         )
-        data = json.loads(resp.content[0].text.strip())
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+            raw = raw.strip()
+        data = json.loads(raw)
         # Merge: Claude result takes precedence over regex, but keep regex date
         # if Claude missed it
         if not data.get("event_date"):

@@ -11,3 +11,5 @@ weasyprint
 mammoth
 flask
 pandas
+browser-use
+langchain-anthropic

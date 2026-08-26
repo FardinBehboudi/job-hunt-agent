@@ -39,6 +39,25 @@ from applier.external_applier import detect_platform, follow_external_apply, PLA
 load_dotenv()
 log = logging.getLogger(__name__)
 
+
+def _read_resume_text(path: "Path | str") -> str:
+    """Extract text from a resume file — PDF via pdfplumber, DOCX via python-docx."""
+    path = Path(path)
+    if path.suffix.lower() == ".docx":
+        from docx import Document
+        doc = Document(path)
+        parts = [p.text for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        parts.append(cell.text.strip())
+        return "\n".join(parts)
+    import pdfplumber
+    with pdfplumber.open(path) as pdf:
+        return "\n".join(p.extract_text() or "" for p in pdf.pages)
+
+
 _MAX_PER_SESSION = 10
 _DELAY_MIN       = 1.0
 _DELAY_MAX       = 3.5
@@ -582,8 +601,6 @@ def _save_skills_gap(gap: dict[str, int], cfg: dict) -> None:
 # ── Main apply loop ───────────────────────────────────────────────────────────
 
 async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) -> None:
-    import pdfplumber
-
     init_answer_cache(cfg)
 
     # Load both resume texts once so per-job language selection is instant
@@ -594,8 +611,7 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
         if _rp:
             _resume_paths[_lang] = str(_rp)
             try:
-                with pdfplumber.open(_rp) as pdf:
-                    _resume_texts[_lang] = "\n".join(p.extract_text() or "" for p in pdf.pages)
+                _resume_texts[_lang] = _read_resume_text(_rp)
             except Exception:
                 pass
     # Keep backward-compat variable for code paths that don't get per-job lang
@@ -751,6 +767,20 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
                 title     = job.get("title", "")
                 company   = job.get("company", "")
 
+                # If the user ticked "Tailor Resume" for this job in Step 4, generate
+                # it now — _resume_path() (called deep inside the platform handler)
+                # automatically prefers uploads/resume/tailored/<company>_<date>.docx
+                # over the base resume once it exists.
+                if job.get("_tailor_requested"):
+                    _emit("apply_step", {"url": url, "step": "📝 Generating tailored resume…"})
+                    try:
+                        from tailor import tailor as _tailor
+                        _tailor.create_docs(job, cfg)
+                        _emit("apply_step", {"url": url, "step": "✓ Tailored resume ready"})
+                    except Exception as _tail_exc:
+                        _emit("apply_step", {"url": url,
+                            "step": f"⚠️ Tailoring failed, using base resume: {_tail_exc}"})
+
                 # Detect job language → select resume
                 _lang = _detect_job_language(job)
                 job["_resume_lang"] = _lang
@@ -879,13 +909,11 @@ def apply(job: dict, archive_path: Path, cfg: dict | None = None) -> bool:
 
     async def _one():
         _lang      = _detect_job_language(job)
-        resume_path = _resume_path(cfg, _lang)
+        resume_path = _resume_path(cfg, _lang, company=job.get("company"))
         resume_text = ""
         if resume_path:
             try:
-                import pdfplumber
-                with pdfplumber.open(resume_path) as pdf:
-                    resume_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+                resume_text = _read_resume_text(resume_path)
             except Exception:
                 pass
         job["_resume_lang"] = _lang
@@ -924,15 +952,13 @@ async def apply_to_job(page: "Page", job: dict, config: dict) -> dict:
 
     Returns: {success, apply_type, error_msg, timestamp}
     """
-    import pdfplumber as _pdfplumber
     _lang = _detect_job_language(job)
     job["_resume_lang"] = _lang
-    _rp   = _resume_path(config, _lang)
+    _rp   = _resume_path(config, _lang, company=job.get("company"))
     _rt   = ""
     if _rp:
         try:
-            with _pdfplumber.open(_rp) as _pdf:
-                _rt = "\n".join(p.extract_text() or "" for p in _pdf.pages)
+            _rt = _read_resume_text(_rp)
         except Exception:
             pass
     prof     = _profile(config)
