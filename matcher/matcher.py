@@ -15,6 +15,7 @@ import traceback
 
 import anthropic
 import pdfplumber
+from docx import Document
 from dotenv import load_dotenv
 
 from core.config import load_config
@@ -129,6 +130,16 @@ Rule 4 — Backend/fullstack roles:
 
 
 def _extract_resume_text(resume_path) -> str:
+    if str(resume_path).lower().endswith(".docx"):
+        doc = Document(resume_path)
+        text_parts = [p.text for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        text_parts.append(cell.text.strip())
+        return "\n".join(text_parts)
+
     text_parts: list[str] = []
     with pdfplumber.open(resume_path) as pdf:
         for page in pdf.pages:

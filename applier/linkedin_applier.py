@@ -178,7 +178,7 @@ _FAST_PATH_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"start.*date|earliest.*start|preferred.*start|when.*start|frühest.*eintrittstermin|eintrittsdatum", re.I), "notice_period"),
     (re.compile(r"first.?name|vorname", re.I), "first_name"),
     (re.compile(r"last.?name|surname|nachname", re.I), "last_name"),
-    (re.compile(r"full.?name|name", re.I), "full_name"),
+    (re.compile(r"full.?name|^name$", re.I), "full_name"),
     (re.compile(r"email|e-mail", re.I), "email"),
     (re.compile(r"phone|telefon|mobile", re.I), "phone"),
     (re.compile(r"location|city|stadt|current.*location", re.I), "current_location"),
@@ -872,8 +872,12 @@ async def _fill_typeahead(page: Page, el, value: str) -> bool:
             if chunk:
                 await el.type(chunk, delay=55)
                 await asyncio.sleep(0.45)
-        # Wait up to ~1 s for dropdown
-        await page.wait_for_timeout(800)
+        # Wait for the dropdown to render, up to 800ms — proceeds as soon as it
+        # appears instead of always blocking for the full timeout.
+        try:
+            await page.wait_for_selector(_DROPDOWN_SEL, timeout=800, state="visible")
+        except PWTimeout:
+            pass
         dropdown = page.locator(_DROPDOWN_SEL)
         if await dropdown.count():
             v_lower = value.lower()
@@ -1147,32 +1151,110 @@ async def fill_field_smart(
         return False
 
 
-async def _click_radio_answer(page: Page, radios, answer: str, opts: list[str]) -> bool:
-    """Click the radio whose label/value best matches `answer`.
+async def _radio_option_label(page: Page, radio) -> str:
+    """Best-effort visible text for one radio option.
 
-    Tries four strategies in order:
+    LinkedIn's current Easy Apply markup renders custom-styled radios where
+    <label for=id> exists but is empty and value="on" for every option
+    (verified live) — the real option text ("Yes"/"No"/etc.) lives in
+    aria-label on the nearest ancestor with role="radio". Falls back to the
+    legacy label[for]/value lookup for other ATS pages that still use it.
+    """
+    try:
+        aria = await radio.evaluate(
+            "el => { const w = el.closest('[role=radio]'); return w ? w.getAttribute('aria-label') : null; }"
+        )
+        if aria and aria.strip():
+            return aria.strip()
+    except Exception:
+        pass
+    try:
+        rid = await radio.get_attribute("id") or ""
+        if rid:
+            lbl_el = page.locator(f"label[for='{rid}']")
+            if await lbl_el.count():
+                text = (await lbl_el.first.text_content() or "").strip()
+                if text:
+                    return text
+    except Exception:
+        pass
+    try:
+        return (await radio.get_attribute("value") or "").strip()
+    except Exception:
+        return ""
+
+
+async def _group_option_label(page: Page, inp) -> str:
+    """Best-effort visible text for one option in a single-choice group,
+    whether it's built from real radios or (verified live, on a JazzHR-hosted
+    Easy Apply form) a pair of independent checkboxes standing in for one.
+    Radios expose the text via aria-label on the [role=radio] wrapper;
+    these checkbox-pairs expose it as the [role=checkbox] wrapper's own
+    plain text content instead. Falls back to the legacy label[for]/value
+    lookup for other ATS pages that still use it."""
+    try:
+        text = await inp.evaluate(
+            "el => { const w = el.closest('[role=radio],[role=checkbox]'); "
+            "if (!w) return null; "
+            "const aria = w.getAttribute('aria-label'); "
+            "if (aria && aria.trim()) return aria.trim(); "
+            "const t = w.textContent.trim(); "
+            "return t || null; }"
+        )
+        if text:
+            return text
+    except Exception:
+        pass
+    return await _radio_option_label(page, inp)
+
+
+async def _click_radio_answer(page: Page, radios, answer: str, opts: list[str]) -> bool:
+    """Click the option (radio, or checkbox standing in for one) whose
+    label/value best matches `answer`.
+
+    Tries five strategies in order:
+      0. Click the ancestor [role=radio]/[role=checkbox] wrapper (LinkedIn's
+         current markup — the native input's own label/value carry no usable
+         text there)
       1. LinkedIn data-test-text-selectable-option label
       2. label[for=id] click
-      3. Direct force-click on the radio input
+      3. Direct force-click on the input
       4. JS click + change-event dispatch (last resort)
 
-    Returns True as soon as the radio is confirmed checked.
+    Returns True as soon as the option is confirmed checked.
     """
     r_count = await radios.count()
     for j in range(r_count):
         try:
+            target = await _group_option_label(page, radios.nth(j))
             val = (await radios.nth(j).get_attribute("value") or "").strip()
             radio_id = (await radios.nth(j).get_attribute("id") or "").strip()
-            lbl_text = ""
-            if radio_id:
-                lbl_el = page.locator(f"label[for='{radio_id}']")
-                if await lbl_el.count():
-                    lbl_text = (await lbl_el.first.text_content() or "").strip()
-            target = lbl_text or val
             if not target:
                 continue
             if not (answer.lower() in target.lower() or target.lower() in answer.lower()):
                 continue
+
+            # 0. [role=radio]/[role=checkbox] wrapper click — this is the
+            # element LinkedIn's current styling actually renders/reacts to
+            # as clickable.
+            try:
+                handle = await radios.nth(j).element_handle()
+                _wrapper_clicked = await page.evaluate(
+                    "el => { const w = el.closest('[role=radio],[role=checkbox]'); "
+                    "if (w) { w.click(); return true; } return false; }",
+                    handle
+                )
+                if _wrapper_clicked:
+                    await asyncio.sleep(0.3)
+                    # Check the native input's checked state, not the wrapper's
+                    # aria-checked attribute — verified live that aria-checked
+                    # doesn't reliably update on a synthetic click even though
+                    # the actual input.checked does (which is what the form
+                    # submission reads).
+                    if await radios.nth(j).is_checked():
+                        return True
+            except Exception:
+                pass
 
             # 1. LinkedIn data-test-text-selectable-option attribute
             for _dt_val in (answer, val):
@@ -1347,7 +1429,11 @@ async def _fill_wizard_step(
     except Exception:
         pass
 
-    # ── 4. Fieldset radio groups ──────────────────────────────────────────────
+    # ── 4. Fieldset radio (or checkbox-pair) choice groups ────────────────────
+    # _group_checkbox_ids records every checkbox handled here as part of a
+    # multi-option group, so step 5's standalone-checkbox loop below doesn't
+    # also independently evaluate (and potentially check) the same inputs.
+    _group_checkbox_ids: set[str] = set()
     try:
         fieldsets = scope.locator("fieldset")
         for i in range(min(await fieldsets.count(), 15)):
@@ -1358,7 +1444,20 @@ async def _fill_wizard_step(
                 radios = fs.locator("input[type='radio']")
                 r_count = await radios.count()
                 if not r_count:
-                    continue
+                    # Some ATS forms (verified live: a JazzHR-hosted LinkedIn
+                    # Easy Apply form) render a single-choice Yes/No question
+                    # as a PAIR of independent <input type=checkbox> instead
+                    # of true radios — nothing stops both being checked at
+                    # once, so treat 2+ checkboxes sharing one fieldset as a
+                    # group needing exactly one answer. A single checkbox in
+                    # its own fieldset is a normal standalone consent box —
+                    # leave that to step 5.
+                    cbs = fs.locator("input[type='checkbox']")
+                    cb_count = await cbs.count()
+                    if cb_count < 2:
+                        continue
+                    radios = cbs
+                    r_count = cb_count
                 # Skip already-answered groups
                 any_checked = False
                 for j in range(r_count):
@@ -1370,24 +1469,24 @@ async def _fill_wizard_step(
                         pass
                 if any_checked:
                     continue
-                # Question from legend
+                # Question text: prefer a real <legend>, but LinkedIn's current
+                # Easy Apply markup renders radiogroup fieldsets with no legend at
+                # all — the question instead sits in a <p> immediately preceding
+                # the fieldset as a sibling (verified live against a real job).
                 legend = fs.locator("legend")
                 question = (
                     (await legend.first.text_content() or "").strip()
                     if await legend.count() else ""
                 )
-                # Option labels (prefer label text over raw value attribute)
+                if not question:
+                    q_sibling = fs.locator("xpath=preceding-sibling::p").first
+                    if await q_sibling.count():
+                        question = (await q_sibling.text_content() or "").strip()
+                # Option labels
                 opts: list[str] = []
                 for j in range(r_count):
                     try:
-                        rid = await radios.nth(j).get_attribute("id") or ""
-                        rv = await radios.nth(j).get_attribute("value") or ""
-                        rl = ""
-                        if rid:
-                            lbl_el = scope.locator(f"label[for='{rid}']")
-                            if await lbl_el.count():
-                                rl = (await lbl_el.first.text_content() or "").strip()
-                        opts.append(rl or rv)
+                        opts.append(await _group_option_label(page, radios.nth(j)))
                     except Exception:
                         pass
                 if not opts:
@@ -1401,6 +1500,16 @@ async def _fill_wizard_step(
                     _emit("apply_answer", {"label": (question or "radio")[:60], "answer": answer[:80]})
                     prior_answers.append({"question": question or "radio", "answer": answer})
                     filled += 1
+                    # Whichever inputs make up this group (checkbox-pair or
+                    # real radios), mark them all handled so step 5 never
+                    # independently re-evaluates the leftover checkbox(es).
+                    for j in range(r_count):
+                        try:
+                            _gid = await radios.nth(j).get_attribute("id")
+                            if _gid:
+                                _group_checkbox_ids.add(_gid)
+                        except Exception:
+                            pass
                 else:
                     log.warning("Radio group %r — no option matched %r",
                                 (question or "?")[:50], answer)
@@ -1448,13 +1557,38 @@ async def _fill_wizard_step(
         for i in range(min(await checkboxes.count(), 20)):
             try:
                 cb = checkboxes.nth(i)
-                if not await cb.is_visible() or await cb.is_checked():
+                if await cb.is_checked():
+                    continue
+                _cb_own_id = await cb.get_attribute("id") or ""
+                if _cb_own_id and _cb_own_id in _group_checkbox_ids:
+                    continue  # already handled above as part of a choice group
+                # LinkedIn's current markup visually hides the native input
+                # (opacity/size 0) and styles a [role=checkbox] wrapper instead —
+                # checking the input's own visibility always reads False there.
+                # Check the wrapper's visibility when one exists, falling back to
+                # the input itself for pages that still render it directly.
+                _cb_wrapper = cb.locator("xpath=ancestor::*[@role='checkbox'][1]")
+                if await _cb_wrapper.count():
+                    if not await _cb_wrapper.first.is_visible():
+                        continue
+                elif not await cb.is_visible():
                     continue
                 cb_lbl = await _get_field_label(page, cb)
                 if not cb_lbl:
                     par = cb.locator("xpath=ancestor::label[1]")
                     if await par.count():
                         cb_lbl = (await par.first.text_content() or "").strip()
+                if not cb_lbl:
+                    # LinkedIn's current consent-checkbox markup: <label for=id>
+                    # exists but is empty, and there's no ancestor <label> tag —
+                    # the real question sits in a <p> immediately preceding the
+                    # checkbox's ancestor <fieldset> (verified live, same layout
+                    # pattern as the radio-group question fix above).
+                    fs_anc = cb.locator("xpath=ancestor::fieldset[1]")
+                    if await fs_anc.count():
+                        q_sibling = fs_anc.locator("xpath=preceding-sibling::p").first
+                        if await q_sibling.count():
+                            cb_lbl = (await q_sibling.text_content() or "").strip()
                 if not cb_lbl:
                     continue
                 # Skip LinkedIn Premium "top choice" and pronoun checkboxes.
@@ -1480,7 +1614,24 @@ async def _fill_wizard_step(
                 if should_check:
                     cb_id = await cb.get_attribute("id") or ""
                     clicked = False
-                    if cb_id:
+                    # LinkedIn's current markup renders a [role=checkbox] wrapper
+                    # around the native input — that's the element that actually
+                    # reacts to clicks. Verify against the native input's checked
+                    # state (not the wrapper's aria-checked, which doesn't
+                    # reliably update on a synthetic click) before trying anything
+                    # else, since a second click on an already-checked checkbox
+                    # would toggle it back off.
+                    try:
+                        cb_handle = await cb.element_handle()
+                        await page.evaluate(
+                            "el => { const w = el.closest('[role=checkbox]'); if (w) w.click(); }",
+                            cb_handle
+                        )
+                        await asyncio.sleep(0.2)
+                        clicked = await cb.is_checked()
+                    except Exception:
+                        clicked = False
+                    if not clicked and cb_id:
                         lbl_el = scope.locator(f"label[for='{cb_id}']")
                         if await lbl_el.count():
                             await lbl_el.first.click()
@@ -1508,7 +1659,12 @@ async def _fill_wizard_step(
         "input[type='email']:not([disabled]),"
         "input[type='tel']:not([disabled]),"
         "input[type='url']:not([disabled]),"
-        "input[type='number']:not([disabled])"
+        "input[type='number']:not([disabled]),"
+        # LinkedIn's date-picker input (e.g. "Earliest start date?") carries no
+        # type="..." HTML attribute at all — only the DOM .type property
+        # defaults to "text" — so the attribute selectors above never match it
+        # (verified live). data-testid is the one reliable marker it does set.
+        "input[data-testid='date-picker-input']:not([disabled])"
     )
     try:
         inputs = scope.locator(_TEXT_INPUT_SEL)
@@ -2218,9 +2374,14 @@ def _generate_cover_letter(
 ) -> str:
     """Generate a job-specific cover letter using claude-sonnet-4-6.
 
-    Uses the answer cache so Sonnet is only called once per unique question label.
+    Uses the answer cache so Sonnet is only called once per unique question label
+    *and* job — many ATS forms ask the same generic label ("Cover letter") on
+    every job, so job_desc must be part of the key or a letter written for one
+    company gets reused verbatim on a completely unrelated one (verified live:
+    exactly this happened — a CRX Markets-specific letter reused on a Westernacher
+    Solutions application).
     """
-    _ck = _cache_key(question_text, "cover_letter", [])
+    _ck = _cache_key(question_text + "||" + job_desc[:300], "cover_letter", [])
     if _ck in _answer_cache:
         log.debug("Cover letter cache hit for: %r", question_text[:50])
         return _answer_cache[_ck]
@@ -2263,6 +2424,34 @@ def _generate_cover_letter(
 
 
 # ── Easy Apply wizard ──────────────────────────────────────────────────────────
+
+# LinkedIn's Easy Apply UI refresh dropped the aria-label from some Next/Review
+# buttons, leaving only visible text (e.g. plain "Next" instead of
+# aria-label="Continue to next step"). Match on exact visible text as a fallback.
+_WIZARD_BUTTON_TEXT_FALLBACK = {
+    "Submit application":     re.compile(r"^\s*Submit application\s*$", re.IGNORECASE),
+    "Continue to next step":  re.compile(r"^\s*Next\s*$", re.IGNORECASE),
+    "Review your application": re.compile(r"^\s*Review\s*$", re.IGNORECASE),
+}
+
+
+async def _click_wizard_button(page: Page, aria: str) -> bool:
+    """Click a Next/Review/Submit button by aria-label, falling back to its
+    visible text if the aria-label is missing. Returns True if a click fired."""
+    loc = page.locator(f"button[aria-label='{aria}']")
+    if not await loc.count():
+        text_re = _WIZARD_BUTTON_TEXT_FALLBACK.get(aria)
+        if text_re is None:
+            return False
+        loc = page.locator("button", has_text=text_re)
+    if not await loc.count():
+        return False
+    eh = await loc.first.element_handle(timeout=2000)
+    if eh is None:
+        return False
+    await eh.evaluate("el => el.click()")
+    return True
+
 
 async def fill_easy_apply(
     page: Page,
@@ -2555,17 +2744,11 @@ async def fill_easy_apply(
         # executes JS directly on the node without triggering navigation-wait.
         for _aria in ["Submit application", "Continue to next step", "Review your application"]:
             try:
-                _l_btn = page.locator(f"button[aria-label='{_aria}']")
-                if not await _l_btn.count():
-                    continue
-                _eh = await _l_btn.first.element_handle(timeout=2000)
-                if _eh is None:
-                    continue
-                await _eh.evaluate("el => el.click()")
-                _pre_nxt_aria = _aria
-                _click_done = True
-                _dbg(f"EARLY_CLICK | step={step_n} | element_handle.click on aria='{_aria}'")
-                break
+                if await _click_wizard_button(page, _aria):
+                    _pre_nxt_aria = _aria
+                    _click_done = True
+                    _dbg(f"EARLY_CLICK | step={step_n} | clicked button for '{_aria}'")
+                    break
             except Exception as _eje:
                 _dbg(f"EARLY_CLICK_ERR | aria='{_aria}' | {str(_eje)[:120]}")
 
@@ -2616,7 +2799,12 @@ async def fill_easy_apply(
             _dbg(f"MODAL_CHECK | step={step_n} | count={_modal_count_after} open={_modal_still_open}")
         except Exception as _mce:
             _dbg(f"MODAL_CHECK_ERR | {_mce}")
-        if not _modal_still_open and "linkedin.com" in page.url:
+        # Only treat "modal now absent" as a closure signal if we actually saw it
+        # open at the top of this step (_modal_visible, via MODAL_SEL). Some
+        # LinkedIn Easy Apply variants never match MODAL_SEL at all (stale
+        # selectors against a UI refresh) — for those, absence proves nothing
+        # and would otherwise falsely end the session after the first Next click.
+        if _modal_visible and not _modal_still_open and "linkedin.com" in page.url:
             _dbg(f"SINGLE_STEP_RETURN | modal closed after Next on step {step_n} — verifying")
             _confirmed = await _dismiss_post_submit_dialogs(page)
             if _confirmed or _submit_clicked:
@@ -2647,13 +2835,9 @@ async def fill_easy_apply(
                 # Retry click via element_handle (shadow DOM safe)
                 for _re_aria in ["Continue to next step", "Review your application", "Submit application"]:
                     try:
-                        _re_btn = page.locator(f"button[aria-label='{_re_aria}']")
-                        if await _re_btn.count():
-                            _re_eh = await _re_btn.first.element_handle(timeout=2000)
-                            if _re_eh:
-                                await _re_eh.evaluate("el => el.click()")
-                                await asyncio.sleep(random.uniform(1.0, 2.0))
-                                break
+                        if await _click_wizard_button(page, _re_aria):
+                            await asyncio.sleep(random.uniform(1.0, 2.0))
+                            break
                     except Exception:
                         pass
                 _step_errs = await _get_page_errors(page)

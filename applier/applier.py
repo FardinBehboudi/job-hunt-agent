@@ -687,6 +687,7 @@ async def _run_apply(jobs: list[dict], cfg: dict, stop_flag: threading.Event) ->
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
+            channel="chrome",
             headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
@@ -921,7 +922,7 @@ def apply(job: dict, archive_path: Path, cfg: dict | None = None) -> bool:
         platform = detect_platform(job.get("url", ""))
         handler  = PLATFORM_HANDLERS.get(platform, _apply_linkedin)
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=cfg.get("headless", True))
+            browser = await pw.chromium.launch(channel="chrome", headless=cfg.get("headless", True))
             ctx_kw  = dict(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0",
                 viewport={"width": 1280, "height": 800},

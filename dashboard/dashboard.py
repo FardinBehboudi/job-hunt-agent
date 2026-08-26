@@ -1410,9 +1410,18 @@ td { padding: 10px 14px; vertical-align: middle; }
 
       <h1>&#128188; Job Hunt</h1>
 
-      <div id="refresh-pill" class="refresh-pill">
+      <div style="display:flex;align-items:center;gap:12px;">
 
-        Auto-refreshes every 60s &nbsp;&middot;&nbsp; Last update: <span id="last-update">—</span>
+        <div id="refresh-pill" class="refresh-pill">
+
+          Auto-refreshes every 60s &nbsp;&middot;&nbsp; Last update: <span id="last-update">—</span>
+
+        </div>
+
+        <button class="btn-danger btn-sm" onclick="restartPipeline()"
+                title="Force-clear a stuck scrape/match/apply run and start fresh">
+          &#128260; Restart Pipeline
+        </button>
 
       </div>
 
@@ -4538,6 +4547,37 @@ async function stopScraping() {
   _resetScrapeButton();
 
   showToast('Scraping stopped.');
+
+}
+
+
+
+async function restartPipeline() {
+
+  if (!await showConfirm('This stops any running scrape/match/apply job and resets the pipeline to Step 1. Continue?')) return;
+
+  try { await fetch('/api/pipeline/reset', {method: 'POST'}); } catch (_) {}
+
+  // Tear down every pipeline-related timer/stream so nothing keeps polling stale state.
+  _stopPoll(); _stopStatusPoll(); _stopScrapeProgress(); _stopMatchProgress();
+  if (_applyEvtSrc) { _applyEvtSrc.close(); _applyEvtSrc = null; }
+
+  _resetScrapeButton();
+  document.getElementById('scrape-progress').classList.add('hidden');
+
+  const matchBtn = document.getElementById('btn-match');
+  if (matchBtn) matchBtn.disabled = false;
+  document.getElementById('match-progress').classList.add('hidden');
+
+  _applyRunning = false;
+  _applySessionStarted = false;
+  const startBtn = document.getElementById('btn-apply-start');
+  const stopBtn  = document.getElementById('btn-apply-stop');
+  if (startBtn) startBtn.style.display = '';
+  if (stopBtn)  stopBtn.style.display  = 'none';
+
+  setWizardStep(1);
+  showToast('Pipeline reset — ready for a fresh run.');
 
 }
 
@@ -10396,6 +10436,68 @@ def api_pipeline_status():
 
 
 
+@app.route("/api/pipeline/reset", methods=["POST"])
+
+def api_pipeline_reset():
+
+    """Force-clear all pipeline/apply/agent run state.
+
+    The scrape/match/apply workers run as background threads that Python
+    cannot forcibly kill, and each one only checks its stop signal at a
+    few checkpoints. If a worker is stuck (or its stop signal never reached
+    it), the thread reference stays "alive" forever and every subsequent
+    /api/pipeline/* or /api/apply/* call 409s with "already running". This
+    endpoint is the manual escape hatch: it best-effort signals every
+    worker to stop, then forgets the stale thread/process references so
+    new runs are accepted immediately regardless of what the old one does.
+    """
+
+    global _pipeline_thread, _agent_proc, _apply_thread
+
+    try:
+
+        from scraper import scraper as _scraper
+
+        _scraper.stop_scraping()
+
+    except Exception as exc:
+
+        log.warning("pipeline reset: failed to signal scraper stop: %s", exc)
+
+    _apply_stop_flag.set()
+
+    with _agent_lock:
+
+        if _agent_proc and _agent_proc.poll() is None:
+
+            _agent_proc.terminate()
+
+            try:
+
+                _agent_proc.wait(timeout=5)
+
+            except subprocess.TimeoutExpired:
+
+                _agent_proc.kill()
+
+        _agent_proc = None
+
+    with _pipeline_lock:
+
+        _pipeline_thread = None
+
+        _pipeline.update(step=0, jobs_count=0, matched_count=0, error=None, results=[])
+
+    with _apply_lock:
+
+        _apply_thread = None
+
+    return jsonify({"ok": True})
+
+
+
+
+
 @app.route("/api/pipeline/step_availability")
 
 def api_pipeline_step_availability():
@@ -11144,7 +11246,7 @@ def _linkedin_login_worker():
 
         async with _apw() as pw:
 
-            browser = await pw.chromium.launch(headless=False)
+            browser = await pw.chromium.launch(channel="chrome", headless=False)
 
             context = await browser.new_context(
 
@@ -11636,6 +11738,18 @@ def api_apply_skip():
     from applier.applier import skip_url
 
     skip_url(url)
+
+    return jsonify({"ok": True})
+
+
+
+@app.route("/api/apply/stop", methods=["POST"])
+
+def api_apply_stop():
+
+    """Signal the running apply session to stop before its next job."""
+
+    _apply_stop_flag.set()
 
     return jsonify({"ok": True})
 

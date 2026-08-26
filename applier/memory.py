@@ -53,6 +53,22 @@ def _norm(text: str) -> str:
                   replace("?", "").replace(":", "").replace("*", ""))
 
 
+# Generic question-frame words excluded from fuzzy overlap scoring — without
+# this, short questions like "What is your notice period?" and "What is your
+# current location?" share 3 of 5 words ("what is your") and clear a 60%
+# overlap threshold despite asking about completely unrelated things. Verified
+# live: this exact collision fed a notice-period answer into a location field.
+_STOPWORDS = {
+    "what", "is", "are", "do", "you", "your", "the", "a", "an", "of", "to",
+    "for", "in", "on", "please", "provide", "have", "has", "will", "would",
+    "can", "could", "did", "does", "and", "or", "be", "this", "that",
+}
+
+
+def _content_words(question_norm: str) -> set[str]:
+    return {w for w in question_norm.split() if w not in _STOPWORDS}
+
+
 def _init():
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _conn() as db:
@@ -157,8 +173,9 @@ class AppMemory:
             ).fetchone()
             if row:
                 return row["answer"]
-            # Fuzzy: any word overlap > 60%
-            words = set(q_norm.split())
+            # Fuzzy: content-word overlap > 60% (stopwords excluded — see
+            # _STOPWORDS above for why generic words can't drive this match)
+            words = _content_words(q_norm)
             if len(words) < 2:
                 return None
             rows = db.execute(
@@ -166,7 +183,9 @@ class AppMemory:
                 "WHERE success_count > fail_count ORDER BY success_count DESC LIMIT 50"
             ).fetchall()
             for r in rows:
-                r_words = set(r["question_norm"].split())
+                r_words = _content_words(r["question_norm"])
+                if not r_words:
+                    continue
                 overlap = len(words & r_words) / max(len(words), len(r_words), 1)
                 if overlap >= 0.6:
                     return r["answer"]
