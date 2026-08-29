@@ -357,6 +357,25 @@ async def click_apply_button(
             await _do_click(_ext_el)
         except Exception:
             pass
+        # LinkedIn now sometimes shows a "Share your profile?" consent dialog
+        # between clicking "Apply on company website" and the actual redirect
+        # (verified live). Its action is an <a> labelled "Continue", not a
+        # <button> — without clicking it the popup with the real ATS page
+        # never opens and the flow silently stalls on the LinkedIn job page.
+        try:
+            await page.wait_for_timeout(1200)
+            _share_dialog = page.locator("dialog, [role='dialog']").filter(
+                has_text=re.compile(r"share your profile", re.IGNORECASE)
+            )
+            if await _share_dialog.count() and await _share_dialog.first.is_visible():
+                _continue_link = page.locator("a, button, [role='button']").filter(
+                    has_text=re.compile(r"^\s*Continue\s*$", re.IGNORECASE)
+                )
+                if await _continue_link.count():
+                    await _continue_link.first.click()
+                    print("[clicker] Dismissed 'Share your profile?' dialog via Continue", flush=True)
+        except Exception:
+            pass
         return "external"
 
     # ── Method 1: get_by_role ────────────────────────────────────────────────

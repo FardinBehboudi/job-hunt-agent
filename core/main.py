@@ -178,6 +178,50 @@ def run_scrape_only(cfg: dict | None = None) -> list[dict]:
     return jobs
 
 
+def run_load_all_only(cfg: dict | None = None) -> list[dict]:
+    """Populate scraped_jobs from every saved job in the cache — no Apify call."""
+    if cfg is None:
+        cfg = load_config()
+    setup_logging(cfg)
+    cfg = _override_resume(cfg)
+
+    from dedup import db as _db
+    _db.init_db()
+
+    log.info("=== Load-all-cached stage starting (no scrape) ===")
+    jobs = scraper.load_all_cached(cfg)
+    _UPLOADS_DIR.mkdir(exist_ok=True)
+
+    inserted = _db.insert_scraped_jobs(jobs)
+    log.info("Inserted %d new scraped jobs into DB", inserted)
+
+    out = _UPLOADS_DIR / "scraped_jobs.json"
+    out.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("Load-all-cached complete: %d jobs", len(jobs))
+    return jobs
+
+
+def run_load_scored_only(cfg: dict | None = None) -> list[dict]:
+    """Populate scraped_jobs + matched_jobs from every previously-scored job
+    in the cache — no Apify call, no Claude scoring."""
+    if cfg is None:
+        cfg = load_config()
+    setup_logging(cfg)
+    cfg = _override_resume(cfg)
+
+    from dedup import db as _db
+    _db.init_db()
+
+    log.info("=== Load-scored-cached stage starting (no scrape, no scoring) ===")
+    jobs = scraper.load_scored_cached(cfg)
+    _UPLOADS_DIR.mkdir(exist_ok=True)
+
+    out = _UPLOADS_DIR / "scraped_jobs.json"
+    out.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("Load-scored-cached complete: %d jobs", len(jobs))
+    return jobs
+
+
 def run_match_only(cfg: dict | None = None, job_ids: list | None = None) -> list[dict]:
     """Score unmatched scraped jobs, store results in DB, return matched list.
 

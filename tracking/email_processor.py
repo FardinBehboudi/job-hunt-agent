@@ -87,6 +87,29 @@ Extract event details and return:
 }}
 """
 
+_APPLICATION_SYSTEM = """\
+You extract the company and job title from a job-application confirmation email.
+Return ONLY one JSON object — no prose, no markdown fences.
+"""
+
+_APPLICATION_PROMPT = """\
+## Email Subject
+{subject}
+
+## Email Body Preview
+{body}
+
+Extract:
+{{
+  "company": "<company name, or empty string if not confidently identifiable>",
+  "title": "<job title applied for, or empty string if not confidently identifiable>"
+}}
+"""
+
+# Minimum classification confidence before a new application row is created
+# automatically from an "In Review" email that didn't match anything on file.
+_NEW_APPLICATION_CONFIDENCE_FLOOR = 70
+
 # ── Classification ─────────────────────────────────────────────────────────────
 
 def _classify(client: anthropic.Anthropic, subject: str,
@@ -134,6 +157,28 @@ def _extract_event(client: anthropic.Anthropic, subject: str,
         return {"event_type": "interview", "title": subject,
                 "description": "", "event_date": None,
                 "event_time": None, "timezone": None, "priority": "medium"}
+
+
+def _extract_application(client: anthropic.Anthropic, subject: str,
+                         body_preview: str) -> dict:
+    try:
+        resp = client.messages.create(
+            model=_MODEL,
+            max_tokens=128,
+            system=_APPLICATION_SYSTEM,
+            messages=[{"role": "user", "content": _APPLICATION_PROMPT.format(
+                subject=subject, body=body_preview,
+            )}],
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+            raw = raw.strip()
+        return json.loads(raw)
+    except Exception as exc:
+        log.warning("Application extraction error: %s", exc)
+        return {"company": "", "title": ""}
 
 
 # ── Job linking ────────────────────────────────────────────────────────────────
@@ -204,6 +249,61 @@ def _link_to_application(sender: str, subject: str,
                     "match_confidence": 65, "match_type": "fuzzy"}
 
     return {"matched_app_id": None, "match_confidence": 0, "match_type": "unmatched"}
+
+
+def _maybe_create_application(client: anthropic.Anthropic, msg: dict, subject: str,
+                              body_preview: str, confidence: int) -> "int | None":
+    """For an 'In Review' confirmation email that didn't match anything on file,
+    extract the company/title and add it to the applications list. Returns the
+    new application id, or None if extraction wasn't confident enough."""
+    if confidence < _NEW_APPLICATION_CONFIDENCE_FLOOR:
+        return None
+
+    extracted = _extract_application(client, subject, body_preview)
+    company = (extracted.get("company") or "").strip()
+    if not company:
+        return None
+
+    app_id = db.log_application({
+        "company": company,
+        "title": (extracted.get("title") or "").strip(),
+        "source": "email",
+        "date_applied": (msg.get("received_date") or "")[:10],
+    }, status="In Review")
+    log.info("Created application from email confirmation: %s — %s",
+             company, extracted.get("title") or "?")
+    return app_id
+
+
+# Signals that an email is even plausibly about a job application, used only as a
+# fallback for emails _link_to_application couldn't tie to a specific application
+# (e.g. a recruiter emailing from a personal address, or an ATS domain not yet in
+# the applications table). Anything matched to an application already bypasses this.
+_JOB_KEYWORDS = (
+    "job", "career", "recruit", "talent", "hiring", "application", "applying",
+    "candidacy", "candidate", "interview", "vacature",
+    "bewerb", "beworben", "stelle", "vorstellungsgespräch", "eingangsbest",
+)
+
+
+def _is_job_related(sender: str, subject: str) -> bool:
+    """True if the sender address (local part + domain) or subject contains
+    a job/recruiting signal."""
+    sender_lower = sender.lower()
+    subject_lower = subject.lower()
+    return any(kw in sender_lower for kw in _JOB_KEYWORDS) or \
+           any(kw in subject_lower for kw in _JOB_KEYWORDS)
+
+
+# Recurring "new jobs matching your profile" recommendation digests — these are
+# never about the status of an existing application, so they're excluded even
+# though their sender domain is job-related and would otherwise pass _is_job_related.
+_DIGEST_SENDER_DOMAINS = ("jobagent.stepstone.de", "jobs2web.com")
+
+
+def _is_recommendation_digest(sender: str) -> bool:
+    domain = sender.split("@")[-1].lower() if "@" in sender else ""
+    return any(d in domain for d in _DIGEST_SENDER_DOMAINS)
 
 
 # ── Auto-execute ───────────────────────────────────────────────────────────────
@@ -283,16 +383,29 @@ def run(cfg: "dict | None" = None) -> None:
         if restaged:
             log.info("Re-staged %d falsely-executed email(s) back to pending", restaged)
 
+    skipped = 0
     for msg in messages:
         subject = msg["subject"]
         preview = msg["body_preview"]
+
+        link = _link_to_application(msg["sender"], subject, preview)
+
+        if not link["matched_app_id"] and (
+            _is_recommendation_digest(msg["sender"]) or not _is_job_related(msg["sender"], subject)
+        ):
+            skipped += 1
+            continue
 
         clf = _classify(client, subject, preview)
         category = clf.get("category", "Uncertain")
         confidence = int(clf.get("confidence", 0))
         reason = clf.get("reason", "")
 
-        link = _link_to_application(msg["sender"], subject, preview)
+        if category == "In Review" and link["match_type"] == "unmatched":
+            new_app_id = _maybe_create_application(client, msg, subject, preview, confidence)
+            if new_app_id:
+                link = {"matched_app_id": new_app_id,
+                        "match_confidence": confidence, "match_type": "email-confirmation"}
 
         staging_id = db.stage_email({
             **msg,
@@ -313,6 +426,9 @@ def run(cfg: "dict | None" = None) -> None:
         if auto_move_enabled and category in _AUTO_MOVE_CATEGORIES:
             _maybe_auto_execute(staging_id, category, link["matched_app_id"],
                                 msg["received_date"], subject, threshold)
+
+    if skipped:
+        log.info("Skipped %d email(s) with no application match and no job/recruiting signal", skipped)
 
 
 if __name__ == "__main__":

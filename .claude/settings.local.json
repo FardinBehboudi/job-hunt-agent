@@ -1,8 +1,4 @@
 {
-  "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
-    "github@claude-plugins-official": false
-  },
   "permissions": {
     "allow": [
       "Bash(dir \"C:\\\\\\\\Users\\\\\\\\f_beh\\\\\\\\Projects\\\\\\\\claude\\\\\\\\job-hunt-agent\" /A)",
@@ -20,7 +16,18 @@
       "Bash(python *)",
       "Skill(superpowers:writing-plans)",
       "Bash(.venv\\\\Scripts\\\\python.exe -c \"import ast, sys; [print\\('OK:', f\\) or None for f in ['applier.py','linkedin_applier.py','external_applier.py'] if \\(ast.parse\\(open\\(f\\).read\\(\\)\\) or True\\)]\")",
-      "PowerShell(Head 20 *)"
+      "PowerShell(Head 20 *)",
+      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\f_beh\\\\Projects\\\\claude\\\\job-hunt-agent\\\\dashboard\\\\dashboard.py\" | Measure-Object -Line\\).Lines)",
+      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\f_beh\\\\Projects\\\\claude\\\\job-hunt-agent\\\\scraper\\\\scraper.py\" | Measure-Object -Line\\).Lines)",
+      "PowerShell(Get-Process python | Where-Object {$_.Name -eq \"python\"} | Stop-Process -Force)",
+      "PowerShell(head -5)",
+      "PowerShell(Get-Process python)",
+      "PowerShell(Stop-Process -Force 2>$null)",
+      "Bash(git restore *)"
     ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "github@claude-plugins-official": false
   }
 }

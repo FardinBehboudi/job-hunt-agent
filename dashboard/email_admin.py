@@ -22,6 +22,12 @@ email_admin_bp = Blueprint("email_admin", __name__, url_prefix="/email-admin")
 VALID_FOLDERS = ["Rejected", "In Review", "Next Step", "Interview",
                  "Code Challenge", "Offer", "Uncertain", "Delete"]
 
+# A batch approval can take a while (one Graph API call per email). Without this
+# guard, clicking "Approve All" again while a previous run is still in flight
+# kicks off a second overlapping pass over the same pending rows instead of
+# waiting for the first to finish.
+_batch_lock = threading.Lock()
+
 # ── API routes ─────────────────────────────────────────────────────────────────
 
 @email_admin_bp.route("/api/pending")
@@ -60,17 +66,22 @@ def api_approve(email_id: int):
 
 @email_admin_bp.route("/api/approve-batch", methods=["POST"])
 def api_approve_batch():
-    data = request.get_json(force=True) or {}
-    ids = data.get("ids")
-    if ids is None:
-        # Approve all pending
-        ids = [r["id"] for r in db.get_pending_emails()]
+    if not _batch_lock.acquire(blocking=False):
+        return jsonify({"ok": False, "error": "A batch approval is already running — wait for it to finish"}), 409
     try:
-        from tracking.email_executor import approve_batch
-        result = approve_batch(ids)
-        return jsonify({"ok": True, **result})
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        data = request.get_json(force=True) or {}
+        ids = data.get("ids")
+        if ids is None:
+            # Approve all pending
+            ids = [r["id"] for r in db.get_pending_emails()]
+        try:
+            from tracking.email_executor import approve_batch
+            result = approve_batch(ids)
+            return jsonify({"ok": True, **result})
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        _batch_lock.release()
 
 
 @email_admin_bp.route("/api/skip/<int:email_id>", methods=["POST"])
@@ -661,8 +672,9 @@ async function eaApproveAll() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({}),
     });
-    if (!r.ok) { eaToast('Server error: ' + r.status, 'error'); return; }
-    const d = await r.json();
+    let d;
+    try { d = await r.json(); } catch (_e) { d = null; }
+    if (!r.ok) { eaToast((d && d.error) || ('Server error: ' + r.status), 'error'); return; }
     if (!d.ok) { eaToast('Failed: ' + (d.error || 'unknown'), 'error'); return; }
     eaToast('Done — ' + d.succeeded + ' moved, ' + d.failed + ' failed');
     eaLoadPending();

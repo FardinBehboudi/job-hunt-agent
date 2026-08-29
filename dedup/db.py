@@ -246,6 +246,7 @@ def init_db() -> None:
         ("seen_jobs",    "last_scraped_at",       "TIMESTAMP"),
         ("seen_jobs",    "german_level_required", "TEXT DEFAULT NULL"),
         ("seen_jobs",    "resume_hash",           "TEXT DEFAULT NULL"),
+        ("seen_jobs",    "has_easy_apply",        "INTEGER DEFAULT 0"),
         # legacy — kept for existing rows; ignored in new code
         ("seen_jobs",             "match_summary",  "TEXT DEFAULT NULL"),
         ("manual_apply_queue",    "screenshot_path","TEXT DEFAULT NULL"),
@@ -255,6 +256,8 @@ def init_db() -> None:
         ("applications", "last_email_date",       "TEXT DEFAULT NULL"),
         ("applications", "last_email_preview",    "TEXT DEFAULT NULL"),
         ("applications", "last_email_staging_id", "INTEGER DEFAULT NULL"),
+        ("applications", "archived_round",        "TEXT DEFAULT NULL"),
+        ("applications", "archived_at",           "TIMESTAMP DEFAULT NULL"),
         ("email_move_history", "move_source",     "TEXT DEFAULT 'manual'"),
     ]
     for table, col, definition in _migrations:
@@ -277,6 +280,40 @@ def init_db() -> None:
                     _db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('last_backup_date',?)", (today,))
         except Exception:
             pass  # never block startup over a backup failure
+
+        # Auto-dismiss jobs older than 30 days, once per calendar day
+        try:
+            with _conn() as _db:
+                _row = _db.execute("SELECT value FROM settings WHERE key='last_purge_old_date'").fetchone()
+                _last = _row["value"] if _row else ""
+            if _last != today:
+                purge_old_jobs(max_age_days=30)
+                with _conn() as _db:
+                    _db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('last_purge_old_date',?)", (today,))
+        except Exception:
+            pass  # never block startup over a purge failure
+
+        # Backfill has_easy_apply from applications table (safe to run repeatedly)
+        try:
+            backfilled = backfill_easy_apply_from_applications()
+            if backfilled:
+                log.info("Backfilled has_easy_apply=1 for %d previously-applied jobs", backfilled)
+        except Exception:
+            pass  # never block startup over a backfill failure
+
+        # Purge dismissed jobs once per calendar day (clean up the DB)
+        try:
+            with _conn() as _db:
+                _row = _db.execute("SELECT value FROM settings WHERE key='last_purge_dismissed_date'").fetchone()
+                _last = _row["value"] if _row else ""
+            if _last != today:
+                purged = purge_dismissed_jobs()
+                if purged:
+                    log.info("Purged %d dismissed jobs from DB", purged)
+                with _conn() as _db:
+                    _db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('last_purge_dismissed_date',?)", (today,))
+        except Exception:
+            pass  # never block startup over a purge failure
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
@@ -406,13 +443,14 @@ def get_overview_data() -> dict:
     """Return stats + upcoming scheduled events + priority pending tasks."""
     with _conn() as db:
         status_rows = db.execute(
-            "SELECT status, COUNT(*) AS cnt FROM applications GROUP BY status"
+            "SELECT status, COUNT(*) AS cnt FROM applications WHERE archived_at IS NULL GROUP BY status"
         ).fetchall()
 
         upcoming = db.execute("""
             SELECT id, company, role, date_applied, status, job_url
             FROM applications
-            WHERE status IN (
+            WHERE archived_at IS NULL
+              AND status IN (
                 'Call Scheduled ✓',
                 'Technical Scheduled ✓',
                 'Final Scheduled ✓'
@@ -424,7 +462,8 @@ def get_overview_data() -> dict:
         tasks = db.execute("""
             SELECT id, company, role, date_applied, status, job_url
             FROM applications
-            WHERE status IN (
+            WHERE archived_at IS NULL
+              AND status IN (
                 '⏸️ Technical — awaiting your confirmation',
                 '⏸️ Final — awaiting your confirmation',
                 'Applied — unconfirmed'
@@ -478,6 +517,7 @@ def get_dashboard_data() -> dict:
                    last_email_date,
                    created_at
             FROM applications
+            WHERE archived_at IS NULL
             ORDER BY date_applied DESC, created_at DESC
         """).fetchall()
         import_done = db.execute(
@@ -502,6 +542,61 @@ def get_dashboard_data() -> dict:
         "Rejected":    grouped["Rejected"],
         "Offer":       grouped["Offer"],
         "import_done": import_done is not None,
+    }
+
+
+def archive_all_applications(round_label: str = "") -> dict:
+    """Archive every currently-active application under a round label.
+
+    Archived rows are excluded from get_dashboard_data()/get_overview_data()
+    but remain in the applications table (nothing is deleted), and stay
+    visible via get_archived_data().
+    """
+    with _conn() as db:
+        if not round_label:
+            n = db.execute(
+                "SELECT COUNT(DISTINCT archived_round) AS n FROM applications "
+                "WHERE archived_round IS NOT NULL"
+            ).fetchone()["n"]
+            round_label = f"Round {n + 1} - {date.today().isoformat()}"
+        db.execute(
+            "UPDATE applications SET archived_round=?, archived_at=CURRENT_TIMESTAMP "
+            "WHERE archived_at IS NULL",
+            (round_label,),
+        )
+        archived = db.execute("SELECT changes()").fetchone()[0]
+    return {"archived": archived, "round": round_label}
+
+
+def get_archived_data() -> dict:
+    """Return archived applications grouped by round, most recently archived first."""
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT id, company, role, location, date_applied, status,
+                   verdict, match_pct, key_gap, strengths, company_size,
+                   language, job_url, source, interview_chance, archive_path,
+                   COALESCE(applied_by, '')  AS applied_by,
+                   COALESCE(apply_type, '')  AS apply_type,
+                   last_email_date, created_at,
+                   archived_round, archived_at
+            FROM applications
+            WHERE archived_at IS NOT NULL
+            ORDER BY archived_at DESC, date_applied DESC, created_at DESC
+        """).fetchall()
+
+    all_rows = [dict(r) for r in rows]
+    rounds: dict[str, list] = {}
+    order: list[str] = []
+    for r in all_rows:
+        label = r["archived_round"] or "Archived"
+        if label not in rounds:
+            rounds[label] = []
+            order.append(label)
+        rounds[label].append(r)
+
+    return {
+        "rounds": [{"label": label, "applications": rounds[label]} for label in order],
+        "total":  len(all_rows),
     }
 
 
@@ -542,8 +637,9 @@ def exclude_job(url: str, company: str = "", title: str = "", reason: str = "") 
 
 
 def log_application(job: dict, archive_path: str = "", status: str = "Applied",
-                    applied_by: str = "", apply_type: str = "") -> None:
+                    applied_by: str = "", apply_type: str = "") -> "int | None":
     url = (job.get("url") or "").strip() or None
+    date_applied = (job.get("date_applied") or "").strip() or date.today().isoformat()
     with _conn() as db:
         if url:
             db.execute("""
@@ -562,7 +658,7 @@ def log_application(job: dict, archive_path: str = "", status: str = "Applied",
                 job.get("company", ""),
                 job.get("title",   ""),
                 job.get("location", ""),
-                date.today().isoformat(),
+                date_applied,
                 status,
                 job.get("match_score"),
                 url,
@@ -573,8 +669,12 @@ def log_application(job: dict, archive_path: str = "", status: str = "Applied",
                 applied_by or "",
                 apply_type or "",
             ))
+            # lastrowid is unreliable on the upsert's UPDATE path — job_url is
+            # unique, so look the row up directly rather than guess.
+            row = db.execute("SELECT id FROM applications WHERE job_url=?", (url,)).fetchone()
+            return row["id"] if row else None
         else:
-            db.execute("""
+            cur = db.execute("""
                 INSERT INTO applications
                 (company, role, location, date_applied, status, match_pct,
                  source, interview_chance, archive_path, language,
@@ -584,7 +684,7 @@ def log_application(job: dict, archive_path: str = "", status: str = "Applied",
                 job.get("company", ""),
                 job.get("title",   ""),
                 job.get("location", ""),
-                date.today().isoformat(),
+                date_applied,
                 status,
                 job.get("match_score"),
                 job.get("source", ""),
@@ -594,6 +694,7 @@ def log_application(job: dict, archive_path: str = "", status: str = "Applied",
                 applied_by or "",
                 apply_type or "",
             ))
+            return cur.lastrowid
 
 
 # ── Scraped / matched jobs ────────────────────────────────────────────────────
@@ -623,6 +724,11 @@ def insert_scraped_jobs(jobs: list[dict]) -> int:
             except Exception:
                 pass
     return inserted
+
+
+def add_scraped_job(job: dict) -> bool:
+    """Add a single scraped job. Returns True if inserted (new), False if duplicate."""
+    return insert_scraped_jobs([job]) > 0
 
 
 # ── seen_jobs cache ───────────────────────────────────────────────────────────
@@ -655,14 +761,15 @@ def upsert_seen_jobs(jobs: list[dict]) -> None:
             pd = (j.get("posted_date") or "").strip()
             db.execute("""
                 INSERT INTO seen_jobs (url, title, company, location, description, source,
-                                       posted_date, first_scraped_at, last_scraped_at)
-                VALUES (?,?,?,?,?,?,?,?,?)
+                                       posted_date, first_scraped_at, last_scraped_at, has_easy_apply)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(url) DO UPDATE SET
                     last_scraped_at = excluded.last_scraped_at,
                     posted_date = CASE
                         WHEN excluded.posted_date != '' THEN excluded.posted_date
                         ELSE seen_jobs.posted_date
-                    END
+                    END,
+                    has_easy_apply = excluded.has_easy_apply
             """, (
                 url,
                 j.get("title", ""),
@@ -671,6 +778,7 @@ def upsert_seen_jobs(jobs: list[dict]) -> None:
                 j.get("description", ""),
                 j.get("source", "LinkedIn"),
                 pd, now, now,
+                1 if j.get("has_easy_apply") else 0,
             ))
 
 
@@ -680,7 +788,7 @@ def get_relevant_cached_jobs(cfg) -> list[dict]:
     with _conn() as db:
         rows = db.execute("""
             SELECT url, title, company, location, description, source,
-                   posted_date,
+                   posted_date, has_easy_apply,
                    COALESCE(first_scraped_at, first_seen_at) AS scraped_at,
                    match_score, interview_chance, skip_reason, german_level_required
             FROM seen_jobs
@@ -702,6 +810,90 @@ def get_relevant_cached_jobs(cfg) -> list[dict]:
             ORDER BY posted_date DESC, COALESCE(first_scraped_at, first_seen_at) DESC
         """, (cutoff,)).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_all_cached_jobs() -> list[dict]:
+    """Return every active (non-dismissed, non-applied) cached job, ignoring the
+    posted-date time window — used by 'show all saved jobs' to recover jobs that
+    scrolled outside the window before ever being matched."""
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT url, title, company, location, description, source,
+                   posted_date, has_easy_apply,
+                   COALESCE(first_scraped_at, first_seen_at) AS scraped_at,
+                   match_score, interview_chance, skip_reason, german_level_required
+            FROM seen_jobs
+            WHERE dismissed = 0
+              AND applied = 0
+              AND url NOT IN (
+                  SELECT job_url FROM applications
+                  WHERE job_url IS NOT NULL AND job_url != ''
+              )
+              AND url NOT IN (
+                  SELECT url FROM excluded_jobs
+                  WHERE url IS NOT NULL AND url != ''
+              )
+            ORDER BY posted_date DESC, COALESCE(first_scraped_at, first_seen_at) DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_all_scored_jobs() -> list[dict]:
+    """Return every active job that already has a match_score from a previous
+    matching run — used by 'show already matched' so re-running the matcher
+    (which only scores unscored jobs) isn't the only way to see past results."""
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT url, title, company, location, description, source,
+                   posted_date, has_easy_apply,
+                   COALESCE(first_scraped_at, first_seen_at) AS scraped_at,
+                   match_score, interview_chance, skip_reason, german_level_required
+            FROM seen_jobs
+            WHERE dismissed = 0
+              AND applied = 0
+              AND match_score IS NOT NULL
+              AND url NOT IN (
+                  SELECT job_url FROM applications
+                  WHERE job_url IS NOT NULL AND job_url != ''
+              )
+              AND url NOT IN (
+                  SELECT url FROM excluded_jobs
+                  WHERE url IS NOT NULL AND url != ''
+              )
+            ORDER BY match_score DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
+def bulk_populate_matched_jobs(jobs: list[dict]) -> int:
+    """After scraped_jobs has been (re)populated from cache, create matched_jobs
+    rows for any of those jobs that already carry a match_score — keyed by URL
+    since the cache has no live scraped_jobs.id of its own."""
+    count = 0
+    with _conn() as db:
+        for j in jobs:
+            if j.get("match_score") is None:
+                continue
+            url = (j.get("url") or "").strip()
+            if not url:
+                continue
+            row = db.execute("SELECT id FROM scraped_jobs WHERE url=?", (url,)).fetchone()
+            if not row:
+                continue
+            db.execute("""
+                INSERT INTO matched_jobs
+                (scraped_job_id, match_score, interview_chance, german_level, skip_reason, match_summary)
+                VALUES (?,?,?,?,?,?)
+            """, (
+                row["id"],
+                j.get("match_score", 0),
+                j.get("interview_chance", "low"),
+                j.get("german_level_required", "none"),
+                j.get("skip_reason"),
+                j.get("match_summary", ""),
+            ))
+            count += 1
+    return count
 
 
 def get_cache_window_stats(cfg) -> dict:
@@ -794,33 +986,38 @@ def purge_job_by_url(url: str, reason: str = "dismissed") -> None:
 
 
 def purge_low_score_jobs(min_score: int = 50) -> int:
-    """Auto-dismiss all matched jobs with match_score < min_score.
+    """Auto-dismiss all jobs with match_score < min_score.
 
     For each qualifying job:
     - Inserts into excluded_jobs (permanent scrape block, survives table clears)
     - Sets seen_jobs.dismissed = 1 (blocks fresh-scrape and cache-restore paths)
     - Deletes from matched_jobs and scraped_jobs (cleans the current run)
 
+    Sweeps seen_jobs directly (not just the current run's matched_jobs/scraped_jobs
+    join) — those two tables get wiped on every scrape, so a job scored low in an
+    earlier run before this function ran (or before it existed) would otherwise
+    leak permanently as an un-dismissed low score. seen_jobs.match_score is the
+    durable source of truth; matched_jobs/scraped_jobs cleanup below is just for
+    the current run's display.
+
     Returns the count of purged jobs.
     """
     with _conn() as db:
         rows = db.execute("""
-            SELECT s.id  AS scraped_id,
-                   m.id  AS matched_id,
-                   s.url, s.company, s.title,
-                   m.match_score
-            FROM   matched_jobs m
-            JOIN   scraped_jobs s ON s.id = m.scraped_job_id
-            WHERE  m.match_score < ?
+            SELECT url, company, title, match_score
+            FROM   seen_jobs
+            WHERE  match_score IS NOT NULL AND match_score < ? AND dismissed = 0
         """, (min_score,)).fetchall()
 
         if not rows:
             return 0
 
+        urls = []
         for r in rows:
             url = (r["url"] or "").strip()
             if not url:
                 continue
+            urls.append(url)
             db.execute("""
                 INSERT INTO excluded_jobs (url, company, title, reason)
                 VALUES (?, ?, ?, ?)
@@ -831,12 +1028,67 @@ def purge_low_score_jobs(min_score: int = 50) -> int:
                   f"auto-dismissed: low score ({r['match_score']}%)"))
             db.execute("UPDATE seen_jobs SET dismissed=1 WHERE url=?", (url,))
 
-        matched_ids = [r["matched_id"] for r in rows]
-        scraped_ids = [r["scraped_id"] for r in rows]
-        ph_m = ",".join("?" * len(matched_ids))
-        ph_s = ",".join("?" * len(scraped_ids))
-        db.execute(f"DELETE FROM matched_jobs WHERE id IN ({ph_m})", matched_ids)
-        db.execute(f"DELETE FROM scraped_jobs  WHERE id IN ({ph_s})", scraped_ids)
+        if urls:
+            ph = ",".join("?" * len(urls))
+            db.execute(f"""
+                DELETE FROM matched_jobs WHERE scraped_job_id IN (
+                    SELECT id FROM scraped_jobs WHERE url IN ({ph})
+                )
+            """, urls)
+            db.execute(f"DELETE FROM scraped_jobs WHERE url IN ({ph})", urls)
+
+    return len(rows)
+
+
+def purge_old_jobs(max_age_days: int = 30) -> int:
+    """Auto-dismiss every active job older than max_age_days, scored or not.
+
+    Age is COALESCE(posted_date, first_scraped_at, first_seen_at) — most
+    LinkedIn jobs have posted_date, but some don't, so this falls back to when
+    we first saw it rather than silently never expiring those.
+
+    Same effect as purge_low_score_jobs: excluded_jobs (permanent scrape
+    block) + seen_jobs.dismissed=1 + cleanup of the current run's
+    matched_jobs/scraped_jobs rows.
+    """
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT url, company, title,
+                   COALESCE(posted_date, first_scraped_at, first_seen_at) AS age_date
+            FROM   seen_jobs
+            WHERE  dismissed = 0
+              AND  COALESCE(posted_date, first_scraped_at, first_seen_at) < ?
+        """, (cutoff,)).fetchall()
+
+        if not rows:
+            return 0
+
+        urls = []
+        for r in rows:
+            url = (r["url"] or "").strip()
+            if not url:
+                continue
+            urls.append(url)
+            db.execute("""
+                INSERT INTO excluded_jobs (url, company, title, reason)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(url) DO UPDATE SET
+                    reason      = excluded.reason,
+                    excluded_at = CURRENT_TIMESTAMP
+            """, (url, r["company"] or "", r["title"] or "",
+                  f"auto-dismissed: older than {max_age_days} days ({r['age_date']})"))
+            db.execute("UPDATE seen_jobs SET dismissed=1 WHERE url=?", (url,))
+
+        if urls:
+            ph = ",".join("?" * len(urls))
+            db.execute(f"""
+                DELETE FROM matched_jobs WHERE scraped_job_id IN (
+                    SELECT id FROM scraped_jobs WHERE url IN ({ph})
+                )
+            """, urls)
+            db.execute(f"DELETE FROM scraped_jobs WHERE url IN ({ph})", urls)
 
     return len(rows)
 
@@ -849,6 +1101,41 @@ def dismiss_job_by_id(job_id: int) -> None:
 def undismiss_job_by_id(job_id: int) -> None:
     with _conn() as db:
         db.execute("UPDATE seen_jobs SET dismissed=0 WHERE id=?", (job_id,))
+
+
+def purge_dismissed_jobs() -> int:
+    """Delete all dismissed jobs entirely from seen_jobs (they're blocked from scrapes
+    via excluded_jobs anyway, so keeping them around just clutters the DB)."""
+    with _conn() as db:
+        count = db.execute("DELETE FROM seen_jobs WHERE dismissed=1").rowcount
+    return count
+
+
+def backfill_easy_apply_from_applications() -> int:
+    """For jobs that were successfully applied to via LinkedIn Easy Apply,
+    retroactively tag them as has_easy_apply=1 in seen_jobs. This recovers
+    the tag for cached jobs that lost it during schema updates."""
+    count = 0
+    with _conn() as db:
+        rows = db.execute("""
+            SELECT DISTINCT job_url FROM applications
+            WHERE job_url IS NOT NULL
+              AND job_url != ''
+              AND apply_type LIKE '%easy%'
+        """).fetchall()
+
+        for r in rows:
+            url = (r["job_url"] or "").strip()
+            if not url:
+                continue
+            result = db.execute(
+                "UPDATE seen_jobs SET has_easy_apply=1 WHERE url=? AND has_easy_apply=0",
+                (url,)
+            )
+            if result.rowcount > 0:
+                count += 1
+
+    return count
 
 
 def get_cache_stats() -> dict:
@@ -1622,6 +1909,17 @@ def cancel_app_events(app_id: int) -> None:
             "UPDATE upcoming_events SET status='cancelled' WHERE app_id=? AND status='scheduled'",
             (app_id,),
         )
+
+
+def delete_application(app_id: int) -> bool:
+    """Remove an application row (e.g. a mistaken duplicate). Returns False if
+    it didn't exist. Clears the FK references first (foreign_keys=ON blocks the
+    delete otherwise): unlinks any email staged against it and drops its events."""
+    with _conn() as db:
+        db.execute("UPDATE email_staging SET matched_app_id=NULL WHERE matched_app_id=?", (app_id,))
+        db.execute("DELETE FROM upcoming_events WHERE app_id=?", (app_id,))
+        cur = db.execute("DELETE FROM applications WHERE id=?", (app_id,))
+        return cur.rowcount > 0
 
 
 def get_upcoming_events(event_type: "str | None" = None) -> list[dict]:

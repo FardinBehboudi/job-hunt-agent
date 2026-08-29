@@ -119,6 +119,67 @@ def test_get_application_companies(temp_db):
     assert "Google" in names
 
 
+def test_log_application_returns_new_id_without_url(temp_db):
+    app_id = temp_db.log_application({"company": "Acme", "title": "SWE"}, status="In Review")
+    assert app_id is not None
+    row = temp_db.get_application_by_id(app_id)
+    assert row["company"] == "Acme"
+    assert row["status"] == "In Review"
+
+
+def test_log_application_returns_id_with_url_on_insert_and_update(temp_db):
+    id1 = temp_db.log_application(
+        {"company": "Acme", "title": "SWE", "url": "https://acme.com/j/1"}, status="Applied",
+    )
+    id2 = temp_db.log_application(
+        {"company": "Acme", "title": "SWE", "url": "https://acme.com/j/1"}, status="Rejected",
+    )
+    assert id1 == id2  # same row, upserted
+
+
+def test_log_application_uses_provided_date_applied(temp_db):
+    app_id = temp_db.log_application(
+        {"company": "Acme", "title": "SWE", "date_applied": "2026-08-01"}, status="In Review",
+    )
+    row = temp_db.get_application_by_id(app_id)
+    assert row["date_applied"] == "2026-08-01"
+
+
+def test_delete_application_removes_row(temp_db):
+    app_id = temp_db.log_application({"company": "Acme", "title": "SWE"}, status="In Review")
+    assert temp_db.delete_application(app_id) is True
+    assert temp_db.get_application_by_id(app_id) is None
+
+
+def test_delete_application_returns_false_when_missing(temp_db):
+    assert temp_db.delete_application(999999) is False
+
+
+def test_delete_application_unlinks_referencing_email_and_events(temp_db):
+    # Regression: foreign_keys=ON blocks the delete unless referencing rows in
+    # email_staging/upcoming_events are cleared first.
+    app_id = temp_db.log_application({"company": "Acme", "title": "SWE"}, status="In Review")
+    staging_id = temp_db.stage_email({
+        "email_uid": "1", "email_message_id": "<a@test.com>",
+        "sender": "hr@acme.com", "subject": "Confirmation", "body_preview": "",
+        "received_date": "2026-08-29", "source_folder": "Inbox",
+        "matched_app_id": app_id, "match_confidence": 90,
+        "match_type": "exact", "predicted_folder": "In Review",
+        "confidence_score": 90, "classification_reason": "",
+    })
+    temp_db.insert_upcoming_event({
+        "event_type": "interview", "title": "Call", "description": "",
+        "event_date": None, "event_time": None, "timezone": None,
+        "priority": "medium", "app_id": app_id, "source_email_id": staging_id,
+    })
+
+    assert temp_db.delete_application(app_id) is True
+
+    staged = temp_db.get_staged_email(staging_id)
+    assert staged["matched_app_id"] is None
+    assert temp_db.get_upcoming_events() == []
+
+
 def test_get_staged_message_ids(temp_db):
     temp_db.stage_email({
         "email_uid": "4", "email_message_id": "<id123@mail.com>",

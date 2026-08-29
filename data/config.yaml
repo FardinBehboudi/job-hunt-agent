@@ -1,16 +1,15 @@
 notify_email: f_behboud@hotmail.com
 locations:
-- Berlin
-- Hamburg
 - Germany
-- Zurich
-min_match_score: 60
-max_applications_per_day: 4
-posted_limit: week
+- switzerland
+- Berlin
+min_match_score: 55
+max_applications_per_day: 500
+posted_limit: 24h
 smart_scrape: true
 only_easy_apply: false
-skip_cached_jobs: false
-scrape_pool_size: 3
+skip_cached_jobs: true
+scrape_pool_size: 40
 experience_levels:
 - entry
 - associate
@@ -27,11 +26,12 @@ skip_german_levels:
 auto_confirm_recruiter_call: true
 auto_confirm_technical: false
 headless: false
-confirm_before_apply: true
+confirm_before_apply: false
 tracker_file: job_application_tracker_v34.xlsx
 log_file: agent/applied_jobs_log.json
 roles:
 - Backend Java Engineer
+- java developer
 target_companies: []
 retry_captcha_as_manual: false
 application_profile:
@@ -47,8 +47,7 @@ application_profile:
   salary_expectation: 75000
   salary_currency: EUR
   years_of_experience: 5
-  work_permit: German citizen - fully authorized to work in the EU and UK without
-    any visa sponsorship
+  work_permit: German citizen
   willing_to_relocate: true
   willing_to_travel: occasionally
   languages:

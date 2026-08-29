@@ -50,8 +50,10 @@ async def _claude_decide(page, profile: dict, resume_text: str,
     try:
         dom_snap = await page.evaluate("""() => {
             const out = [];
+            // type=password excluded — never expose an authentication field
+            // to the AI form-filler; account creation is the user's call.
             const els = document.querySelectorAll(
-                'input:not([type=hidden]):not([disabled]),' +
+                'input:not([type=hidden]):not([type=password]):not([disabled]),' +
                 'textarea:not([disabled]),select:not([disabled]),' +
                 'button[type=submit],[role=button]'
             );
@@ -156,8 +158,11 @@ async def _execute_actions(page, actions: list[dict], cfg: dict) -> int:
 
     # Get visible elements for index-based actions
     try:
+        # Must exclude type=password exactly like the DOM snapshot above, or
+        # the indices Claude was given (built from that filtered list) point
+        # at the wrong elements here.
         elements = await page.query_selector_all(
-            "input:not([type=hidden]):not([disabled]),"
+            "input:not([type=hidden]):not([type=password]):not([disabled]),"
             "textarea:not([disabled]),select:not([disabled]),"
             "button[type=submit],[role=button]"
         )

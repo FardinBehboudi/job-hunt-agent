@@ -1688,6 +1688,16 @@ td { padding: 10px 14px; vertical-align: middle; }
 
           </div>
 
+          <div style="margin-top:20px;padding-top:16px;border-top:1px solid #21262d;">
+            <label style="display:block;font-weight:600;color:#e2e8f0;font-size:0.84rem;margin-bottom:8px;">Add Jobs Manually</label>
+            <p style="color:#8b949e;font-size:0.79rem;margin-bottom:8px;">Paste job URLs below (one per line) to extract details and add to review.</p>
+            <textarea id="manual-urls-input" placeholder="Paste URLs here..." style="width:100%;height:100px;padding:10px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#e2e8f0;font-family:monospace;font-size:0.82rem;resize:vertical;"></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;">
+              <button class="btn-primary btn-sm" onclick="addJobsManually(this)">Add to Review</button>
+              <span id="manual-status" style="display:inline-flex;align-items:center;font-size:0.78rem;color:#64748b;"></span>
+            </div>
+          </div>
+
         </div>
 
       </div>
@@ -4733,6 +4743,43 @@ function _fmtDate(ts) {
 
   return d.toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
 
+}
+
+
+
+function addJobsManually(btn) {
+  const textarea = document.getElementById('manual-urls-input');
+  const urls = textarea.value.trim().split('\n').filter(u => u.trim());
+  const statusEl = document.getElementById('manual-status');
+
+  if (urls.length === 0) {
+    showToast('Please paste at least one URL', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = 'Processing...';
+  statusEl.innerHTML = '';
+
+  fetch('/api/scrapped_jobs/add_manual', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({urls: urls})
+  }).then(r => r.json()).then(d => {
+    if (d.error) throw new Error(d.error);
+    showToast('Added ' + d.added + ' job(s) to review', 'success');
+    textarea.value = '';
+    if (d.failed > 0) {
+      statusEl.innerHTML = 'Warning: ' + d.failed + ' URL(s) failed';
+    }
+    _startPoll();
+    btn.disabled = false;
+    btn.innerHTML = 'Add to Review';
+  }).catch(err => {
+    showToast(err.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = 'Add to Review';
+  });
 }
 
 
@@ -12002,9 +12049,35 @@ def api_applications_manual():
 
 
 
-
-
-
+@app.route("/api/scrapped_jobs/add_manual", methods=["POST"])
+def api_scrapped_jobs_add_manual():
+    try:
+        from dedup import db as _db
+        from scraper import scraper
+        body = request.get_json(force=True) or {}
+        urls = body.get("urls", [])
+        if not urls:
+            return jsonify({"error": "No URLs provided"}), 400
+        added = 0
+        failed = 0
+        for url in urls:
+            url = url.strip()
+            if not url:
+                continue
+            try:
+                job = scraper.extract_job_from_url(url)
+                if job:
+                    _db.add_scraped_job(job)
+                    added += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                log.warning(f"Failed to extract job from {url}: {e}")
+                failed += 1
+        return jsonify({"added": added, "failed": failed})
+    except Exception as exc:
+        log.error(f"Error in add_manual: {exc}")
+        return jsonify({"error": str(exc)}), 500
 
 
 if __name__ == "__main__":

@@ -546,6 +546,7 @@ def run(cfg: dict | None = None) -> list[dict]:
         j["cache_status"] = "cached" if j.get("url") in cached_urls else "new"
 
     # ── Stage 3: Add cached jobs within the configured time window ─────────────
+    only_easy_apply = cfg.get("only_easy_apply", False)
     fresh_urls    = {j.get("url") for j in jobs if j.get("url")}
     all_cached    = _db_cache.get_relevant_cached_jobs(cfg)
     cached_extra = []
@@ -558,6 +559,8 @@ def run(cfg: dict | None = None) -> list[dict]:
         if url and url in applied_urls:
             continue
         if company and title and (company, title) in applied_combos:
+            continue
+        if only_easy_apply and not j.get("has_easy_apply"):
             continue
         cached_extra.append(j)
     for j in cached_extra:
@@ -600,6 +603,60 @@ def run(cfg: dict | None = None) -> list[dict]:
                 log.info("Skipped %d cached jobs (skip_cached_jobs enabled)", skipped)
 
     _save_to_db(jobs)
+    return jobs
+
+
+def load_all_cached(cfg: dict | None = None) -> list[dict]:
+    """Populate scraped_jobs from every saved job in the persistent cache,
+    ignoring the posted-date time window and without calling Apify at all.
+
+    For jobs that were scraped in the past but never matched (e.g. they fell
+    outside the posted_limit window before matching ran), this is the only way
+    to see them again without a fresh scrape. Deliberately ignores
+    only_easy_apply — this is a review/recovery view of everything saved, not
+    a new scrape, and most historical rows predate has_easy_apply being tracked
+    at all so filtering here would just hide almost everything.
+    """
+    if cfg is None:
+        cfg = load_config()
+
+    from dedup import db as _db_cache
+    _db_cache.init_db()
+
+    jobs = _db_cache.get_all_cached_jobs()
+    for j in jobs:
+        j["cache_status"] = "cached"
+
+    _clear_run_tables()
+    _save_to_db(jobs)
+    log.info("Loaded %d saved jobs from cache (no scrape performed)", len(jobs))
+    return jobs
+
+
+def load_scored_cached(cfg: dict | None = None) -> list[dict]:
+    """Populate scraped_jobs + matched_jobs from every job that already has a
+    match_score from a past run, without re-running the matcher or Apify.
+
+    The matcher only scores jobs it hasn't seen before, so a job matched in an
+    earlier run (before matched_jobs got cleared by a later scrape) would
+    otherwise be invisible in Step 3 unless it happens to also be unscored
+    again. This recovers the full scored history from the persistent cache.
+    """
+    if cfg is None:
+        cfg = load_config()
+
+    from dedup import db as _db_cache
+    _db_cache.init_db()
+
+    jobs = _db_cache.get_all_scored_jobs()
+    for j in jobs:
+        j["cache_status"] = "cached"
+
+    _clear_run_tables()
+    _save_to_db(jobs)
+    populated = _db_cache.bulk_populate_matched_jobs(jobs)
+    log.info("Loaded %d previously-scored jobs from cache (%d matched_jobs rows created)",
+              len(jobs), populated)
     return jobs
 
 
@@ -685,6 +742,72 @@ def _save_to_db(jobs: list[dict]) -> None:
         con.rollback()
     finally:
         con.close()
+
+
+def extract_job_from_url(url: str) -> dict | None:
+    """Fetch a job URL and extract title, company, location, description.
+
+    Uses Playwright to load the page and JavaScript to extract common job fields.
+    Returns a job dict ready for DB insertion, or None if extraction fails.
+    """
+    import asyncio
+    from playwright.async_api import async_playwright
+
+    async def _fetch_and_parse():
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch()
+                page = await browser.new_page()
+                await page.goto(url, wait_until="networkidle", timeout=15000)
+
+                data = await page.evaluate("""() => {
+                    const getText = (sel) => {
+                        const el = document.querySelector(sel);
+                        return el ? el.innerText.trim() : '';
+                    };
+
+                    const title = getText('h1') || getText('h2') || getText('[data-job-title]') || getText('.job-title');
+                    const company = getText('[data-company]') || getText('.company-name') || getText('.employer') || getText('[data-company-name]');
+                    const location = getText('[data-location]') || getText('.location') || getText('.job-location');
+                    let description = getText('.job-description') || getText('[data-description]') || getText('.description') || getText('#job-description');
+
+                    if (!description) {
+                        const main = document.querySelector('[role="main"]');
+                        description = main ? main.innerText : document.body.innerText;
+                    }
+
+                    return {
+                        title: title.slice(0, 300),
+                        company: company.slice(0, 200),
+                        location: location.slice(0, 200),
+                        description: description.slice(0, 3000)
+                    };
+                }""")
+
+                await browser.close()
+
+                if not data.get("title"):
+                    log.warning(f"Could not extract title from {url}")
+                    return None
+
+                return {
+                    "url": url,
+                    "title": data.get("title", ""),
+                    "company": data.get("company", "") or "Unknown",
+                    "location": data.get("location", ""),
+                    "description": data.get("description", ""),
+                    "source": "Manual",
+                    "posted_date": "",
+                }
+        except Exception as e:
+            log.warning(f"Failed to extract from {url}: {e}")
+            return None
+
+    try:
+        return asyncio.run(_fetch_and_parse())
+    except Exception as e:
+        log.error(f"Error extracting job from {url}: {e}")
+        return None
 
 
 if __name__ == "__main__":

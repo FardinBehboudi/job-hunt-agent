@@ -29,7 +29,12 @@ from applier.linkedin_applier import (
 
 try:
     from browser_use import Agent as _BUAgent, Browser as _BUBrowser
-    from langchain_anthropic import ChatAnthropic as _BUChatAnthropic
+    # browser-use >=0.2 requires its own LLM wrapper (implements .provider/
+    # .model for its internal bookkeeping) rather than a raw LangChain
+    # BaseChatModel — passing langchain_anthropic.ChatAnthropic here crashes
+    # with "'ChatAnthropic' object has no attribute 'provider'" (verified
+    # live) because that class was never meant to satisfy this interface.
+    from browser_use.llm.anthropic.chat import ChatAnthropic as _BUChatAnthropic
     _BROWSER_USE_OK = True
 except ImportError:
     _BUAgent = _BUBrowser = _BUChatAnthropic = None  # type: ignore
@@ -39,7 +44,7 @@ log = logging.getLogger(__name__)
 
 # ── Cookie / privacy consent popup dismissal ──────────────────────────────────
 _CONSENT_ACCEPT_RE = re.compile(
-    r"^(accept|accept all|accept all cookies|alle akzeptieren|accept cookies|"
+    r"^(accept|accept all|accept all cookies|alle akzeptieren|akzeptieren|accept cookies|"
     r"alle cookies akzeptieren|i accept|agree|agree all|agree to all|"
     r"allow all|allow cookies|allow all cookies|ok|got it|"
     r"verstanden|zustimmen|einverstanden|accepter tout|tout accepter|"
@@ -103,7 +108,7 @@ _PLATFORM_PATTERNS: list[tuple[str, str]] = [
     (r"jazzhr\.com|resumatorjobs\.com", "jazzhr"),
     (r"teamtailor\.com",            "teamtailor"),
     (r"jobvite\.com",               "jobvite"),
-    (r"successfactors\.com|sap\.com", "successfactors"),
+    (r"successfactors\.\w+|sap\.com", "successfactors"),
     (r"stepstone\.de",              "stepstone"),
     (r"xing\.com",                  "xing"),
     (r"indeed\.com",                "indeed"),
@@ -231,12 +236,23 @@ async def _verify_submission(page: Page) -> bool:
     # Signal 1: URL pattern
     try:
         url = page.url.lower()
+        # Match against the path+query only, never the hostname — verified
+        # live: a job that redirected to career5.successfactors.eu (a
+        # legitimate ATS provider whose name happens to contain "success")
+        # got a false "confirmed" verdict from this check before any field
+        # was even filled, because "success" matched inside "successfactors".
+        # ATS/company names commonly contain thank/success/complete-ish
+        # substrings; genuine confirmation signals live in the path, not
+        # the domain.
+        from urllib.parse import urlparse
+        _url_parts = urlparse(url)
+        _url_tail = (_url_parts.path or "") + "?" + (_url_parts.query or "")
         _confirm_url_patterns = [
             "thank", "thanks", "danke", "success", "erfolgreich",
             "confirm", "bestatig", "submitted", "bewerbung-eingegangen",
             "application-sent", "applied", "complete", "finished",
         ]
-        if any(p in url for p in _confirm_url_patterns):
+        if any(p in _url_tail for p in _confirm_url_patterns):
             score += 3
             log.info("Submission signal: confirmation URL (%s)", url[:80])
     except Exception:
@@ -343,8 +359,10 @@ async def _get_form_snapshot(page: Page) -> str:
     try:
         snapshot = await page.evaluate("""() => {
             const fields = [];
+            // type=password excluded — never expose an authentication field
+            // to the AI form-filler; account creation is the user's call.
             const inputs = document.querySelectorAll(
-                'input:not([type=hidden]):not([type=submit]):not([type=button]),' +
+                'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=password]),' +
                 'textarea, select'
             );
             inputs.forEach((el, idx) => {
@@ -435,8 +453,11 @@ async def _ai_execute_action(page: Page, action: dict) -> None:
     kind  = action.get("action", "fill")
     value = str(action.get("value", ""))
 
+    # Must exclude type=password exactly like _get_form_snapshot above, or
+    # the indices the AI was given (built from that filtered list) point at
+    # the wrong elements here.
     elements = await page.query_selector_all(
-        'input:not([type=hidden]):not([type=submit]):not([type=button]),'
+        'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=password]),'
         'textarea, select'
     )
     visible = []
@@ -556,6 +577,15 @@ async def _fill_remaining_questions(
                         if o.strip() and o.strip().lower() not in _PH]
                 if not opts:
                     continue
+                # Some custom-styled selects set aria-label to the CURRENTLY
+                # DISPLAYED value rather than the field's question (verified
+                # live: a country select's native selectedIndex read as
+                # empty/placeholder, but its aria-label was "Germany" — one
+                # of its own options — which then got mistaken for the
+                # question and "answered" into an unrelated country). A real
+                # question is never verbatim one of its own dropdown options.
+                if label and label.strip().lower() in {o.lower() for o in opts}:
+                    continue
                 answer = answer_custom_question(label or "", "select", opts, resume_text, profile, job_desc, prior_answers=prior)
                 if answer:
                     try:
@@ -581,7 +611,8 @@ async def _fill_remaining_questions(
 
     # ── Combobox / typeahead dropdowns ────────────────────────────────────────
     try:
-        _PH2 = {"", "select", "select an option", "---", "please select", "choose one", "choose"}
+        _PH2 = {"", "select", "select an option", "---", "please select", "choose one", "choose",
+                "no selection", "none selected", "nothing selected"}
         comboboxes = page.locator(
             "input[role='combobox']:not([disabled]), "
             "input[aria-haspopup='listbox']:not([disabled]), "
@@ -610,8 +641,17 @@ async def _fill_remaining_questions(
                     "li[data-value], [class*='option']:not([class*='no-option']), "
                     "[class*='dropdown-item'], [class*='list-item']"
                 )
+                # Some dropdowns (country/nationality pickers especially) list
+                # 200+ entries in no particular order — verified live: a
+                # country combobox had 250 options with "Germany" nowhere
+                # near the front, so capping this scan at 30 meant the actual
+                # answer (and the mislabel guard below, which needs to find
+                # the label among the options to detect a stale aria-label)
+                # never saw it at all. text_content() is cheap; do it in bulk
+                # first and only visibility-check the ones that look relevant.
                 opts: list[str] = []
-                for oi in range(min(await _opt_loc.count(), 30)):
+                _raw_opt_count = await _opt_loc.count()
+                for oi in range(min(_raw_opt_count, 300)):
                     try:
                         opt_el = _opt_loc.nth(oi)
                         if not await opt_el.is_visible():
@@ -626,25 +666,58 @@ async def _fill_remaining_questions(
                     await cb_input.press("Escape")
                     continue
 
-                answer = answer_custom_question(label, "select", opts, resume_text, profile, job_desc, prior_answers=prior)
+                # Same guard as the <select> loop above: some custom comboboxes
+                # set aria-label to the CURRENTLY DISPLAYED value rather than
+                # the field's question (verified live: a country combobox's
+                # label was "Germany" — one of its own dropdown options —
+                # which then got "answered" into an unrelated country). A real
+                # question is never verbatim one of its own options.
+                # But the underlying <input> is genuinely empty regardless of
+                # what's shown, so the field still fails validation if we just
+                # skip it (verified live: doing so left the form stuck) — the
+                # label itself IS the already-known-correct answer, so select
+                # it explicitly instead of asking the LLM.
+                _label_is_stale_value = label.strip().lower() in {o.lower() for o in opts}
+                answer = label if _label_is_stale_value else answer_custom_question(
+                    label, "select", opts, resume_text, profile, job_desc, prior_answers=prior
+                )
                 if not answer:
                     await cb_input.press("Escape")
                     continue
 
-                # Click the matching option (re-query live DOM — not stale snapshot)
-                clicked = False
-                for oi in range(min(await _opt_loc.count(), 30)):
+                # Click the matching option (re-query live DOM — not stale
+                # snapshot). Two passes: exact match first, then substring —
+                # a pure substring check picks whichever option happens to
+                # come first in DOM order, which is wrong whenever a
+                # placeholder-ish option contains the real answer as a
+                # substring (verified live: answer "No" matched "No
+                # Selection" — the blank/placeholder entry — before ever
+                # reaching the real "No" option, since "no" is literally
+                # inside "no selection").
+                _opt_texts: dict[int, str] = {}
+                for oi in range(min(await _opt_loc.count(), 300)):
                     try:
                         opt_el = _opt_loc.nth(oi)
                         if not await opt_el.is_visible():
                             continue
-                        txt = (await opt_el.text_content() or "").strip()
-                        if txt.lower() == answer.lower() or answer.lower() in txt.lower():
-                            await opt_el.click()
-                            clicked = True
-                            break
+                        _opt_texts[oi] = (await opt_el.text_content() or "").strip()
                     except Exception:
                         pass
+                clicked = False
+                for _pass in ("exact", "substring"):
+                    for oi, txt in _opt_texts.items():
+                        matched = (txt.lower() == answer.lower() if _pass == "exact"
+                                   else answer.lower() in txt.lower())
+                        if not matched:
+                            continue
+                        try:
+                            await _opt_loc.nth(oi).click()
+                            clicked = True
+                        except Exception:
+                            pass
+                        break
+                    if clicked:
+                        break
 
                 if not clicked:
                     # Fallback: type the answer and let autocomplete pick it
@@ -769,11 +842,54 @@ async def _fill_remaining_questions(
     except Exception:
         pass
 
+    # Some ATS platforms (verified live: SAP SuccessFactors) render NO
+    # <input type=file> at all until a "+"-style attach icon is clicked —
+    # the widget shows "Resume/CV is required" with nothing to upload to.
+    # Clicking that icon opens a "choose upload source" popup and reveals a
+    # real (if visually overlaid/invisible) file input, which can then be
+    # set directly like any other. Only run this if nothing was uploaded via
+    # a plain visible input above, so this never double-uploads on ATS
+    # platforms whose file input was already there from the start.
+    try:
+        _resume_doc = _resume_path(cfg, job.get("_resume_lang", "en"), company=job.get("company"))
+        if _resume_doc and not await page.locator(
+            "input[type='file']:not([disabled])"
+        ).count():
+            _attach_triggers = page.locator(
+                "[class*='addAttachment'], [id*='attachIcon' i], "
+                "[aria-label*='upload' i][role='button'], "
+                "[title*='upload' i][role='button']"
+            )
+            for i in range(min(await _attach_triggers.count(), 3)):
+                try:
+                    trig = _attach_triggers.nth(i)
+                    if not await trig.is_visible():
+                        continue
+                    await trig.click()
+                    await asyncio.sleep(0.8)
+                    revealed = page.locator("input[type='file']:not([disabled])")
+                    if not await revealed.count():
+                        continue
+                    await revealed.first.set_input_files(str(_resume_doc))
+                    await asyncio.sleep(1.5)
+                    _emit("apply_step", {"url": url,
+                          "step": f"  📎 Uploaded resume via attach dialog: {_resume_doc.name}"})
+                    break
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     # ── Consent / GDPR checkboxes ─────────────────────────────────────────────
     try:
         _CONSENT = re.compile(
             r"\bagree\b|\bconfirm\b|\bauthorize\b|\bconsent\b|\backnowledge\b"
-            r"|\bterms\b|\bprivacy\b|\bdatenschutz\b|\beinverstanden\b",
+            r"|\bterms\b|\bprivacy\b|\bdatenschutz\b|\beinverstanden\b"
+            # "Allow us to process your personal information" (verified live,
+            # osapiens/Greenhouse-style Rails ATS) — a mandatory GDPR data-
+            # processing checkbox phrased without any of the keywords above.
+            r"|process.*(personal|your).*(information|data)|processing of.*data"
+            r"|gdpr|data protection",
             re.I
         )
         for i in range(min(await page.locator("input[type='checkbox']").count(), 15)):
@@ -833,14 +949,16 @@ async def _fix_ext_validation_errors(
     try:
         errored = await page.evaluate("""() => {
             const out = [];
+            // type=password excluded everywhere below — never auto-fill an
+            // authentication field. Account creation must be a human's call.
             const sels = [
-                'input[aria-invalid="true"]:not([type=hidden])',
+                'input[aria-invalid="true"]:not([type=hidden]):not([type=password])',
                 'textarea[aria-invalid="true"]',
                 'select[aria-invalid="true"]',
-                '[class*="error"]:not([class*="error-boundary"]) input:not([type=hidden]):not([disabled])',
+                '[class*="error"]:not([class*="error-boundary"]) input:not([type=hidden]):not([type=password]):not([disabled])',
                 '[class*="error"]:not([class*="error-boundary"]) textarea:not([disabled])',
                 '[class*="error"]:not([class*="error-boundary"]) select:not([disabled])',
-                '[class*="invalid"] input:not([type=hidden]):not([disabled])',
+                '[class*="invalid"] input:not([type=hidden]):not([type=password]):not([disabled])',
                 '[class*="invalid"] textarea:not([disabled])',
             ];
             for (const sel of sels) {
@@ -867,6 +985,14 @@ async def _fix_ext_validation_errors(
         ftype = fi.get("type", "text")
         try:
             if not fid:
+                continue
+            if ftype == "password":
+                # Never auto-fill an authentication field, no matter what
+                # asked for it — account creation is the user's call, not
+                # something this pipeline decides on its own. Flag it
+                # clearly instead of silently skipping.
+                _emit("apply_step", {"url": "",
+                      "step": f"  🔒 Account creation required ({label[:40]}) — needs manual completion"})
                 continue
             el = page.locator(f"#{fid}")
             if not await el.count() or not await el.first.is_visible():
@@ -900,6 +1026,15 @@ async def _fix_ext_validation_errors(
                     await el.first.fill("")
                     await asyncio.sleep(0.1)
                     await _reliable_fill(page, el.first, answer)
+                    # Fields like Greenhouse's Google-Places-backed "Location
+                    # (City)" only register a real value when an actual
+                    # suggestion is clicked — typed text alone leaves the
+                    # hidden place-id unset, so validation keeps failing on
+                    # every retry forever (verified live: this exact field
+                    # got "fixed" and resubmitted 4 times, same error each
+                    # time, because this repair path never picked a
+                    # suggestion the way the initial fill pass does).
+                    await _handle_autocomplete(page, el.first, answer)
                     fixed += 1
                     prior.append({"question": label, "answer": answer})
                     _emit("apply_step", {"url": "", "step": f"  🔧 Fixed: {label[:40]} → {answer[:40]}"})
@@ -1175,7 +1310,39 @@ async def _run_ats_form(
                 except Exception:
                     pass
             if not still_form:
-                break  # No form anywhere = likely confirmation page
+                # No form anywhere = likely confirmation page — but the
+                # verification above may have run before the page finished
+                # redirecting/settling (verified live: a Rails-style ATS
+                # navigated to a genuine confirmation page here, yet this
+                # code used to just `break` without ever re-checking it,
+                # silently falling through to "could not confirm submission"
+                # even though its own reasoning said success was likely).
+                # Give it one more, patient verification pass before giving up.
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=5_000)
+                except Exception:
+                    pass
+                if await _verify_submission(page):
+                    return {"success": True, "manual": False, "apply_type": apply_type}
+                break
+
+            # Stuck detection: a genuine multi-page wizard changes URL on
+            # each step. If "submit" left the URL unchanged for 2 consecutive
+            # attempts while a form is still present, this isn't progress —
+            # it's the same page re-rendering with a validation error we
+            # can't resolve, and re-filling/re-submitting it up to max_steps
+            # times just burns API calls in a loop (verified live: an
+            # unresolved country-select error looped 11 times re-answering
+            # itself before finally giving up). Escalate instead of looping.
+            if page.url == _last_url:
+                _stuck_count += 1
+                if _stuck_count >= 2:
+                    _emit("apply_step", {"url": url,
+                          "step": "  ⚠ Form appears stuck (same URL after 2 submits) — handing off"})
+                    break
+            else:
+                _stuck_count = 0
+            _last_url = page.url
 
             # Re-resolve frame — multi-step forms sometimes swap iframes
             ctx = await _get_form_frame(page)
@@ -1188,12 +1355,18 @@ async def _run_ats_form(
         # intermediate steps (it causes false positives on multi-step forms).
         if action == "next":
             url_now = page.url.lower()
+            # Same hostname-vs-path fix as _verify_submission above — match
+            # only the path+query so an ATS provider's own domain name
+            # (e.g. successfactors.eu) can't masquerade as a confirmation.
+            from urllib.parse import urlparse as _urlparse_next
+            _url_now_parts = _urlparse_next(url_now)
+            _url_now_tail = (_url_now_parts.path or "") + "?" + (_url_now_parts.query or "")
             _confirm_url_kw = [
                 "thank", "thanks", "danke", "success", "erfolgreich",
                 "confirm", "bestatig", "submitted", "bewerbung-eingegangen",
                 "application-sent", "applied", "complete", "finished",
             ]
-            if any(kw in url_now for kw in _confirm_url_kw):
+            if any(kw in _url_now_tail for kw in _confirm_url_kw):
                 return {"success": True, "manual": False, "apply_type": apply_type}
             # Stuck detection: if URL hasn't changed for 2 consecutive "next" clicks,
             # validation errors are likely blocking us — break so vision fallback can try.
@@ -1386,8 +1559,20 @@ async def _apply_icims(page: Page, job: dict, cfg: dict, resume_text: str, profi
 
 
 async def _apply_successfactors(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
-    _emit("apply_step", {"url": job.get("url", ""), "step": "⚠️ Going to manual: SuccessFactors requires manual apply"})
-    return {"success": False, "manual": True, "note": "SuccessFactors requires manual apply"}
+    """SuccessFactors: standard-ish HTML forms — the shared CSS form runner
+    already makes real, verified progress on these (first/last name, email,
+    phone, LinkedIn, salary, notice period, cover-letter question, country,
+    prior-employment, work eligibility all filled correctly in a live test)
+    even before this handler existed, so use it instead of forcing manual."""
+    url = page.url
+    _emit("apply_step", {"url": url, "step": "🏢 SuccessFactors — filling form"})
+    try:
+        return await _run_ats_form(page, job, cfg, resume_text, profile,
+                                   apply_type="External (SuccessFactors)", max_steps=10)
+    except PWTimeout:
+        return {"success": False, "manual": False, "note": "Timeout"}
+    except Exception as exc:
+        return {"success": False, "manual": True, "note": str(exc)}
 
 
 async def _apply_xing(page: Page, job: dict, cfg: dict, resume_text: str, profile: dict) -> dict:
@@ -1422,6 +1607,9 @@ async def _apply_generic_browser_use(
 
     task = f"""
 You are filling out a job application form. Complete ALL visible form fields and submit the application.
+
+0. Navigate to this URL first — the browser may start on a blank page with
+   nothing loaded: {url}
 
 APPLICANT PROFILE:
 - Name: {p.get('first_name', '')} {p.get('last_name', '')}
@@ -1475,7 +1663,20 @@ RULES:
         result = await agent.run(max_steps=40)
 
         final = (result.final_result() or "").lower()
-        success = any(kw in final for kw in [
+        # The agent's own explanation of FAILURE routinely contains these same
+        # positive keywords ("I was unable to complete the job application")
+        # — verified live: this exact sentence got scored as a success purely
+        # because "complete" appears in it. Check for negation/failure
+        # language first and let it veto the positive match; a bare
+        # substring check with no negation awareness isn't safe here.
+        _negative_kw = [
+            "unable to", "could not", "couldn't", "cannot", "can't",
+            "did not", "didn't", "was not able", "wasn't able",
+            "no url", "no form", "blank page", "about:blank",
+            "failed to", "not provided", "please provide",
+        ]
+        _has_negative = any(kw in final for kw in _negative_kw)
+        success = (not _has_negative) and any(kw in final for kw in [
             "success", "submitted", "applied", "complete", "confirmed",
             "application sent", "thank you", "danke"
         ])
@@ -1589,7 +1790,21 @@ async def _route_to_handler(
     # Unknown / custom ATS — try to land on the actual form first.
     # Many portals open on a job-description page; we must click their Apply button
     # before any form-fill logic runs.
-    await _click_apply_on_listing(page)
+    _navigated = await _click_apply_on_listing(page)
+
+    # That click can land on a recognized ATS even though `platform` (detected
+    # from the URL *before* this click) was "unknown" — verified live: a
+    # company's own "shell" career page linked straight to SuccessFactors,
+    # but the dedicated handler never ran because routing had already
+    # committed to the generic path based on the pre-click URL. Re-detect
+    # and route properly before falling through to the generic runner.
+    if _navigated:
+        _new_platform = detect_platform(page.url)
+        _new_handler = PLATFORM_HANDLERS.get(_new_platform)
+        if _new_handler and _new_platform not in ("linkedin", "unknown"):
+            log.info("Re-routing to %s handler after listing-page click (URL: %s)",
+                     _new_platform, page.url)
+            return await _new_handler(page, dict(job, url=page.url), cfg, resume_text, profile)
 
     # Two-tier fallback:
     # Tier 1: CSS-selector form runner (_run_ats_form).  Fast, works on any standard
@@ -1640,6 +1855,40 @@ async def _click_apply_on_listing(page: Page) -> bool:
     except Exception:
         pass
     await asyncio.sleep(1.5)
+
+    # Prefer a link whose href points at a known ATS domain — unambiguous
+    # signal that this is a "shell" company career page fronting a real ATS,
+    # regardless of what else is on the page. Checked before the form-count
+    # heuristic below because that heuristic is flaky in practice (verified
+    # live: a lingering cookie-consent widget's toggle inputs were enough to
+    # trip "already on a form" and skip this click entirely, stranding the
+    # flow on the shell page forever).
+    try:
+        _known_ats_href = ", ".join(
+            f"a[href*='{d}']" for d in (
+                "successfactors", "greenhouse.io", "lever.co", "ashbyhq.com",
+                "myworkdayjobs.com", "smartrecruiters.com", "icims.com",
+                "taleo.net", "bamboohr.com", "workable.com", "personio",
+                "recruitee.com", "jazz.co", "resumatorjobs.com", "jobvite.com",
+            )
+        )
+        _ats_link = page.locator(_known_ats_href)
+        if await _ats_link.count() and await _ats_link.first.is_visible():
+            _href = await _ats_link.first.get_attribute("href")
+            log.info("_click_apply_on_listing: clicking known-ATS link -> %s", (_href or "")[:100])
+            _emit("apply_step", {"url": page.url,
+                  "step": f"  🔗 Job listing detected — following ATS link"})
+            await _ats_link.first.scroll_into_view_if_needed()
+            await asyncio.sleep(0.4)
+            await _ats_link.first.click()
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+            except Exception:
+                pass
+            await asyncio.sleep(2.0)
+            return True
+    except Exception:
+        pass
 
     # Count visible form fields — if already on a form, do nothing
     try:

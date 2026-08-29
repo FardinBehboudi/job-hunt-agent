@@ -117,15 +117,28 @@ LOCATION_ALIASES: dict[str, list[str]] = {
 }
 
 
+def _alias_in_text(alias: str, text: str) -> bool:
+    """Match an alias in text — short aliases (country-code abbreviations
+    like "de", "at", "us", "uk") only as a whole word, since a raw substring
+    check false-positives constantly (verified live: alias "de" for Germany
+    matched inside "Bangladesh", causing a phone-country dropdown to select
+    Bangladesh for a candidate in Berlin). Longer aliases keep substring
+    matching since real country names rarely collide that way.
+    """
+    if len(alias) <= 3:
+        return re.search(rf"\b{re.escape(alias)}\b", text) is not None
+    return alias in text
+
+
 def _normalize_location(value: str, options: list[str]) -> str:
     value_lower = value.lower()
     for opt in options:
         if value_lower in opt.lower() or opt.lower() in value_lower:
             return opt
     for canonical, aliases in LOCATION_ALIASES.items():
-        if any(a in value_lower for a in aliases):
+        if any(_alias_in_text(a, value_lower) for a in aliases):
             for opt in options:
-                if any(a in opt.lower() for a in aliases):
+                if any(_alias_in_text(a, opt.lower()) for a in aliases):
                     return opt
     return options[0]
 
@@ -549,8 +562,15 @@ async def _reliable_fill(page: Page, element, value: str) -> None:
 
 
 async def _handle_autocomplete(page: Page, inp, value: str) -> bool:
-    """After filling a text field, detect and select from any autocomplete dropdown."""
-    await asyncio.sleep(0.6)
+    """After filling a text field, detect and select from any autocomplete dropdown.
+
+    Some autocompletes (e.g. Greenhouse's Google-Places-backed react-select
+    location field) fetch suggestions asynchronously and can take 2-3s to
+    populate real results — a single short sleep only ever sees a
+    "Loading..." placeholder (verified live: this caused the field to be
+    typed into correctly but never actually selected, so validation kept
+    failing on every retry). Poll for real results instead of one fixed wait.
+    """
     suggestion_selectors = [
         "[role='listbox'] [role='option']",
         "[role='listbox'] li",
@@ -559,27 +579,48 @@ async def _handle_autocomplete(page: Page, inp, value: str) -> bool:
         "ul.typeahead-list li",
         "[data-test-autocomplete-result]",
         ".autocomplete__results li",
+        "[id*='-option-']",
+        "[class*='select__option']",
     ]
-    for sel in suggestion_selectors:
-        try:
-            suggestions = page.locator(sel)
-            count = await suggestions.count()
-            if count > 0:
-                value_lower = value.lower()
-                best = None
+    value_lower = value.lower()
+
+    def _usable(txt: str) -> bool:
+        return bool(txt) and txt.strip().lower() not in ("loading...", "loading", "no options")
+
+    for _attempt in range(12):  # ~6s total — Google-Places-backed lookups have variable latency
+        await asyncio.sleep(0.5)
+        for sel in suggestion_selectors:
+            try:
+                suggestions = page.locator(sel)
+                count = await suggestions.count()
+                if not count:
+                    continue
+                # A broad selector like "[role=listbox] [role=option]" can
+                # also match a completely unrelated hidden widget on the
+                # same page (verified live: a phone country-code list with
+                # 250+ hidden entries) — text alone isn't enough evidence,
+                # require the option to actually be visible.
+                texts: dict[int, str] = {}
                 for i in range(min(count, 8)):
-                    txt = (await suggestions.nth(i).text_content() or "").strip()
-                    if value_lower in txt.lower() or txt.lower() in value_lower:
-                        best = suggestions.nth(i)
-                        break
-                target = best or suggestions.first
+                    cand = suggestions.nth(i)
+                    if not await cand.is_visible():
+                        continue
+                    texts[i] = (await cand.text_content() or "").strip()
+                if not any(_usable(t) for t in texts.values()):
+                    continue  # only hidden matches, or just a "Loading..." placeholder so far
+                best_idx = next(
+                    (i for i, t in texts.items()
+                     if _usable(t) and (value_lower in t.lower() or t.lower() in value_lower)),
+                    next(i for i, t in texts.items() if _usable(t))
+                )
+                target = suggestions.nth(best_idx)
                 await target.click()
                 await asyncio.sleep(0.4)
                 _emit("apply_step", {"url": "", "step":
                     f"  ✎ Autocomplete selected: '{(await target.text_content() or '').strip()[:50]}'"})
                 return True
-        except Exception:
-            continue
+            except Exception:
+                continue
     return False
 
 

@@ -104,6 +104,230 @@ def test_auto_execute_fires_at_threshold(temp_db):
         mock_exec.move.assert_called_once_with(staging_id, move_source="auto")
 
 
+def test_is_job_related_true_for_recruiting_domain(temp_db):
+    from tracking.email_processor import _is_job_related
+    assert _is_job_related("notifications@smartrecruiters.com", "Application Update")
+
+
+def test_is_job_related_true_for_subject_keyword(temp_db):
+    from tracking.email_processor import _is_job_related
+    assert _is_job_related("f.behboudi7@gmail.com",
+                            "Fwd: [Please Confirm] Google Meet Interview")
+
+
+def test_is_job_related_false_for_unrelated_email(temp_db):
+    from tracking.email_processor import _is_job_related
+    assert not _is_job_related("no-reply@azure.com", "Welcome to your Azure pay-as-you-go account")
+    assert not _is_job_related("play@draftfantasy.com", "New players have been added to the game!")
+
+
+def test_is_job_related_true_for_keyword_in_sender_local_part(temp_db):
+    # Regression: "bewerben" (German "to apply") sits in the local part of the
+    # address, not the domain (lu.ch) — must not be dropped by a domain-only check.
+    from tracking.email_processor import _is_job_related
+    assert _is_job_related("noreply.bewerben@lu.ch",
+                            "Eingangsbestätigung Senior Full Stack Developer (a)")
+
+
+def test_is_job_related_true_for_german_verb_form(temp_db):
+    # "bewerben"/"beworben" (verb forms) must match, not just "bewerbung"/"bewerber" (nouns).
+    from tracking.email_processor import _is_job_related
+    assert _is_job_related("hr@example.com", "Vielen Dank, dass Sie sich bei uns beworben haben")
+
+
+def _make_routing_mock_client(routes: dict):
+    """routes: {substring-of-system-prompt: response-dict}. Picks a response
+    based on which system prompt the call used, so classify vs extraction
+    calls in the same test get different canned answers."""
+    client = MagicMock()
+
+    def _create(**kwargs):
+        system = kwargs.get("system", "")
+        for marker, payload in routes.items():
+            if marker in system:
+                resp = MagicMock()
+                resp.content = [MagicMock()]
+                resp.content[0].text = json.dumps(payload)
+                return resp
+        raise AssertionError(f"No route matched system prompt: {system!r}")
+
+    client.messages.create.side_effect = _create
+    return client
+
+
+def test_maybe_create_application_creates_new_app(temp_db, monkeypatch):
+    from tracking import email_processor
+    monkeypatch.setattr(email_processor, "db", temp_db)
+
+    client = _make_routing_mock_client({
+        "extract the company and job title": {"company": "Acme", "title": "Backend Engineer"},
+    })
+    msg = {"received_date": "2026-08-20T10:00:00Z"}
+
+    app_id = email_processor._maybe_create_application(
+        client, msg, "Your application to Acme", "We received your application", confidence=85,
+    )
+
+    assert app_id is not None
+    row = temp_db.get_application_by_id(app_id)
+    assert row["company"] == "Acme"
+    assert row["role"] == "Backend Engineer"
+    assert row["status"] == "In Review"
+    assert row["date_applied"] == "2026-08-20"
+
+
+def test_maybe_create_application_skips_below_confidence_floor(temp_db, monkeypatch):
+    from tracking import email_processor
+    monkeypatch.setattr(email_processor, "db", temp_db)
+    client = MagicMock()
+
+    app_id = email_processor._maybe_create_application(
+        client, {"received_date": "2026-08-20"}, "subj", "body", confidence=50,
+    )
+
+    assert app_id is None
+    client.messages.create.assert_not_called()  # never even tried extraction
+
+
+def test_maybe_create_application_skips_when_company_unclear(temp_db, monkeypatch):
+    from tracking import email_processor
+    monkeypatch.setattr(email_processor, "db", temp_db)
+
+    client = _make_routing_mock_client({
+        "extract the company and job title": {"company": "", "title": ""},
+    })
+
+    app_id = email_processor._maybe_create_application(
+        client, {"received_date": "2026-08-20"}, "subj", "body", confidence=95,
+    )
+
+    assert app_id is None
+
+
+def test_run_creates_application_from_unmatched_in_review_email(temp_db, monkeypatch):
+    from tracking import email_processor
+
+    monkeypatch.setattr(email_processor, "db", temp_db)
+
+    messages = [
+        {"email_uid": "1", "email_message_id": "<confirm@test.com>",
+         "sender": "noreply@newco.com", "subject": "Your application to NewCo received",
+         "body_preview": "Thanks for applying to NewCo for the Backend Engineer role.",
+         "received_date": "2026-08-27", "source_folder": "Inbox"},
+    ]
+    monkeypatch.setattr(
+        email_processor.ms_graph, "get_messages",
+        lambda folder, max_messages=200: messages if folder == "Inbox" else [],
+    )
+    monkeypatch.setattr(email_processor.email_executor, "move", MagicMock())
+
+    client = _make_routing_mock_client({
+        "You classify job-application-related emails": {
+            "category": "In Review", "confidence": 92, "reason": "application received",
+        },
+        "extract the company and job title": {"company": "NewCo", "title": "Backend Engineer"},
+    })
+    monkeypatch.setattr(email_processor.anthropic, "Anthropic", lambda api_key=None: client)
+
+    email_processor.run({})
+
+    companies = [c["company"] for c in temp_db.get_application_companies()]
+    assert "NewCo" in companies
+
+    pending = temp_db.get_pending_emails()
+    assert len(pending) == 1
+    assert pending[0]["matched_app_id"] is not None
+    assert pending[0]["company"] == "NewCo"
+
+
+def test_run_does_not_duplicate_application_when_match_is_ambiguous(temp_db, monkeypatch):
+    # Regression: two existing "Vesterling AG" rows (e.g. an old rejected one plus
+    # a fresh one from the applier) make _link_to_application report "ambiguous"
+    # (matched_app_id=None, same as a true non-match) — a confirmation email for
+    # that company must NOT spawn a third row just because matched_app_id is None.
+    from tracking import email_processor
+
+    monkeypatch.setattr(email_processor, "db", temp_db)
+
+    temp_db.log_application(
+        {"company": "Vesterling AG", "title": "Java Dev"}, status="Rejected",
+    )
+    temp_db.log_application(
+        {"company": "Vesterling AG", "title": "Requirements Engineer",
+         "url": "https://linkedin.com/jobs/view/1"},
+        status="Applied",
+    )
+
+    messages = [
+        {"email_uid": "1", "email_message_id": "<confirm@test.com>",
+         "sender": "Welcome@Vesterling.com",
+         "subject": "Ihre Onlinebewerbung bei Vesterling - Eingangsbestätigung",
+         "body_preview": "Vielen Dank fuer Ihre Bewerbung bei Vesterling.",
+         "received_date": "2026-08-29", "source_folder": "Inbox"},
+    ]
+    monkeypatch.setattr(
+        email_processor.ms_graph, "get_messages",
+        lambda folder, max_messages=200: messages if folder == "Inbox" else [],
+    )
+    monkeypatch.setattr(email_processor.email_executor, "move", MagicMock())
+
+    client = _make_routing_mock_client({
+        "You classify job-application-related emails": {
+            "category": "In Review", "confidence": 97, "reason": "application received",
+        },
+        "extract the company and job title": {"company": "Vesterling", "title": "Requirements Engineer"},
+    })
+    monkeypatch.setattr(email_processor.anthropic, "Anthropic", lambda api_key=None: client)
+
+    email_processor.run({})
+
+    companies = [c["company"] for c in temp_db.get_application_companies()]
+    assert companies.count("Vesterling AG") == 2  # still just the original two, no third row
+
+
+def test_is_recommendation_digest(temp_db):
+    from tracking.email_processor import _is_recommendation_digest
+    assert _is_recommendation_digest("info@jobagent.stepstone.de")
+    assert _is_recommendation_digest("dlrdeutsch-jobnotification@noreply12.jobs2web.com")
+    assert not _is_recommendation_digest("notifications@smartrecruiters.com")
+
+
+def test_run_skips_unmatched_non_job_email(temp_db, monkeypatch):
+    from tracking import email_processor
+
+    monkeypatch.setattr(email_processor, "db", temp_db)
+
+    temp_db.log_application(
+        {"company": "Acme Corp", "title": "SWE", "url": "https://acme.com/j/1"},
+        status="Applied",
+    )
+
+    messages = [
+        {"email_uid": "1", "email_message_id": "<noise@test.com>",
+         "sender": "no-reply@azure.com", "subject": "Welcome to your Azure account",
+         "body_preview": "", "received_date": "2026-08-27", "source_folder": "Inbox"},
+        {"email_uid": "2", "email_message_id": "<signal@test.com>",
+         "sender": "hr@acme.com", "subject": "Your application at Acme Corp",
+         "body_preview": "Unfortunately we will not move forward.",
+         "received_date": "2026-08-27", "source_folder": "Inbox"},
+    ]
+    monkeypatch.setattr(
+        email_processor.ms_graph, "get_messages",
+        lambda folder, max_messages=200: messages if folder == "Inbox" else [],
+    )
+    monkeypatch.setattr(email_processor.email_executor, "move", MagicMock())
+
+    mock_client = _make_mock_client("Rejected", 92, "rejection language")
+    monkeypatch.setattr(email_processor.anthropic, "Anthropic", lambda api_key=None: mock_client)
+
+    email_processor.run({})
+
+    staged_subjects = {r["subject"] for r in temp_db.get_pending_emails()}
+    assert "Your application at Acme Corp" in staged_subjects       # matched -> classified & staged
+    assert "Welcome to your Azure account" not in staged_subjects   # unmatched, no job signal -> skipped
+    assert mock_client.messages.create.call_count == 1  # only the matched email hit Claude
+
+
 def test_auto_execute_skips_below_threshold(temp_db):
     from tracking import email_processor
     staging_id = temp_db.stage_email({

@@ -422,6 +422,78 @@
       "resume_used": "resume_en.pdf",
       "timestamp": "2026-06-09T10:16:25.005160Z",
       "status": "pending_confirmation"
+    },
+    {
+      "company": "Unknown",
+      "title": "Unknown",
+      "url": "https://www.linkedin.com/jobs/view/4453426701",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume.docx",
+      "timestamp": "2026-08-26T15:29:31.337192Z",
+      "status": "pending_confirmation"
+    },
+    {
+      "company": "",
+      "title": "",
+      "url": "https://www.linkedin.com/jobs/view/4459181179",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume.docx",
+      "timestamp": "2026-08-26T15:36:19.680118Z",
+      "status": "pending_confirmation"
+    },
+    {
+      "company": "",
+      "title": "",
+      "url": "https://www.linkedin.com/jobs/view/4450868823",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume.docx",
+      "timestamp": "2026-08-26T15:38:46.112579Z",
+      "status": "pending_confirmation"
+    },
+    {
+      "company": "",
+      "title": "",
+      "url": "https://www.linkedin.com/jobs/view/4449856453",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume.docx",
+      "timestamp": "2026-08-26T15:47:30.294795Z",
+      "status": "pending_confirmation"
+    },
+    {
+      "company": "",
+      "title": "",
+      "url": "https://www.linkedin.com/jobs/view/4456877908",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume.docx",
+      "timestamp": "2026-08-26T15:49:10.733498Z",
+      "status": "pending_confirmation"
+    },
+    {
+      "company": "",
+      "title": "",
+      "url": "https://www.linkedin.com/jobs/view/4444522170",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume.docx",
+      "timestamp": "2026-08-26T15:58:54.651845Z",
+      "status": "pending_confirmation"
+    },
+    {
+      "company": "",
+      "title": "",
+      "url": "https://www.linkedin.com/jobs/view/4363958796",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume.docx",
+      "timestamp": "2026-08-26T17:19:09.330282Z",
+      "status": "pending_confirmation"
+    },
+    {
+      "company": "Nameless Ventures",
+      "title": "Forward Deployed Engineer **RELOCATION TO DUBAI**",
+      "url": "https://www.linkedin.com/jobs/view/4459811020/",
+      "apply_type": "Easy Apply",
+      "resume_used": "resume.docx",
+      "timestamp": "2026-08-27T19:23:23.469580Z",
+      "status": "pending_confirmation"
     }
   ]
 }
