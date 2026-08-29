@@ -8,6 +8,7 @@ __pycache__/
 *.log
 .idea/
 *.db-wal
+*.db-shm
 graphify-out/
 
 # personal / sensitive uploads
@@ -23,7 +24,9 @@ uploads/scraped_jobs.json
 uploads/backups/
 uploads/history/
 uploads/debug_*.png
+uploads/_debug_*.png
 uploads/step_*.png
+uploads/.stop_scraping
 uploads/_import_tmp.xlsx
 uploads/.fuse_hidden*
 

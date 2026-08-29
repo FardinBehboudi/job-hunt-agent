@@ -23,7 +23,19 @@
       "PowerShell(head -5)",
       "PowerShell(Get-Process python)",
       "PowerShell(Stop-Process -Force 2>$null)",
-      "Bash(git restore *)"
+      "Bash(git restore *)",
+      "Bash(netstat -ano)",
+      "Bash(findstr :5000)",
+      "Bash(taskkill //PID 22656 //F)",
+      "Bash(findstr LISTENING)",
+      "Bash(tasklist)",
+      "Bash(findstr python *)",
+      "Bash(node --check /tmp/dashboard_inline.js)",
+      "Bash(curl -s http://localhost:5000/ -o /tmp/page.html -w \"%{http_code}\\\\n\")",
+      "Read(//tmp/**)",
+      "Bash(python3 -c ' *)",
+      "Bash(node --check /tmp/served.js)",
+      "Bash(sed -n '2954,9335p' /tmp/page.html > /tmp/served.js *)"
     ]
   },
   "enabledPlugins": {

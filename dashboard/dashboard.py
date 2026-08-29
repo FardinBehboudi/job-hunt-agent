@@ -215,7 +215,7 @@ header h1 { font-size: 1.45rem; font-weight: 700; color: #f8fafc; letter-spacing
 
 /* ── Summary cards ── */
 
-.cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
+.cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px; }
 
 @media (max-width: 900px) { .cards { grid-template-columns: repeat(3, 1fr); } }
 
@@ -234,6 +234,8 @@ header h1 { font-size: 1.45rem; font-weight: 700; color: #f8fafc; letter-spacing
 .c-rejected  .n { color: #f87171; }
 
 .c-offer     .n { color: #fbbf24; }
+
+.c-archive   .n { color: #a78bfa; }
 
 
 
@@ -1475,9 +1477,13 @@ td { padding: 10px 14px; vertical-align: middle; }
 
       <div class="card c-offer"             data-sub="offers"     onclick="showSubTab('offers')"     title="Offers" style="cursor:pointer"><div class="n" id="s-offers">—</div><div class="lbl">Offers</div></div>
 
+      <div class="card c-archive"           data-sub="archive"    onclick="showSubTab('archive')"    title="Archived applications" style="cursor:pointer"><div class="n" id="s-archive">—</div><div class="lbl">Archive</div></div>
+
     </div>
 
-    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:14px;">
+
+      <button class="btn-link" onclick="startNewRound()" id="new-round-btn">&#128451; Start New Round</button>
 
       <a class="btn-link" href="/api/download/tracker" id="dl-btn">&#11015; Download Tracker</a>
 
@@ -1596,6 +1602,10 @@ td { padding: 10px 14px; vertical-align: middle; }
 
     <div id="sub-offers"     class="sub-content hidden"></div>
 
+    <div id="sub-archive"    class="sub-content hidden">
+      <div id="archive-content"><div class="empty-state"><div class="icon">&#128451;</div><div>Loading…</div></div></div>
+    </div>
+
 
 
   </div><!-- /tab-dashboard -->
@@ -1666,7 +1676,13 @@ td { padding: 10px 14px; vertical-align: middle; }
 
           <span class="panel-title" style="font-size:0.85rem;color:#8b949e;">Step 1 — Scrape</span>
 
-          <button id="btn-scrape" class="btn-primary btn-sm" onclick="startScrape()">&#128270; Start Scraping</button>
+          <div style="display:flex;gap:8px;">
+            <button id="btn-load-all" class="btn-sm" onclick="loadAllSavedJobs()"
+                    title="Show every saved job in the database instead of scraping LinkedIn again — useful for jobs that were scraped but never matched.">
+              &#128193; Show All Saved Jobs
+            </button>
+            <button id="btn-scrape" class="btn-primary btn-sm" onclick="startScrape()">&#128270; Start Scraping</button>
+          </div>
 
         </div>
 
@@ -1690,10 +1706,14 @@ td { padding: 10px 14px; vertical-align: middle; }
 
           <div style="margin-top:20px;padding-top:16px;border-top:1px solid #21262d;">
             <label style="display:block;font-weight:600;color:#e2e8f0;font-size:0.84rem;margin-bottom:8px;">Add Jobs Manually</label>
-            <p style="color:#8b949e;font-size:0.79rem;margin-bottom:8px;">Paste job URLs below (one per line) to extract details and add to review.</p>
-            <textarea id="manual-urls-input" placeholder="Paste URLs here..." style="width:100%;height:100px;padding:10px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#e2e8f0;font-family:monospace;font-size:0.82rem;resize:vertical;"></textarea>
-            <div style="margin-top:8px;display:flex;gap:8px;">
-              <button class="btn-primary btn-sm" onclick="addJobsManually(this)">Add to Review</button>
+            <p style="color:#8b949e;font-size:0.79rem;margin-bottom:8px;">Paste a job URL and add it to the list below, one at a time.</p>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="manual-url-input" placeholder="Paste a job URL..." onkeydown="if(event.key==='Enter'){event.preventDefault();addManualUrl();}" style="flex:1;padding:8px 10px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#e2e8f0;font-family:monospace;font-size:0.82rem;">
+              <button class="btn-primary btn-sm" onclick="addManualUrl()">Add</button>
+            </div>
+            <div id="manual-url-list" style="margin-top:8px;"></div>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+              <button id="btn-review-manual" class="btn-primary btn-sm" onclick="reviewManualJobs()" disabled>Review Manually Added Jobs (0)</button>
               <span id="manual-status" style="display:inline-flex;align-items:center;font-size:0.78rem;color:#64748b;"></span>
             </div>
           </div>
@@ -1791,6 +1811,11 @@ td { padding: 10px 14px; vertical-align: middle; }
 
           <div style="display:flex;align-items:center;gap:8px;">
 
+            <button id="btn-load-scored" class="btn-sm" onclick="loadScoredJobs()"
+                    title="Show every job already scored in a past run — the matcher only scores unscored jobs, so this is the only way to see the full scored history again.">
+              &#128203; Show Already Matched
+            </button>
+
             <button id="btn-match" class="btn-primary btn-sm" onclick="startMatch()">&#129302; Run Matching</button>
 
             <button class="btn-primary btn-sm" id="btn-goto-select-top" onclick="goToSelect()" disabled
@@ -1873,11 +1898,13 @@ td { padding: 10px 14px; vertical-align: middle; }
 
                 <tr>
 
-                  <th style="width:32%;">Title</th>
+                  <th style="width:28%;">Title</th>
 
-                  <th style="width:18%;">Company</th>
+                  <th style="width:16%;">Company</th>
 
-                  <th style="width:13%;">Location</th>
+                  <th style="width:12%;">Location</th>
+
+                  <th style="width:80px;">Posted</th>
 
                   <th style="width:68px;">Score</th>
 
@@ -1949,6 +1976,29 @@ td { padding: 10px 14px; vertical-align: middle; }
 
           </select>
 
+          <label style="display:flex;align-items:center;gap:5px;font-size:0.82rem;font-weight:600;color:#8b949e;cursor:pointer;">
+            <input id="match-easy-apply-only" type="checkbox" onchange="filterMatchedJobs()">
+            ⚡ Easy Apply only
+          </label>
+
+          <label style="font-size:0.82rem;font-weight:600;color:#8b949e;">Posted</label>
+
+          <select id="match-posted-filter" onchange="filterMatchedJobs()"
+                  style="padding:4px 8px;border:1px solid #30363d;border-radius:6px;font-size:0.84rem;background:#0d1117;color:#e2e8f0;">
+            <option value="">Any time</option>
+            <option value="1">Last 24 hours</option>
+            <option value="7">Last week</option>
+            <option value="14">Last 2 weeks</option>
+            <option value="30">Last month</option>
+          </select>
+
+          <label style="font-size:0.82rem;font-weight:600;color:#8b949e;">Location</label>
+
+          <select id="match-location-filter" onchange="filterMatchedJobs()"
+                  style="padding:4px 8px;border:1px solid #30363d;border-radius:6px;font-size:0.84rem;background:#0d1117;color:#e2e8f0;max-width:180px;">
+            <option value="">All locations</option>
+          </select>
+
           <button class="btn-sm btn-primary" onclick="refilterMatchedJobs()">Re-filter</button>
 
           <button class="btn-sm" onclick="openAuditModal()" style="margin-left:4px;">&#128202; Audit</button>
@@ -1987,7 +2037,7 @@ td { padding: 10px 14px; vertical-align: middle; }
 
                   <th class="cb-col"><input type="checkbox" id="matched-select-all" onchange="toggleSelectAll(this)"></th>
 
-                  <th>Title</th><th>Company</th><th>Location</th>
+                  <th>Title</th><th>Company</th><th>Location</th><th>Posted</th>
 
                   <th>Match %</th><th>Chance</th>
                   <th title="Generate an AI-tailored resume for this job before applying">Tailor Resume</th>
@@ -3440,6 +3490,8 @@ function showSubTab(name) {
 
   if (name === 'overview') fetchOverview();
 
+  if (name === 'archive') fetchArchive();
+
 }
 
 
@@ -3560,7 +3612,7 @@ function archiveLink(path) {
 
   if (!path) return '';
 
-  const url = 'file:///' + path.replace(/\\\\/g, '/').replace(/^\\//,'');
+  const url = 'file:///' + path.replace(/\\\\/g, '/').replace(/^\//, '');
 
   return '<a href="' + esc(url) + '" target="_blank">&#128193; open</a>';
 
@@ -3622,6 +3674,8 @@ function buildTableSection(tabKey, rows) {
             <th onclick="sortTable('${tabKey}','status')"           data-col="status">            Status <span class="arr">↕</span></th>
 
             ${isIV ? '' : '<th>Archive</th>'}
+
+            ${isIV ? '' : '<th></th>'}
 
             ${isIV ? `<th onclick="sortTable('interviews','_iv_date')" data-col="_iv_date">Interview Date<span class="arr">↕</span></th><th>Type</th><th>Time</th><th>Notes</th><th></th>` : ''}
 
@@ -3789,6 +3843,8 @@ function renderTable(tabKey) {
 
       + '<td class="td-archive">' + archiveLink(j.archive_path) + '</td>'
 
+      + `<td><button class="btn-sm" style="background:#7f1d1d;color:#fca5a5;border-color:#991b1b;" onclick="deleteApplication(${j.id},'${esc(j.company||'')}')" title="Delete this application entry">&#128465;</button></td>`
+
       + '</tr>';
 
   }).join('');
@@ -3866,6 +3922,8 @@ async function fetchDashboard() {
     fetchManualInterviews();
 
     fetchManualTasks();
+
+    fetchArchive();
 
   } catch (err) {
 
@@ -4586,6 +4644,21 @@ async function restartPipeline() {
   if (startBtn) startBtn.style.display = '';
   if (stopBtn)  stopBtn.style.display  = 'none';
 
+  // Clear the in-memory job listings for every step so the wizard shows an
+  // empty working set to start with. This does NOT touch the database —
+  // scraped/matched jobs there are untouched and will reappear on demand.
+  _scrapedJobs = []; _scrapedFiltered = [];
+  _matchedJobs = []; _matchedFiltered = [];
+  _step3Jobs = []; aboveThresholdIds = [];
+  _dismissedJobIds = new Set();
+  _step2LimitIds = [];
+  renderScrapedTable();
+  renderStep3Table();
+  renderMatchedTable();
+
+  _highestStepReached = 1;
+  _stepAvail = {step1:true, step2:false, step3:false, step4:false, step5:false};
+
   setWizardStep(1);
   showToast('Pipeline reset — ready for a fresh run.');
 
@@ -4747,39 +4820,81 @@ function _fmtDate(ts) {
 
 
 
-function addJobsManually(btn) {
-  const textarea = document.getElementById('manual-urls-input');
-  const urls = textarea.value.trim().split('\n').filter(u => u.trim());
-  const statusEl = document.getElementById('manual-status');
+let _manualUrls = [];
 
-  if (urls.length === 0) {
-    showToast('Please paste at least one URL', 'error');
+function addManualUrl() {
+  const input = document.getElementById('manual-url-input');
+  const url = input.value.trim();
+  if (!url) return;
+  if (_manualUrls.includes(url)) {
+    showToast('That URL is already in the list', 'error');
     return;
   }
+  _manualUrls.push(url);
+  input.value = '';
+  input.focus();
+  renderManualUrlList();
+}
+
+function removeManualUrl(idx) {
+  _manualUrls.splice(idx, 1);
+  renderManualUrlList();
+}
+
+function renderManualUrlList() {
+  const listEl = document.getElementById('manual-url-list');
+  const btn = document.getElementById('btn-review-manual');
+  btn.textContent = 'Review Manually Added Jobs (' + _manualUrls.length + ')';
+  btn.disabled = _manualUrls.length === 0;
+  if (!_manualUrls.length) {
+    listEl.innerHTML = '';
+    return;
+  }
+  listEl.innerHTML = _manualUrls.map((u, i) =>
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 10px;background:#0d1117;border:1px solid #21262d;border-radius:6px;margin-bottom:5px;">' +
+    '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:0.78rem;color:#8b949e;">' + esc(u) + '</span>' +
+    '<button onclick="removeManualUrl(' + i + ')" style="background:none;border:none;color:#f85149;cursor:pointer;font-size:1rem;line-height:1;margin-left:8px;padding:0 4px;">&times;</button>' +
+    '</div>'
+  ).join('');
+}
+
+async function reviewManualJobs() {
+  if (!_manualUrls.length) return;
+  const btn = document.getElementById('btn-review-manual');
+  const statusEl = document.getElementById('manual-status');
+  const urls = _manualUrls.slice();
 
   btn.disabled = true;
-  btn.innerHTML = 'Processing...';
+  btn.textContent = 'Extracting job details...';
   statusEl.innerHTML = '';
 
-  fetch('/api/scrapped_jobs/add_manual', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({urls: urls})
-  }).then(r => r.json()).then(d => {
+  try {
+    const r = await fetch('/api/scrapped_jobs/add_manual', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({urls: urls})
+    });
+    const d = await r.json();
     if (d.error) throw new Error(d.error);
+
     showToast('Added ' + d.added + ' job(s) to review', 'success');
-    textarea.value = '';
     if (d.failed > 0) {
       statusEl.innerHTML = 'Warning: ' + d.failed + ' URL(s) failed';
     }
+
+    _manualUrls = [];
+    renderManualUrlList();
     _startPoll();
-    btn.disabled = false;
-    btn.innerHTML = 'Add to Review';
-  }).catch(err => {
+
+    await _refreshStepAvail();
+    setWizardStep(2);
+    await loadScrapedJobs();
+  } catch (err) {
     showToast(err.message, 'error');
-    btn.disabled = false;
-    btn.innerHTML = 'Add to Review';
-  });
+  } finally {
+    btn.disabled = _manualUrls.length === 0;
+    btn.textContent = 'Review Manually Added Jobs (' + _manualUrls.length + ')';
+  }
 }
 
 
@@ -9281,6 +9396,26 @@ async function rejectInterview(appId) {
 
 }
 
+async function deleteApplication(appId, company) {
+
+  if (!await showConfirm('Delete the application entry for "' + (company || 'this row') + '"? This cannot be undone.')) return;
+
+  try {
+
+    const r = await fetch('/api/applications/' + appId + '/delete', {method: 'POST'});
+
+    const d = await r.json();
+
+    if (!d.ok) throw new Error(d.error || 'Delete failed');
+
+    showToast('Application deleted');
+
+    await fetchDashboard();
+
+  } catch (err) { showToast(err.message, 'error'); }
+
+}
+
 
 
 // ── Manual Tasks ──────────────────────────────────────────────────────────────
@@ -9469,6 +9604,84 @@ fetchDashboard();
 
 setInterval(fetchDashboard, 60000);
 
+
+
+// ── Archive ────────────────────────────────────────────────────────────────
+
+async function fetchArchive() {
+  try {
+    const r = await fetch('/api/archive');
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    document.getElementById('s-archive').textContent = d.total ?? '—';
+    renderArchive(d);
+  } catch (err) {
+    console.error('Archive fetch error:', err.message);
+  }
+}
+
+function renderArchive(d) {
+  const mount = document.getElementById('archive-content');
+  const rounds = d.rounds || [];
+  if (!rounds.length) {
+    mount.innerHTML = '<div class="empty-state"><div class="icon">&#128451;</div><div>No archived rounds yet.</div></div>';
+    return;
+  }
+  mount.innerHTML = rounds.map((rnd, idx) => {
+    const rows = rnd.applications.map(j => {
+      const roleCell = j.job_url
+        ? '<a href="' + esc(j.job_url) + '" target="_blank" rel="noopener">' + esc(j.role || '(no title)') + '</a>'
+        : '<span>' + esc(j.role || '—') + '</span>';
+      const sc2 = j.match_pct;
+      const scoreTxt = sc2 != null ? sc2 + '%' : '—';
+      return '<tr>'
+        + '<td class="td-date">' + esc(_normDate(j.date_applied)) + '</td>'
+        + '<td class="td-company">' + esc(j.company || '') + '</td>'
+        + '<td class="td-role">' + roleCell + '</td>'
+        + '<td>' + esc(j.location || '') + '</td>'
+        + '<td class="td-score ' + (sc2 != null ? scoreClass(sc2) : 's-na') + '">' + esc(scoreTxt) + '</td>'
+        + '<td>' + statusBadge(j.status) + '</td>'
+        + '</tr>';
+    }).join('');
+    return '<div class="man-section" style="margin-bottom:16px;">'
+      + '<div class="man-hd man-hd-purple" style="cursor:pointer;" onclick="toggleArchiveRound(' + idx + ')">'
+      + '<span class="man-hd-title">&#128451; ' + esc(rnd.label) + ' <span style="opacity:0.7;font-weight:400;">(' + rnd.applications.length + ')</span></span>'
+      + '</div>'
+      + '<div id="archive-round-' + idx + '" class="table-wrap scroll-x ' + (idx === 0 ? '' : 'hidden') + '">'
+      + '<table><thead><tr><th>Date</th><th>Company</th><th>Role</th><th>Location</th><th>Match %</th><th>Status</th></tr></thead>'
+      + '<tbody>' + rows + '</tbody></table>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function toggleArchiveRound(idx) {
+  document.getElementById('archive-round-' + idx).classList.toggle('hidden');
+}
+
+async function startNewRound() {
+  const total = (_dashData && _dashData.overview && _dashData.overview.total) || 0;
+  if (!total) { showToast('Nothing to archive — dashboard is already empty.', 'error'); return; }
+  const label = prompt(
+    'Archive ' + total + ' application' + (total !== 1 ? 's' : '') + ' and start a new round?\\n\\n' +
+    'Round name (leave blank for an auto-generated one):', ''
+  );
+  if (label === null) return;
+  try {
+    const r = await fetch('/api/archive', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({round_label: label.trim()})
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    showToast('Archived ' + d.archived + ' applications into "' + d.round + '".', 'success');
+    fetchDashboard();
+  } catch (err) {
+    showToast('Archive failed: ' + err.message, 'error');
+  }
+}
+
 </script>
 
   <!-- ═══ EMAIL ADMIN TAB ═══ -->
@@ -9522,6 +9735,28 @@ def api_dashboard():
                         "Interviews": [], "Rejected": [], "import_done": False})
 
 
+
+@app.route("/api/archive", methods=["GET"])
+def api_archive_get():
+    try:
+        from dedup import db as _db
+        _db.init_db()
+        return jsonify(_db.get_archived_data())
+    except Exception as exc:
+        return jsonify({"error": str(exc), "rounds": [], "total": 0})
+
+
+@app.route("/api/archive", methods=["POST"])
+def api_archive_post():
+    try:
+        from dedup import db as _db
+        _db.init_db()
+        data = request.get_json(silent=True) or {}
+        round_label = (data.get("round_label") or "").strip()
+        result = _db.archive_all_applications(round_label)
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 
@@ -9833,6 +10068,17 @@ def api_reject_application(app_id: int):
 
         return jsonify({"error": str(exc)}), 500
 
+
+@app.route("/api/applications/<int:app_id>/delete", methods=["POST"])
+def api_delete_application(app_id: int):
+    try:
+        from dedup import db as _db
+        _db.init_db()
+        if not _db.delete_application(app_id):
+            return jsonify({"error": "Application not found"}), 404
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/import_excel", methods=["POST"])
