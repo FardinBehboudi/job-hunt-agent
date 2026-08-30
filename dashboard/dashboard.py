@@ -5790,6 +5790,16 @@ async function openAuditModal() {
 
         </div>
 
+        <div class="audit-row failed">
+
+          <div class="audit-label">&#8635; Already applied</div>
+
+          <div class="audit-n">${s.already_applied}</div>
+
+          <div class="audit-pct">${pct(s.already_applied)}</div>
+
+        </div>
+
       </div>
 
       ${_auditSection('&#10003; Passed', bd.passed, t)}
@@ -5799,6 +5809,8 @@ async function openAuditModal() {
       ${_auditSection('&#215; German too high', bd.failed_german, t)}
 
       ${_auditSection('&#215; Wrong tech stack', bd.failed_stack, t)}
+
+      ${_auditSection('&#8635; Already applied', bd.already_applied, t)}
 
     `;
 
@@ -11414,7 +11426,9 @@ def api_matcher_audit():
 
             """).fetchall()
 
-        passed, failed_score, failed_german, failed_stack = [], [], [], []
+        applied_urls = _db.get_applied_urls()
+
+        passed, failed_score, failed_german, failed_stack, already_applied = [], [], [], [], []
 
         for r in rows:
 
@@ -11424,7 +11438,11 @@ def api_matcher_audit():
 
             sc   = j.get("match_score") or 0
 
-            if "german level" in skip:
+            if j.get("url") in applied_urls:
+
+                already_applied.append(j)
+
+            elif "german level" in skip:
 
                 failed_german.append(j)
 
@@ -11440,35 +11458,39 @@ def api_matcher_audit():
 
                 failed_score.append(j)
 
-        total = len(passed) + len(failed_score) + len(failed_german) + len(failed_stack)
+        total = len(passed) + len(failed_score) + len(failed_german) + len(failed_stack) + len(already_applied)
 
         return jsonify({
 
             "summary": {
 
-                "total_scored":    total,
+                "total_scored":     total,
 
-                "min_match_score": min_score,
+                "min_match_score":  min_score,
 
-                "passed":          len(passed),
+                "passed":           len(passed),
 
-                "failed_score":    len(failed_score),
+                "failed_score":     len(failed_score),
 
-                "failed_german":   len(failed_german),
+                "failed_german":    len(failed_german),
 
-                "failed_stack":    len(failed_stack),
+                "failed_stack":     len(failed_stack),
+
+                "already_applied":  len(already_applied),
 
             },
 
             "breakdown": {
 
-                "passed":        passed,
+                "passed":          passed,
 
-                "failed_score":  failed_score,
+                "failed_score":    failed_score,
 
-                "failed_german": failed_german,
+                "failed_german":   failed_german,
 
-                "failed_stack":  failed_stack,
+                "failed_stack":    failed_stack,
+
+                "already_applied": already_applied,
 
             },
 
