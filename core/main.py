@@ -252,6 +252,12 @@ def run_match_only(cfg: dict | None = None, job_ids: list | None = None) -> list
             }
             for j in db_jobs
         ]
+    elif job_ids:
+        # Caller explicitly scoped this to specific scraped_job ids (e.g. the
+        # dashboard's Review list) — an empty result here means everything
+        # requested is already matched, not "fall back to matching whatever
+        # is in the stale legacy scraped_jobs.json snapshot instead."
+        jobs = []
     else:
         src = _UPLOADS_DIR / "scraped_jobs.json"
         if not src.exists():

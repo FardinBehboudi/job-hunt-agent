@@ -3201,6 +3201,8 @@ function initAgentTab() {
 
   prefillLinkedInCredentials();
 
+  _restoreStep2LimitIds();
+
   _initWizardFromHash();
 
   _initAutocompleteListeners();
@@ -4652,6 +4654,7 @@ async function restartPipeline() {
   _step3Jobs = []; aboveThresholdIds = [];
   _dismissedJobIds = new Set();
   _step2LimitIds = [];
+  _saveStep2LimitIds();
   renderScrapedTable();
   renderStep3Table();
   renderMatchedTable();
@@ -4806,7 +4809,55 @@ function _updateStep2Limit(val) {
 
   _step2LimitIds = _scrapedFiltered.slice(0, _step2MatchLimit).map(j => j.id).filter(Boolean);
 
+  _saveStep2LimitIds();
+
   renderScrapedTable();
+
+}
+
+
+
+// _step2LimitIds only lives in JS memory, which a page reload wipes —
+
+// but the hash can still point at #step-3 (Match) after a reload, so
+
+// "Run Matching" would silently fall back to matching every unmatched
+
+// job in the DB instead of just what Review was actually scoped to.
+
+// Persisting it means a reload restores the same scope instead of
+
+// losing it.
+
+const _STEP2_LIMIT_IDS_KEY = 'jobhunt_step2_limit_ids';
+
+function _saveStep2LimitIds() {
+
+  try {
+
+    if (_step2LimitIds.length) {
+
+      localStorage.setItem(_STEP2_LIMIT_IDS_KEY, JSON.stringify(_step2LimitIds));
+
+    } else {
+
+      localStorage.removeItem(_STEP2_LIMIT_IDS_KEY);
+
+    }
+
+  } catch (_) {}
+
+}
+
+function _restoreStep2LimitIds() {
+
+  try {
+
+    const raw = localStorage.getItem(_STEP2_LIMIT_IDS_KEY);
+
+    if (raw) _step2LimitIds = JSON.parse(raw) || [];
+
+  } catch (_) {}
 
 }
 
