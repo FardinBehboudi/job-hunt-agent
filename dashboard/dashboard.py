@@ -3201,7 +3201,7 @@ function initAgentTab() {
 
   prefillLinkedInCredentials();
 
-  _restoreStep2LimitIds();
+  _restoreReviewScope();
 
   _initWizardFromHash();
 
@@ -3315,7 +3315,11 @@ window.addEventListener('hashchange', async () => {
 
   if (n === 1 || _stepAvail[key]) {
 
-    if (n === 2) { setWizardStep(2); loadScrapedJobs(); }
+    if (n === 2) {
+      setWizardStep(2);
+      if (_scrapedJobs.length) { _updateStep2Limit(_step2MatchLimit); }
+      else { loadScrapedJobs(); }
+    }
 
     else if (n === 3) {
 
@@ -4262,7 +4266,12 @@ async function navigateToStep(n) {
 
   if (n === 2) {
 
-    await loadScrapedJobs();
+    // Re-visiting Review shouldn't silently widen scope back out to every
+    // non-applied job ever scraped — if something is already scoped (from
+    // the last add/scrape/restore), just re-render it. Only fetch fresh
+    // from the DB when there's genuinely nothing scoped yet.
+    if (_scrapedJobs.length) { _updateStep2Limit(_step2MatchLimit); }
+    else { await loadScrapedJobs(); }
 
   } else if (n === 3) {
 
@@ -4654,7 +4663,7 @@ async function restartPipeline() {
   _step3Jobs = []; aboveThresholdIds = [];
   _dismissedJobIds = new Set();
   _step2LimitIds = [];
-  _saveStep2LimitIds();
+  _saveReviewScope();
   renderScrapedTable();
   renderStep3Table();
   renderMatchedTable();
@@ -4680,6 +4689,8 @@ async function _applyScrapedJobs(jobs, opts) {
   _scrapedJobs = jobs || [];
 
   _scrapedFiltered = [..._scrapedJobs];
+
+  _saveReviewScope();
 
   if (!_scrapedJobs.length && !opts.silentEmpty) {
 
@@ -4809,39 +4820,41 @@ function _updateStep2Limit(val) {
 
   _step2LimitIds = _scrapedFiltered.slice(0, _step2MatchLimit).map(j => j.id).filter(Boolean);
 
-  _saveStep2LimitIds();
-
   renderScrapedTable();
 
 }
 
 
 
-// _step2LimitIds only lives in JS memory, which a page reload wipes —
+// Review's scope (_scrapedJobs) only lives in JS memory by default, which a
 
-// but the hash can still point at #step-3 (Match) after a reload, so
+// page reload wipes, and re-clicking the Review tab used to re-fetch every
 
-// "Run Matching" would silently fall back to matching every unmatched
+// non-applied job ever scraped instead of keeping the current scope — so
 
-// job in the DB instead of just what Review was actually scoped to.
+// older, still-unmatched jobs added in an earlier session kept silently
 
-// Persisting it means a reload restores the same scope instead of
+// getting swept back into "Run Matching" alongside whatever was just added.
 
-// losing it.
+// Persisting the actual scoped job list (not just derived ids) means a
 
-const _STEP2_LIMIT_IDS_KEY = 'jobhunt_step2_limit_ids';
+// reload, or simply re-visiting Review, restores exactly what was there
 
-function _saveStep2LimitIds() {
+// instead of expanding it back out to the full backlog.
+
+const _REVIEW_SCOPE_KEY = 'jobhunt_review_scope';
+
+function _saveReviewScope() {
 
   try {
 
-    if (_step2LimitIds.length) {
+    if (_scrapedJobs.length) {
 
-      localStorage.setItem(_STEP2_LIMIT_IDS_KEY, JSON.stringify(_step2LimitIds));
+      localStorage.setItem(_REVIEW_SCOPE_KEY, JSON.stringify(_scrapedJobs));
 
     } else {
 
-      localStorage.removeItem(_STEP2_LIMIT_IDS_KEY);
+      localStorage.removeItem(_REVIEW_SCOPE_KEY);
 
     }
 
@@ -4849,13 +4862,27 @@ function _saveStep2LimitIds() {
 
 }
 
-function _restoreStep2LimitIds() {
+function _restoreReviewScope() {
 
   try {
 
-    const raw = localStorage.getItem(_STEP2_LIMIT_IDS_KEY);
+    const raw = localStorage.getItem(_REVIEW_SCOPE_KEY);
 
-    if (raw) _step2LimitIds = JSON.parse(raw) || [];
+    if (!raw) return;
+
+    const jobs = JSON.parse(raw);
+
+    if (Array.isArray(jobs) && jobs.length) {
+
+      _scrapedJobs = jobs;
+
+      _scrapedFiltered = [...jobs];
+
+      _step2MatchLimit = jobs.length;
+
+      _updateStep2Limit(_step2MatchLimit);
+
+    }
 
   } catch (_) {}
 
