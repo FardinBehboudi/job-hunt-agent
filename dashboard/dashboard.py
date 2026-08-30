@@ -11359,9 +11359,12 @@ def api_matcher_results():
 
             """, params).fetchall()
 
-            # Fallback: if scraped_jobs was cleared, look in seen_jobs for recent scores
+            # Fallback: if scraped_jobs was cleared, look in seen_jobs for recent scores.
+            # Only when the caller asked for the full history (no ids) — an explicit,
+            # scoped request (e.g. Step 3 rendering just what's in Review) that comes
+            # back empty means "nothing to show for this scope," not "widen the query."
 
-            if not rows:
+            if not rows and not id_filter:
 
                 rows = db.execute("""
 
