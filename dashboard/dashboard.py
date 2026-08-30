@@ -4918,7 +4918,6 @@ async function reviewManualJobs() {
 
     _manualUrls = [];
     renderManualUrlList();
-    _startPoll();
 
     await _refreshStepAvail();
     setWizardStep(2);
