@@ -1706,7 +1706,7 @@ td { padding: 10px 14px; vertical-align: middle; }
 
           <div style="margin-top:20px;padding-top:16px;border-top:1px solid #21262d;">
             <label style="display:block;font-weight:600;color:#e2e8f0;font-size:0.84rem;margin-bottom:8px;">Add Jobs Manually</label>
-            <p style="color:#8b949e;font-size:0.79rem;margin-bottom:8px;">Paste a job URL and add it to the list below, one at a time.</p>
+            <p style="color:#8b949e;font-size:0.79rem;margin-bottom:8px;">Paste one job URL, or a whole list (one per line), and add it to the list below.</p>
             <div style="display:flex;gap:8px;">
               <input type="text" id="manual-url-input" placeholder="Paste a job URL..." onkeydown="if(event.key==='Enter'){event.preventDefault();addManualUrl();}" style="flex:1;padding:8px 10px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#e2e8f0;font-family:monospace;font-size:0.82rem;">
               <button class="btn-primary btn-sm" onclick="addManualUrl()">Add</button>
@@ -1812,7 +1812,7 @@ td { padding: 10px 14px; vertical-align: middle; }
           <div style="display:flex;align-items:center;gap:8px;">
 
             <button id="btn-load-scored" class="btn-sm" onclick="loadScoredJobs()"
-                    title="Show every job already scored in a past run — the matcher only scores unscored jobs, so this is the only way to see the full scored history again.">
+                    title="Show jobs in your current Review list that already have a score from a past run — without re-running the matcher.">
               &#128203; Show Already Matched
             </button>
 
@@ -3612,7 +3612,7 @@ function archiveLink(path) {
 
   if (!path) return '';
 
-  const url = 'file:///' + path.replace(/\\\\/g, '/').replace(/^\//, '');
+  const url = 'file:///' + path.replace(/\\\\/g, '/').replace(/^\\//, '');
 
   return '<a href="' + esc(url) + '" target="_blank">&#128193; open</a>';
 
@@ -4670,71 +4670,83 @@ async function restartPipeline() {
 
 
 
+async function _applyScrapedJobs(jobs, opts) {
+
+  opts = opts || {};
+
+  _scrapedJobs = jobs || [];
+
+  _scrapedFiltered = [..._scrapedJobs];
+
+  if (!_scrapedJobs.length && !opts.silentEmpty) {
+
+    showToast('Scraping finished but no jobs were saved to the database — check the agent log for errors.', 'error');
+
+  }
+
+  // Show cache breakdown stats bar
+
+  const newCount    = _scrapedJobs.filter(j => (j.cache_status||'new') === 'new').length;
+
+  const cachedCount = _scrapedJobs.filter(j => j.cache_status === 'cached').length;
+
+  document.getElementById('cs-new').textContent    = newCount;
+
+  document.getElementById('cs-cached').textContent = cachedCount;
+
+  let outsideCount = 0;
+
+  try {
+
+    const sr = await fetch('/api/cache/stats');
+
+    const s = await sr.json();
+
+    outsideCount = (s && s.outside_window) ? s.outside_window : 0;
+
+  } catch (_) {}
+
+  const outsideWrap = document.getElementById('cs-outside-wrap');
+
+  if (outsideCount > 0) {
+
+    document.getElementById('cs-outside').textContent = outsideCount;
+
+    outsideWrap.classList.remove('hidden');
+
+  } else {
+
+    outsideWrap.classList.add('hidden');
+
+  }
+
+  document.getElementById('scrape-cache-stats').classList.remove('hidden');
+
+  if (_scrapedJobs.length > 0) {
+
+    _step2MatchLimit = _scrapedJobs.length;   // default: match all
+
+    document.getElementById('step2-limit-banner').classList.remove('hidden');
+
+    document.getElementById('step2-limit-bar').classList.remove('hidden');
+
+  }
+
+  _updateStep2Limit(_step2MatchLimit);
+
+}
+
+
+
 async function loadScrapedJobs() {
 
   try {
 
-    const [r, sr] = await Promise.all([
-
-      fetch('/api/pipeline/scraped_jobs'),
-
-      fetch('/api/cache/stats'),
-
-    ]);
+    const r = await fetch('/api/pipeline/scraped_jobs');
 
     const d = await r.json();
 
-    const s = await sr.json();
-
-    _scrapedJobs = d.jobs || [];
-
-    _scrapedFiltered = [..._scrapedJobs];
-
-    if (!_scrapedJobs.length) {
-
-      showToast('Scraping finished but no jobs were saved to the database — check the agent log for errors.', 'error');
-
-    }
-
-    // Show cache breakdown stats bar
-
-    const newCount    = _scrapedJobs.filter(j => (j.cache_status||'new') === 'new').length;
-
-    const cachedCount = _scrapedJobs.filter(j => j.cache_status === 'cached').length;
-
-    document.getElementById('cs-new').textContent    = newCount;
-
-    document.getElementById('cs-cached').textContent = cachedCount;
-
-    const outsideWrap = document.getElementById('cs-outside-wrap');
-
-    const outsideCount = (s && s.outside_window) ? s.outside_window : 0;
-
-    if (outsideCount > 0) {
-
-      document.getElementById('cs-outside').textContent = outsideCount;
-
-      outsideWrap.classList.remove('hidden');
-
-    } else {
-
-      outsideWrap.classList.add('hidden');
-
-    }
-
-    document.getElementById('scrape-cache-stats').classList.remove('hidden');
-
-    if (_scrapedJobs.length > 0) {
-
-      _step2MatchLimit = _scrapedJobs.length;   // default: match all
-
-      document.getElementById('step2-limit-banner').classList.remove('hidden');
-
-      document.getElementById('step2-limit-bar').classList.remove('hidden');
-
-    }
-
-    _updateStep2Limit(_step2MatchLimit);
+    await _applyScrapedJobs(d.jobs || []);
 
   } catch (err) { showToast(err.message, 'error'); }
 
@@ -4824,16 +4836,30 @@ let _manualUrls = [];
 
 function addManualUrl() {
   const input = document.getElementById('manual-url-input');
-  const url = input.value.trim();
-  if (!url) return;
-  if (_manualUrls.includes(url)) {
-    showToast('That URL is already in the list', 'error');
-    return;
-  }
-  _manualUrls.push(url);
+  // The box is a single-line input, but a paste can still carry several
+  // URLs at once (one per line, or comma/whitespace separated) — split on
+  // any of those so pasting a list works the same as adding one at a time.
+  const raw = input.value.trim();
+  if (!raw) return;
+  const urls = raw.split(/[\\s,]+/).map(u => u.trim()).filter(Boolean);
+
+  let addedCount = 0;
+  let dupCount = 0;
+  urls.forEach(url => {
+    if (_manualUrls.includes(url)) { dupCount++; return; }
+    _manualUrls.push(url);
+    addedCount++;
+  });
+
   input.value = '';
   input.focus();
   renderManualUrlList();
+
+  if (dupCount > 0 && addedCount === 0) {
+    showToast(dupCount > 1 ? 'Those URLs are already in the list' : 'That URL is already in the list', 'error');
+  } else if (dupCount > 0) {
+    showToast('Added ' + addedCount + ' — skipped ' + dupCount + ' already in the list', 'success');
+  }
 }
 
 function removeManualUrl(idx) {
@@ -4877,7 +4903,15 @@ async function reviewManualJobs() {
     const d = await r.json();
     if (d.error) throw new Error(d.error);
 
-    showToast('Added ' + d.added + ' job(s) to review', 'success');
+    const dup = d.duplicate || 0;
+    if (d.added === 0 && dup === 0) {
+      showToast('Could not extract any of those job URLs — check they point to a real job posting.', 'error');
+      return;
+    }
+
+    let msg = 'Added ' + d.added + ' job(s) to review';
+    if (dup > 0) msg += ' (' + dup + ' already in your list)';
+    showToast(msg, 'success');
     if (d.failed > 0) {
       statusEl.innerHTML = 'Warning: ' + d.failed + ' URL(s) failed';
     }
@@ -4888,7 +4922,7 @@ async function reviewManualJobs() {
 
     await _refreshStepAvail();
     setWizardStep(2);
-    await loadScrapedJobs();
+    await _applyScrapedJobs(d.jobs || [], {silentEmpty: true});
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -5143,8 +5177,10 @@ async function startMatch() {
 
   try {
 
-    const _matchIds = (_step2LimitIds.length && _step2LimitIds.length < _scrapedJobs.length)
-      ? _step2LimitIds : null;
+    // Always scope matching to exactly what's in front of the user in Review —
+    // job_ids:null falls back to "every unmatched row in the DB", which
+    // silently pulls in stale leftovers from a prior, since-abandoned session.
+    const _matchIds = _step2LimitIds.length ? _step2LimitIds : null;
 
     const r = await fetch('/api/pipeline/match', {
       method: 'POST',
@@ -6248,13 +6284,44 @@ function renderStep3Table() {
 
 
 
+async function loadScoredJobs() {
+
+  const btn = document.getElementById('btn-load-scored');
+
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Checking…'; }
+
+  try {
+
+    await renderStep3Results();
+
+    if (!_step3Jobs.length) {
+
+      showToast('None of the jobs in your current list have been scored yet.', 'error');
+
+    }
+
+  } finally {
+
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#128203; Show Already Matched'; }
+
+  }
+
+}
+
+
+
 async function renderStep3Results() {
 
   try {
 
+    // Scope results to what's currently in Review — otherwise this pulls in
+    // every job ever scored across all past runs, including stale leftovers
+    // from a session that was reset without touching the DB.
+    const idsQuery = _step2LimitIds.length ? ('?ids=' + _step2LimitIds.join(',')) : '';
+
     const [resR, cfgR] = await Promise.all([
 
-      fetch('/api/matcher/results'),
+      fetch('/api/matcher/results' + idsQuery),
 
       fetch('/api/config'),
 
@@ -11135,7 +11202,13 @@ def api_cache_stats():
 
 def api_matcher_results():
 
-    """Return ALL scored jobs from the current run (above AND below threshold)."""
+    """Return scored jobs (above AND below threshold).
+
+    Pass ?ids=1,2,3 (scraped_job ids) to scope results to a specific set —
+    e.g. the jobs currently in Step 2 Review — instead of every job ever
+    scored across all past runs. Omit ids to get the full scored history
+    (used by the "Show Already Matched" view).
+    """
 
     try:
 
@@ -11143,7 +11216,17 @@ def api_matcher_results():
 
         _db.init_db()
 
+        ids_param = request.args.get("ids", "")
+
+        id_filter = [int(x) for x in ids_param.split(",") if x.strip().isdigit()]
+
         with _db._conn() as db:
+
+            id_clause = ""
+            params = []
+            if id_filter:
+                id_clause = " AND s.id IN (" + ",".join("?" * len(id_filter)) + ")"
+                params = id_filter
 
             rows = db.execute("""
 
@@ -11171,9 +11254,11 @@ def api_matcher_results():
 
                 )
 
+                """ + id_clause + """
+
                 ORDER BY m.match_score DESC
 
-            """).fetchall()
+            """, params).fetchall()
 
             # Fallback: if scraped_jobs was cleared, look in seen_jobs for recent scores
 
@@ -12305,22 +12390,40 @@ def api_scrapped_jobs_add_manual():
         if not urls:
             return jsonify({"error": "No URLs provided"}), 400
         added = 0
+        duplicate = 0
         failed = 0
+        seen_urls = []
         for url in urls:
             url = url.strip()
             if not url:
                 continue
             try:
                 job = scraper.extract_job_from_url(url)
-                if job:
-                    _db.add_scraped_job(job)
+                if not job:
+                    failed += 1
+                    continue
+                if _db.add_scraped_job(job):
                     added += 1
                 else:
-                    failed += 1
+                    duplicate += 1
+                seen_urls.append(url)
             except Exception as e:
                 log.warning(f"Failed to extract job from {url}: {e}")
                 failed += 1
-        return jsonify({"added": added, "failed": failed})
+
+        added_jobs = []
+        if seen_urls:
+            placeholders = ",".join("?" * len(seen_urls))
+            with _db._conn() as db:
+                rows = db.execute(
+                    "SELECT id, title, company, location, url, source,"
+                    "       posted_date, cache_status, scraped_at, has_easy_apply"
+                    " FROM scraped_jobs WHERE url IN (" + placeholders + ")",
+                    seen_urls,
+                ).fetchall()
+            added_jobs = [dict(r) for r in rows]
+
+        return jsonify({"added": added, "duplicate": duplicate, "failed": failed, "jobs": added_jobs})
     except Exception as exc:
         log.error(f"Error in add_manual: {exc}")
         return jsonify({"error": str(exc)}), 500

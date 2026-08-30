@@ -744,21 +744,32 @@ def _save_to_db(jobs: list[dict]) -> None:
         con.close()
 
 
-def extract_job_from_url(url: str) -> dict | None:
+def extract_job_from_url(url: str, max_attempts: int = 3) -> dict | None:
     """Fetch a job URL and extract title, company, location, description.
 
     Uses Playwright to load the page and JavaScript to extract common job fields.
+    Job sites occasionally serve a slow or empty page on a single attempt
+    (rate limiting, a transient block, a cold connection) — retry a few times
+    with a short backoff before giving up.
     Returns a job dict ready for DB insertion, or None if extraction fails.
     """
     import asyncio
     from playwright.async_api import async_playwright
 
-    async def _fetch_and_parse():
+    async def _fetch_once():
+        browser = None
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch()
+                # Playwright's own bundled Chromium isn't installed on this
+                # machine — the rest of the codebase always launches the
+                # user's real installed Chrome via channel="chrome" instead.
+                browser = await p.chromium.launch(channel="chrome")
                 page = await browser.new_page()
-                await page.goto(url, wait_until="networkidle", timeout=15000)
+                # networkidle times out on most real job sites (analytics/chat
+                # widgets keep the network busy indefinitely) — domcontentloaded
+                # plus a short settle delay is far more reliable here.
+                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                await page.wait_for_timeout(1500)
 
                 data = await page.evaluate("""() => {
                     const getText = (sel) => {
@@ -767,8 +778,8 @@ def extract_job_from_url(url: str) -> dict | None:
                     };
 
                     const title = getText('h1') || getText('h2') || getText('[data-job-title]') || getText('.job-title');
-                    const company = getText('[data-company]') || getText('.company-name') || getText('.employer') || getText('[data-company-name]');
-                    const location = getText('[data-location]') || getText('.location') || getText('.job-location');
+                    const company = getText('.topcard__org-name-link') || getText('[data-company]') || getText('.company-name') || getText('.employer') || getText('[data-company-name]');
+                    const location = getText('.topcard__flavor--bullet') || getText('[data-location]') || getText('.location') || getText('.job-location');
                     let description = getText('.job-description') || getText('[data-description]') || getText('.description') || getText('#job-description');
 
                     if (!description) {
@@ -784,11 +795,8 @@ def extract_job_from_url(url: str) -> dict | None:
                     };
                 }""")
 
-                await browser.close()
-
                 if not data.get("title"):
-                    log.warning(f"Could not extract title from {url}")
-                    return None
+                    raise ValueError("no title found on page")
 
                 return {
                     "url": url,
@@ -799,12 +807,26 @@ def extract_job_from_url(url: str) -> dict | None:
                     "source": "Manual",
                     "posted_date": "",
                 }
-        except Exception as e:
-            log.warning(f"Failed to extract from {url}: {e}")
-            return None
+        finally:
+            if browser:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+
+    async def _fetch_with_retries():
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return await _fetch_once()
+            except Exception as e:
+                log.warning(f"Extraction attempt {attempt}/{max_attempts} failed for {url}: {e}")
+                if attempt < max_attempts:
+                    await asyncio.sleep(2)
+        log.warning(f"Giving up on {url} after {max_attempts} attempts")
+        return None
 
     try:
-        return asyncio.run(_fetch_and_parse())
+        return asyncio.run(_fetch_with_retries())
     except Exception as e:
         log.error(f"Error extracting job from {url}: {e}")
         return None
