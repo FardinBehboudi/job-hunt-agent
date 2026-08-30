@@ -550,30 +550,7 @@ async def _score_job_match(job: dict, cfg: dict) -> dict:
 
 
 def _is_already_applied(job: dict, cfg: dict) -> bool:
-    tracker = cfg.get("tracker_file", "")
-    if not tracker or not os.path.exists(tracker):
-        return False
-    try:
-        import openpyxl
-        wb = openpyxl.load_workbook(tracker, read_only=True)
-        ws = wb.active
-        job_url     = (job.get("url") or "").strip()
-        job_company = (job.get("company") or "").lower()
-        job_title   = (job.get("title") or "").lower()
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            row_company = str(row[1] if len(row) > 1 else "").lower()
-            row_title   = str(row[2] if len(row) > 2 else "").lower()
-            row_url     = str(row[3] if len(row) > 3 else "")
-            if job_url and row_url and job_url in row_url:
-                wb.close()
-                return True
-            if job_company and job_title and job_company in row_company and job_title in row_title:
-                wb.close()
-                return True
-        wb.close()
-    except Exception as e:
-        log.warning("Dedup check failed: %s", e)
-    return False
+    return _db.is_already_applied((job.get("url") or "").strip())
 
 
 def _save_skills_gap(gap: dict[str, int], cfg: dict) -> None:

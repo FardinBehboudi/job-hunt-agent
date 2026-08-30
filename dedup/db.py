@@ -1510,15 +1510,21 @@ def get_latest_manual_session_id() -> str | None:
 
 
 def get_manual_queue(status: str = "pending", session_id: str | None = None) -> list[dict]:
+    applied_filter = (
+        " AND (job_url IS NULL OR job_url NOT IN "
+        "(SELECT job_url FROM applications WHERE job_url IS NOT NULL))"
+    )
     with _conn() as db:
         if session_id:
             rows = db.execute(
-                "SELECT * FROM manual_apply_queue WHERE status=? AND session_id=? ORDER BY created_at DESC",
+                "SELECT * FROM manual_apply_queue WHERE status=? AND session_id=?"
+                + applied_filter + " ORDER BY created_at DESC",
                 (status, session_id),
             ).fetchall()
         else:
             rows = db.execute(
-                "SELECT * FROM manual_apply_queue WHERE status=? ORDER BY created_at DESC",
+                "SELECT * FROM manual_apply_queue WHERE status=?"
+                + applied_filter + " ORDER BY created_at DESC",
                 (status,),
             ).fetchall()
     return [dict(r) for r in rows]

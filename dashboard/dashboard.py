@@ -11034,6 +11034,10 @@ def api_pipeline_scraped_jobs():
 
                 " FROM scraped_jobs"
 
+                " WHERE url IS NULL OR url NOT IN"
+
+                "   (SELECT job_url FROM applications WHERE job_url IS NOT NULL)"
+
                 " ORDER BY"
 
                 "   CASE WHEN posted_date != '' AND posted_date IS NOT NULL"
@@ -11254,6 +11258,12 @@ def api_matcher_results():
 
                 )
 
+                AND (s.url IS NULL OR s.url NOT IN (
+
+                    SELECT job_url FROM applications WHERE job_url IS NOT NULL
+
+                ))
+
                 """ + id_clause + """
 
                 ORDER BY m.match_score DESC
@@ -11281,6 +11291,12 @@ def api_matcher_results():
                       AND url NOT IN (
 
                           SELECT url FROM excluded_jobs WHERE url IS NOT NULL AND url != ''
+
+                      )
+
+                      AND url NOT IN (
+
+                          SELECT job_url FROM applications WHERE job_url IS NOT NULL
 
                       )
 
@@ -11339,6 +11355,12 @@ def api_pipeline_matched_jobs():
                     SELECT url FROM seen_jobs WHERE dismissed = 1 AND url IS NOT NULL
 
                 )
+
+                AND (s.url IS NULL OR s.url NOT IN (
+
+                    SELECT job_url FROM applications WHERE job_url IS NOT NULL
+
+                ))
 
                 ORDER BY m.match_score DESC
 
@@ -12265,6 +12287,12 @@ def api_apply_start():
 
                     WHERE s.id IN ({placeholders})
 
+                    AND (s.url IS NULL OR s.url NOT IN (
+
+                        SELECT job_url FROM applications WHERE job_url IS NOT NULL
+
+                    ))
+
                 """, list(id_set)).fetchall()
 
             jobs = [dict(r) for r in rows]
@@ -12343,13 +12371,11 @@ def api_applications_manual():
 
                 "platform":     platform,
 
-                "apply_method": "manual",
-
             }
 
             _db.log_application(job, archive_path="", status="Applied",
 
-                                apply_method="manual")
+                                apply_type="manual")
 
             if entry_id:
 
