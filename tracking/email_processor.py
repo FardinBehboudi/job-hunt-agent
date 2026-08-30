@@ -1,7 +1,7 @@
 """
 email_processor.py — fetch, classify, link, and stage recruiter emails.
 
-Run via Windows Task Scheduler every 15 minutes:
+Run manually:
     python tracking\\email_processor.py
 """
 
@@ -27,7 +27,7 @@ from tracking import ms_graph
 load_dotenv()
 log = logging.getLogger(__name__)
 
-_MODEL = "claude-sonnet-4-6"
+_MODEL = "claude-haiku-4-5-20251001"
 MONITORED_FOLDERS = ["Inbox", "Focus", "Other", "Junk Email"]
 _EVENT_CATEGORIES = {"Interview", "Code Challenge", "Next Step"}
 _AUTO_MOVE_CATEGORIES = {"Rejected", "In Review"}

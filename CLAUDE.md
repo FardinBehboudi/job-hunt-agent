@@ -14,7 +14,7 @@ Run:
 ```bash
 python core/main.py              # full pipeline: scrape -> dedup -> match -> apply
 python dashboard/dashboard.py    # Flask UI at http://localhost:5000
-python tracking/email_processor.py   # email triage only (also runs via Task Scheduler every 15 min)
+python tracking/email_processor.py   # email triage only, run manually (no scheduled trigger)
 python tracking/get_token.py     # one-time Microsoft OAuth2 device-code flow, writes MS_REFRESH_TOKEN to .env
 ```
 
